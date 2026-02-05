@@ -1,74 +1,49 @@
 # Processing Source Materials
 
-When the user shares source material (article, video transcript, podcast notes, book highlights):
+When the user shares source material (article, video, podcast) with their thoughts/reactions:
 
-## Step 1: Identify Key Concepts
+## Step 1: Extract Content
 
-Read the source material and identify concepts worth extracting as atomic notes.
+Use appropriate tool to extract content to `tmp/`:
+
+- **YouTube**: `uv run scripts/yt-subs.py <url>` → saves to `tmp/<video_id>.txt`
+- **Articles**: save text content to `tmp/<slug>.txt`
+
+Do NOT read the full content into context — it wastes tokens.
 
 ## Step 2: Create Source Note
 
-Create a source note in `sources/<type>/` (e.g., `sources/articles/`, `sources/youtube/`):
+Create source note in `sources/<type>/` using `templates/source.md`:
 
-- Use `templates/source.md` format
-- Include URL, title, summary
-- Link to extracted concept notes
+- Include `{{transcript}}` placeholder (do NOT paste content manually)
+- Fill in metadata: URL, title, type
 
-## Step 3: Create Concept Notes
+## Step 3: Inject Content
 
-Extract atomic concepts to appropriate folders:
+Run inject script to copy content from tmp to source note:
 
-- `knowledge/` for general facts
-- `ideas/` for frameworks or theories
-- `insights/` if the concept triggered personal realization
-
-**Follow atomic note principles:**
-- One concept per file
-- Use domain prefixes in names
-- Add wiki link tags at the bottom
-
-## Step 4: Connect Notes
-
-- Add backlinks from source note to concept notes
-- Update related existing notes with links to new content
-- Add MOC tags even if the MOC doesn't exist yet
-
-## Source Note Format
-
-Use the template but adapt as needed:
-
-```markdown
----
-aliases:
-  - [Source Title]
-source: [URL]
-type: [youtube | article | book | podcast]
----
-
-# [Source Title]
-
-> **Source:** [URL]
-
-## Summary
-
-[Brief summary - key points and main thesis]
-
-## Key Concepts
-
-- [[concept-one]] — brief description
-- [[concept-two]] — brief description
-
-## Transcript / Highlights
-
-[Full transcript or key highlights]
-
----
-
-[[MOC-topic]] [[tag]]
+```bash
+uv run scripts/inject-transcript.py sources/youtube/<note-name>.md
 ```
+
+This replaces `{{transcript}}` with formatted content and deletes tmp file.
+
+## Step 4: Create Notes Based on User's Reactions
+
+**Only extract notes for concepts the user commented on or reacted to.**
+
+Do NOT create notes for every idea in the source material. The user shares their thoughts for a reason — focus on what resonated with them.
+
+- `knowledge/` — if user learned a new fact
+- `insights/` — if it triggered personal realization
+- `ideas/` — if user developed a new framework from it
+
+## Step 5: Link Source to Notes
+
+Update the source note's "Key Concepts" section to link to created notes.
 
 ## Important
 
-- Connect user's personal reactions to the concepts where relevant
-- Don't just summarize — extract actionable atomic notes
-- Update existing notes with backlinks to new content
+- User's reactions guide what to extract — not the source content itself
+- Don't paste transcripts manually — use the inject script
+- Templates live in `templates/` folder
