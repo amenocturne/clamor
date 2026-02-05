@@ -34,26 +34,19 @@ These apply to `core/`, `ideas/`, `insights/`, and `knowledge/`:
 
 ## Naming Conventions
 
-Note names must be specific enough to avoid future collisions.
+Note names must be unique and unambiguous across all folders.
 
 **Bad names** (too generic):
-- `core-four.md` — could mean anything
-- `leverage-points.md` — ambiguous
+- `focus.md` — psychology focus? productivity focus?
 - `framework.md` — meaningless
+- `core-four.md` — could mean anything
 
-**Good names** (self-descriptive with domain prefix):
+**Good names** (self-descriptive):
+- `psychology-attention.md` — clear topic
 - `agentic-core-four.md` — clearly about agentic coding
-- `agentic-leverage-points.md` — domain is clear
 - `llm-meta-prompting.md` — LLM-specific technique
-- `psychology-attachment-styles.md` — domain-specific
 
-**Prefixes to use:**
-- `agentic-` for agentic coding concepts
-- `llm-` for LLM/prompt engineering patterns
-- `psychology-` or specific framework names for psych concepts
-- Domain-specific prefix when concept comes from a specific field
-
-**Rule of thumb:** If the name could reasonably appear in two different domains, add a prefix.
+**When to add prefix:** When the concept exists in multiple fields. "Focus" appears in psychology and productivity — use `psychology-focus.md` or `productivity-deep-focus.md`.
 
 ## Project Structure
 
