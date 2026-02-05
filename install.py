@@ -38,17 +38,44 @@ def load_manifest(preset: str) -> dict:
     return yaml.safe_load(manifest_path.read_text())
 
 
-def merge_settings(presets: list[str]) -> dict:
-    """Merge settings.json from all presets, combining hook arrays."""
-    merged = {"hooks": {}}
+def load_hook_config(hook_name: str, hook_dir: Path) -> dict:
+    """Load hooks.json from a hook directory and resolve {hook_dir} placeholders."""
+    hooks_json = HOOKS_DIR / hook_name / "hooks.json"
+    if not hooks_json.exists():
+        return {}
+
+    content = hooks_json.read_text().replace("{hook_dir}", str(hook_dir))
+    return json.loads(content)
+
+
+def merge_hooks(base: dict, new: dict) -> dict:
+    """Merge hook configurations, combining arrays for each hook type."""
+    for hook_type, hooks in new.items():
+        if hook_type not in base:
+            base[hook_type] = []
+        base[hook_type].extend(hooks)
+    return base
+
+
+def load_existing_settings(target: Path) -> dict:
+    """Load existing .claude/settings.json if it exists."""
+    settings_path = target / ".claude" / "settings.json"
+    if settings_path.exists():
+        return json.loads(settings_path.read_text())
+    return {"hooks": {}}
+
+
+def merge_settings(presets: list[str], target: Path) -> dict:
+    """Merge settings.json from all presets with existing settings."""
+    merged = load_existing_settings(target)
+    if "hooks" not in merged:
+        merged["hooks"] = {}
+
     for preset in presets:
         settings_path = PRESETS_DIR / preset / "settings.json"
         if settings_path.exists():
             settings = json.loads(settings_path.read_text())
-            for hook_type, hooks in settings.get("hooks", {}).items():
-                if hook_type not in merged["hooks"]:
-                    merged["hooks"][hook_type] = []
-                merged["hooks"][hook_type].extend(hooks)
+            merge_hooks(merged["hooks"], settings.get("hooks", {}))
     return merged
 
 
@@ -94,61 +121,14 @@ def install(presets: list[str], target: Path):
     target_claude = target / ".claude"
     target_claude.mkdir(parents=True, exist_ok=True)
 
-    # Merge and write settings.json
-    settings = merge_settings(presets)
+    # Merge settings from presets with existing settings
+    settings = merge_settings(presets, target)
 
-    # Add hook configurations for installed hooks
-    if "link-proxy" in components["hooks"]:
-        hooks_dir = target / "hooks" / "link-proxy"
-        settings["hooks"]["PreToolUse"] = settings["hooks"].get("PreToolUse", []) + [
-            {
-                "matcher": "Read|Write|Edit",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": f'"{hooks_dir}/hook.sh" pre-tool-use',
-                        "timeout": 10,
-                    }
-                ],
-            }
-        ]
-        settings["hooks"]["PostToolUse"] = settings["hooks"].get("PostToolUse", []) + [
-            {
-                "matcher": "Edit",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": f'"{hooks_dir}/hook.sh" post-tool-use',
-                        "timeout": 10,
-                    }
-                ],
-            }
-        ]
-        settings["hooks"]["Stop"] = settings["hooks"].get("Stop", []) + [
-            {
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": f'"{hooks_dir}/hook.sh" stop',
-                        "timeout": 5,
-                    }
-                ]
-            }
-        ]
-
-    if "notification" in components["hooks"]:
-        hooks_dir = target / "hooks" / "notification"
-        settings["hooks"]["Stop"] = settings["hooks"].get("Stop", []) + [
-            {
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": f'"{hooks_dir}/hook.py"',
-                        "timeout": 5,
-                    }
-                ]
-            }
-        ]
+    # Add hook configurations from hooks.json files
+    for hook in components["hooks"]:
+        hook_dir = target / "hooks" / hook
+        hook_config = load_hook_config(hook, hook_dir)
+        merge_hooks(settings["hooks"], hook_config)
 
     (target_claude / "settings.json").write_text(json.dumps(settings, indent=2))
     console.print("  [green]✓[/green] .claude/settings.json")
