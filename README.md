@@ -60,56 +60,6 @@ uv run install.py --list
 | `backend` | Backend development |
 | `scala` | Scala development |
 
-## Repository Structure
-
-```
-agent-kit/
-├── skills/
-│   ├── knowledge-base/
-│   │   ├── SKILL.md
-│   │   ├── AGENTS.md
-│   │   ├── metadata.json
-│   │   ├── system.md
-│   │   ├── sources.md
-│   │   ├── linking.md
-│   │   ├── saving.md
-│   │   └── templates/
-│   ├── youtube/
-│   │   ├── SKILL.md
-│   │   ├── AGENTS.md
-│   │   ├── metadata.json
-│   │   └── scripts/
-│   │       └── yt-subs.py
-│   └── spec/
-│       ├── SKILL.md
-│       ├── AGENTS.md
-│       └── metadata.json
-├── hooks/
-│   ├── link-proxy/
-│   │   ├── README.md
-│   │   ├── main.py
-│   │   ├── hook.sh
-│   │   ├── pyproject.toml
-│   │   └── domains.txt.template
-│   └── notification/
-│       ├── README.md
-│       └── hook.py
-├── pipelines/
-│   └── workspace/
-│       ├── README.md
-│       ├── generate-workspace.py
-│       └── WORKSPACE.yaml.template
-├── presets/
-│   ├── base/
-│   ├── frontend/
-│   ├── backend/
-│   └── scala/
-├── install.py
-├── justfile
-├── external.md
-└── README.md
-```
-
 ## Manual Installation
 
 If you prefer not to use presets:
