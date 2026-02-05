@@ -1,0 +1,246 @@
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pyyaml", "rich"]
+# ///
+"""
+Install agent-kit presets into a target directory.
+
+Usage:
+    uv run install.py                           # Interactive preset selection
+    uv run install.py --presets base frontend   # Specify presets directly
+    uv run install.py --list                    # List available presets
+"""
+
+import argparse
+import json
+from pathlib import Path
+
+import yaml
+from rich.console import Console
+from rich.prompt import Prompt
+
+console = Console()
+
+REPO_ROOT = Path(__file__).parent
+PRESETS_DIR = REPO_ROOT / "presets"
+SKILLS_DIR = REPO_ROOT / "skills"
+HOOKS_DIR = REPO_ROOT / "hooks"
+PIPELINES_DIR = REPO_ROOT / "pipelines"
+
+
+def load_manifest(preset: str) -> dict:
+    """Load manifest.yaml for a preset."""
+    manifest_path = PRESETS_DIR / preset / "manifest.yaml"
+    if not manifest_path.exists():
+        console.print(f"[red]Preset '{preset}' not found[/red]")
+        return {}
+    return yaml.safe_load(manifest_path.read_text())
+
+
+def merge_settings(presets: list[str]) -> dict:
+    """Merge settings.json from all presets, combining hook arrays."""
+    merged = {"hooks": {}}
+    for preset in presets:
+        settings_path = PRESETS_DIR / preset / "settings.json"
+        if settings_path.exists():
+            settings = json.loads(settings_path.read_text())
+            for hook_type, hooks in settings.get("hooks", {}).items():
+                if hook_type not in merged["hooks"]:
+                    merged["hooks"][hook_type] = []
+                merged["hooks"][hook_type].extend(hooks)
+    return merged
+
+
+def merge_claude_md(presets: list[str]) -> str:
+    """Concatenate claude.md from all presets with headers."""
+    sections = []
+    for preset in presets:
+        claude_path = PRESETS_DIR / preset / "claude.md"
+        if claude_path.exists():
+            sections.append(f"# From {preset}\n\n{claude_path.read_text()}")
+    return "\n\n".join(sections)
+
+
+def collect_components(presets: list[str]) -> dict:
+    """Collect all skills, hooks, pipelines from manifests."""
+    components = {
+        "skills": set(),
+        "hooks": set(),
+        "pipelines": set(),
+        "external": set(),
+    }
+    for preset in presets:
+        manifest = load_manifest(preset)
+        for key in components:
+            components[key].update(manifest.get(key, []))
+    return components
+
+
+def resolve_dependencies(components: dict) -> dict:
+    """Add dependencies (e.g., workspace pipeline needs link-proxy)."""
+    if "workspace" in components["pipelines"]:
+        components["hooks"].add("link-proxy")
+    return components
+
+
+def install(presets: list[str], target: Path):
+    """Main installation logic."""
+    console.print(f"[bold]Installing presets:[/bold] {', '.join(presets)}")
+
+    components = collect_components(presets)
+    components = resolve_dependencies(components)
+
+    target_claude = target / ".claude"
+    target_claude.mkdir(parents=True, exist_ok=True)
+
+    # Merge and write settings.json
+    settings = merge_settings(presets)
+
+    # Add hook configurations for installed hooks
+    if "link-proxy" in components["hooks"]:
+        hooks_dir = target / "hooks" / "link-proxy"
+        settings["hooks"]["PreToolUse"] = settings["hooks"].get("PreToolUse", []) + [
+            {
+                "matcher": "Read|Write|Edit",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": f'"{hooks_dir}/hook.sh" pre-tool-use',
+                        "timeout": 10,
+                    }
+                ],
+            }
+        ]
+        settings["hooks"]["PostToolUse"] = settings["hooks"].get("PostToolUse", []) + [
+            {
+                "matcher": "Edit",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": f'"{hooks_dir}/hook.sh" post-tool-use',
+                        "timeout": 10,
+                    }
+                ],
+            }
+        ]
+        settings["hooks"]["Stop"] = settings["hooks"].get("Stop", []) + [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": f'"{hooks_dir}/hook.sh" stop',
+                        "timeout": 5,
+                    }
+                ]
+            }
+        ]
+
+    if "notification" in components["hooks"]:
+        hooks_dir = target / "hooks" / "notification"
+        settings["hooks"]["Stop"] = settings["hooks"].get("Stop", []) + [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": f'"{hooks_dir}/hook.py"',
+                        "timeout": 5,
+                    }
+                ]
+            }
+        ]
+
+    (target_claude / "settings.json").write_text(json.dumps(settings, indent=2))
+    console.print("  [green]✓[/green] .claude/settings.json")
+
+    # Merge and write CLAUDE.md
+    claude_md = merge_claude_md(presets)
+    (target / "CLAUDE.md").write_text(claude_md)
+    console.print("  [green]✓[/green] CLAUDE.md")
+
+    # Symlink skills
+    commands_dir = target_claude / "commands"
+    commands_dir.mkdir(exist_ok=True)
+    for skill in components["skills"]:
+        src = SKILLS_DIR / skill
+        dst = commands_dir / skill
+        if src.exists() and not dst.exists():
+            dst.symlink_to(src)
+            console.print(f"  [green]✓[/green] Skill: {skill}")
+
+    # Symlink hooks
+    hooks_target = target / "hooks"
+    hooks_target.mkdir(exist_ok=True)
+    for hook in components["hooks"]:
+        src = HOOKS_DIR / hook
+        dst = hooks_target / hook
+        if src.exists() and not dst.exists():
+            dst.symlink_to(src)
+            console.print(f"  [green]✓[/green] Hook: {hook}")
+
+    # Symlink pipelines
+    pipelines_target = target / "pipelines"
+    if components["pipelines"]:
+        pipelines_target.mkdir(exist_ok=True)
+    for pipeline in components["pipelines"]:
+        src = PIPELINES_DIR / pipeline
+        dst = pipelines_target / pipeline
+        if src.exists() and not dst.exists():
+            dst.symlink_to(src)
+            console.print(f"  [green]✓[/green] Pipeline: {pipeline}")
+
+    # Print external recommendations
+    if components["external"]:
+        console.print("\n[bold]Recommended external skills:[/bold]")
+        for ext in components["external"]:
+            console.print(f"  npx skills add {ext}")
+
+    console.print("\n[bold green]Done![/bold green]")
+
+
+def list_presets():
+    """List all available presets."""
+    console.print("[bold]Available presets:[/bold]")
+    for preset in sorted(PRESETS_DIR.iterdir()):
+        if preset.is_dir():
+            manifest = load_manifest(preset.name)
+            desc = manifest.get("description", "")
+            console.print(f"  [cyan]{preset.name}[/cyan]: {desc}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Install agent-kit presets")
+    parser.add_argument("--presets", nargs="+", help="Presets to install")
+    parser.add_argument(
+        "--target", type=Path, default=Path.cwd(), help="Target directory"
+    )
+    parser.add_argument("--list", action="store_true", help="List available presets")
+    args = parser.parse_args()
+
+    if args.list:
+        list_presets()
+        return
+
+    if args.presets:
+        presets = args.presets
+    else:
+        # Interactive selection
+        available = sorted([p.name for p in PRESETS_DIR.iterdir() if p.is_dir()])
+        console.print("[bold]Available presets:[/bold]")
+        for i, p in enumerate(available, 1):
+            manifest = load_manifest(p)
+            desc = manifest.get("description", "")
+            console.print(f"  {i}. [cyan]{p}[/cyan]: {desc}")
+        selection = Prompt.ask("\nSelect presets (comma-separated numbers)")
+        indices = [int(x.strip()) - 1 for x in selection.split(",")]
+        presets = [available[i] for i in indices if 0 <= i < len(available)]
+
+    if not presets:
+        console.print("[red]No presets selected[/red]")
+        return
+
+    install(presets, args.target)
+
+
+if __name__ == "__main__":
+    main()
