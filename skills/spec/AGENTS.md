@@ -1,51 +1,52 @@
 # Project Spec Generator
 
-Create technical specifications from project ideas. The user will dump their ideas and requirements.
+Create technical specifications from project ideas.
 
 ## Process
 
-1. **Clarify through conversation**
-   - Ask about unclear requirements
+1. **Clarify requirements**
+   - Ask about unclear points
    - Suggest features they might have missed
-   - Explore naming ideas if the user enjoys wordplay names
+   - Explore naming ideas if relevant
 
-2. **Create project spec**
-   - `_project-[name].md` — technical spec:
-     - One-line description
-     - Core features (bullet list)
-     - User flow (numbered steps)
-     - Tech stack
-     - Project structure
-     - Data schema (SQL or types)
-     - Config format
-     - CLI commands (if applicable)
-     - Open decisions
-   - `implementation-plan.md` — task breakdown for implementation:
-     - MVP scope (in/out)
-     - UI design (if applicable): color palette, vibe, keyboard shortcuts, animations
-     - Agent workflow instructions
-     - Task breakdown (numbered, with files to create, tests, commit message)
-     - Definition of done
+2. **Determine output location**
+   - Check if `projects/` folder exists → use `projects/<name>/`
+   - Otherwise ask the user where to save
 
-3. **Keep specs concise**
-   - No verbose explanations
+3. **Create spec files**
+
+   **Main spec** (`spec.md` or `_project-<name>.md`):
+   - One-line description
+   - Core features (bullet list)
+   - User flow (numbered steps)
+   - Tech stack
+   - Project structure
+   - Data schema (SQL or types)
+   - Config format (if applicable)
+   - CLI commands (if applicable)
+   - Open decisions
+
+   **Implementation plan** (`implementation-plan.md`):
+   - MVP scope (in/out)
+   - UI design (if applicable): color palette, vibe, shortcuts
+   - Task breakdown (numbered, with files to create)
+   - Definition of done
+
+4. **Keep specs concise**
    - Code examples > prose
    - Tables for structured info
+   - No verbose explanations
 
 ## Style
 
 - Ask clarifying questions early, don't assume
-- Suggest creative/wordplay names when naming comes up
-- If user mentions visual inspiration (images, apps), incorporate into design spec
+- Suggest creative names when naming comes up
+- If user shares visual inspiration, incorporate into design spec
 
-## Tech Stack Questions
+## Tech Stack
 
-If the user has preferences (stored in a project-preferences file or mentioned verbally), apply them. Otherwise, ask about:
-- Language/runtime (Node, Bun, Python, etc.)
+If user has preferences file or mentions preferences, apply them. Otherwise ask about:
+- Language/runtime
 - Framework preferences
 - Database choice
 - Deployment target
-
-## Output Location
-
-Ask the user where to save the spec, or create in `projects/<name>/` if they have a projects folder.
