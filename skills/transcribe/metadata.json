@@ -1,0 +1,13 @@
+{
+  "name": "transcribe",
+  "version": "1.0.0",
+  "description": "Transcribe audio files using Whisper or API",
+  "author": "amenocturne",
+  "repository": "https://github.com/amenocturne/agent-kit",
+  "keywords": [
+    "transcription",
+    "whisper",
+    "audio",
+    "speech-to-text"
+  ]
+}
