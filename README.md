@@ -36,6 +36,7 @@ uv run install.py --list
 | ----- | ----------- |
 | `knowledge-base` | Atomic knowledge management for Obsidian vaults |
 | `youtube` | Fetch YouTube transcripts for processing |
+| `transcribe` | Transcribe audio with Whisper (local) or API |
 | `spec` | Create technical specs from project ideas |
 
 ### Hooks
@@ -44,6 +45,7 @@ uv run install.py --list
 | ---- | ----------- |
 | `link-proxy` | URL masking for corporate environments |
 | `notification` | System notification on session end |
+| `save-conversation` | Auto-save transcripts and commit on Stop |
 
 ### Pipelines
 
@@ -58,6 +60,7 @@ uv run install.py --list
 | `base` | Core defaults - commit style, code style, communication |
 | `frontend` | Frontend development (React, Vue, etc.) |
 | `backend` | Backend development |
+| `knowledge-base` | Obsidian vault with atomic notes and auto-saving |
 
 ## Manual Installation
 

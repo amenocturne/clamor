@@ -16,3 +16,8 @@ hooks/link-proxy/domains.txt
 pipelines/workspace/.venv/
 pipelines/workspace/.ruff_cache/
 pipelines/workspace/uv.lock
+
+# Save-conversation hook
+hooks/save-conversation/.venv/
+hooks/save-conversation/.ruff_cache/
+hooks/save-conversation/uv.lock
