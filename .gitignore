@@ -1,20 +1,18 @@
 # OS
 .DS_Store
 
-# Temporary files
-tmp/
-*.tmp
-
-# Python
+# Python bytecode (safe to ignore everywhere)
 __pycache__/
 *.pyc
-.venv/
-.ruff_cache/
-uv.lock
 
-# Node
-node_modules/
+# Hook-specific ignores
+hooks/link-proxy/.venv/
+hooks/link-proxy/.ruff_cache/
+hooks/link-proxy/uv.lock
+hooks/link-proxy/data/
+hooks/link-proxy/domains.txt
 
-# Hook data
-hooks/*/data/
-hooks/*/domains.txt
+# Pipeline-specific ignores
+pipelines/workspace/.venv/
+pipelines/workspace/.ruff_cache/
+pipelines/workspace/uv.lock
