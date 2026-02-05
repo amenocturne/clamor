@@ -4,11 +4,13 @@ aliases:
   - [Alternative Title]
 source: [URL]
 type: [youtube | article | book | podcast]
+language: [en | ru]
 ---
 
 # [Source Title]
 
 > **Source:** [URL]
+> **Language:** [Language]
 
 ## Summary
 
@@ -16,8 +18,7 @@ type: [youtube | article | book | podcast]
 
 ## Key Concepts
 
-- [[concept-one]] — brief description
-- [[concept-two]] — brief description
+[Bullet points of main ideas discussed]
 
 ## Relation to Other Concepts
 
@@ -25,9 +26,9 @@ type: [youtube | article | book | podcast]
 
 ---
 
-## Transcript / Highlights
+## Transcript
 
-[Full transcript or key highlights from the source]
+{{transcript}}
 
 ---
 
