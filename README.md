@@ -58,7 +58,6 @@ uv run install.py --list
 | `base` | Core defaults - commit style, code style, communication |
 | `frontend` | Frontend development (React, Vue, etc.) |
 | `backend` | Backend development |
-| `scala` | Scala development |
 
 ## Manual Installation
 
