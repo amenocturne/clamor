@@ -1,0 +1,14 @@
+# Internal domains whitelist
+# Add one domain per line (without protocol)
+# Lines starting with # are comments
+#
+# Examples:
+# gitlab.example.com
+# wiki.example.com
+# jira.example.com
+# confluence.example.com
+# internal.mycompany.com
+#
+# IMPORTANT: Copy this file to domains.txt and fill with your actual domains
+# The user must manually populate this file since Claude cannot see the real domains
+# (they are masked by the LLM proxy before reaching Claude)
