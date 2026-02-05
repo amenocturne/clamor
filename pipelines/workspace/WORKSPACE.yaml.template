@@ -1,0 +1,11 @@
+version: 1
+projects:
+  example:
+    path: ./example
+    description: "TODO: describe"
+    tech: [python, uv]
+    explore_when: []
+    entry_points: []
+    format_cmd: "uv run ruff format ."
+    lint_cmd: "uv run ruff check ."
+    test_cmd: "uv run pytest"
