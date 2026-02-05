@@ -1,0 +1,13 @@
+{
+  "name": "spec",
+  "version": "1.0.0",
+  "description": "Create technical specs from project ideas",
+  "author": "amenocturne",
+  "repository": "https://github.com/amenocturne/skills",
+  "keywords": [
+    "specification",
+    "planning",
+    "project",
+    "architecture"
+  ]
+}
