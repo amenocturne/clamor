@@ -1,0 +1,13 @@
+{
+  "name": "knowledge-base",
+  "version": "1.0.0",
+  "description": "Atomic knowledge management system for Obsidian",
+  "author": "amenocturne",
+  "repository": "https://github.com/amenocturne/skills",
+  "keywords": [
+    "obsidian",
+    "zettelkasten",
+    "knowledge-management",
+    "atomic-notes"
+  ]
+}
