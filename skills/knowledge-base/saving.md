@@ -6,35 +6,9 @@ When the user signals conversation end ("let's wrap up", "save this", "that's al
 
 - Read relevant files in `knowledge/`, `insights/`, `core/` to understand existing patterns
 - Check what notes already exist to avoid duplication
-- Understand the linking and tagging conventions used
+- Search for similar note names to avoid ambiguity
 
-## Step 2: Create Conversation Summary
-
-Save to `logs/YYYY-MM-DD/<topic>.md` using the summary template:
-
-```markdown
-# {Topic}
-
-> Source: [[conversation-id.json]] (if transcript saved)
-
-## Key Points
-
-- Main takeaways from the conversation
-
-## Decisions Made
-
-- Any decisions or conclusions reached
-
-## Open Questions
-
-- Unresolved questions for future exploration
-
-## Related
-
-- [[link to related notes]]
-```
-
-## Step 3: Extract Atomic Notes
+## Step 2: Extract Atomic Notes
 
 For new concepts worth preserving:
 
@@ -44,11 +18,35 @@ For new concepts worth preserving:
 
 Follow atomic note principle: one concept per file.
 
+## Step 3: Create Conversation Summary
+
+Save to `logs/YYYY-MM-DD/<topic>.md` using the summary template.
+
+The summary should **link to the notes created in Step 2** instead of repeating content:
+
+```markdown
+# {Topic}
+
+> Source: [[conversation-id.json]] (if transcript saved)
+
+## Key Points
+
+- Explored [[note-created]] — brief context
+- Realized [[insight-created]]
+
+## Decisions Made
+
+- Any decisions or conclusions reached
+
+## Open Questions
+
+- Unresolved questions for future exploration
+```
+
 ## Step 4: Maintain the Knowledge Graph
 
-- Add wiki link tags at bottom of each new note
-- Update relevant MOCs with new links
-- Add backlinks to existing related notes
+- Add meaningful links with context (not just tag lists)
+- Update existing notes with backlinks where relevant
 
 ## What to Save vs. Skip
 
