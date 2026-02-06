@@ -21,3 +21,6 @@ pipelines/workspace/uv.lock
 hooks/save-conversation/.venv/
 hooks/save-conversation/.ruff_cache/
 hooks/save-conversation/uv.lock
+
+# Skill virtual environments (created by uv run with PEP 723 scripts)
+skills/**/.venv/
