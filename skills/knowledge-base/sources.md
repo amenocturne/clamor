@@ -47,3 +47,15 @@ Update the source note's "Key Concepts" section to link to created notes.
 - User's reactions guide what to extract — not the source content itself
 - Don't paste transcripts manually — use the inject script
 - Templates live in `templates/` folder
+
+## Source Credibility Assessment
+
+When citing academic sources or research in knowledge notes, proactively check and report:
+
+- **Citation count** — use Semantic Scholar, Google Scholar, or web search
+- **Journal reputation** — Science, Nature = top-tier; check if peer-reviewed
+- **Known critiques or controversies**
+- **Replication status** if relevant (especially for psychology/social science)
+- **Whether findings are consensus or contested**
+
+Don't wait for user to ask — include credibility assessment when creating knowledge notes with external sources.
