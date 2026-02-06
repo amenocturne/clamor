@@ -94,7 +94,7 @@ def main():
     if input_data.get('stop_hook_active', False):
         sys.exit(0)
 
-    if os.environ.get('MIRROR_NO_LOG'):
+    if os.environ.get('NO_LOG'):
         sys.exit(0)
 
     transcript_path = input_data.get('transcript_path')

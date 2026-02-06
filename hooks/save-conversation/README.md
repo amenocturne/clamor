@@ -33,7 +33,7 @@ Add to `.claude/settings.json`:
 
 ## Environment
 
-- `MIRROR_NO_LOG=1` — Disable logging for this session
+- `NO_LOG=1` — Disable logging for this session
 
 ## Workflow
 
