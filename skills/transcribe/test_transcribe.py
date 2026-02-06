@@ -10,13 +10,22 @@ from unittest.mock import MagicMock, patch, PropertyMock
 import pytest
 
 # ---------------------------------------------------------------------------
-# Import script modules by manipulating sys.path
+# Import script modules by manipulating sys.path.
+#
+# transcribe_api.py imports httpx at module level, which may not be installed
+# in the test environment.  We inject a MagicMock for httpx into sys.modules
+# *before* importing the module so that the top-level ``import httpx`` inside
+# transcribe_api.py resolves to the mock instead of raising ImportError.
+# Individual tests that exercise httpx (e.g. ``@patch("transcribe_api.httpx.Client")``)
+# replace attributes on this mock, so behaviour is unchanged.
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-TRANSCRIBE_DIR = REPO_ROOT / "skills" / "transcribe" / "scripts"
+SCRIPTS_DIR = Path(__file__).resolve().parent / "scripts"
+sys.path.insert(0, str(SCRIPTS_DIR))
 
-sys.path.insert(0, str(TRANSCRIBE_DIR))
+# Ensure httpx is importable (mocked) before transcribe_api is loaded.
+if "httpx" not in sys.modules:
+    sys.modules["httpx"] = MagicMock()
 
 import transcribe  # noqa: E402
 import transcribe_api  # noqa: E402

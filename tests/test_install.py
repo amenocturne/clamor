@@ -1,21 +1,83 @@
 """Tests for install.py — the core installer."""
 
+import importlib
 import json
+import sys
 from pathlib import Path
-from unittest.mock import patch
+from types import ModuleType
+from unittest.mock import MagicMock, patch
 
 import pytest
-import yaml
 
 # ---------------------------------------------------------------------------
-# Import the installer module
+# Mock yaml and rich *before* importing install so we don't need pyyaml/rich
+# installed in the test environment.
 # ---------------------------------------------------------------------------
-
-import importlib
-import sys
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
+
+
+def _mock_safe_load(text: str):
+    """Minimal yaml.safe_load replacement for tests.
+
+    Handles:
+    - Empty/whitespace-only strings -> None  (matches real yaml.safe_load)
+    - JSON content (produced by make_preset via json.dumps)
+    - Simple "key:\\n" YAML where bare keys have null values
+    """
+    if text is None or text.strip() == "":
+        return None
+    # Try JSON first (our test helpers write manifests as JSON)
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        pass
+    # Fallback: very simple single-level YAML parser for lines like "key: value"
+    # and bare "key:" (value is None).
+    result = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if ":" in line:
+            key, _, val = line.partition(":")
+            val = val.strip()
+            if val == "" or val.lower() in ("null", "~"):
+                result[key.strip()] = None
+            else:
+                result[key.strip()] = val
+    return result if result else text
+
+
+def _mock_dump(data, **kwargs):
+    """Minimal yaml.dump replacement — just returns JSON."""
+    return json.dumps(data)
+
+
+# Build the mock yaml module
+_mock_yaml = ModuleType("yaml")
+_mock_yaml.safe_load = _mock_safe_load
+_mock_yaml.dump = _mock_dump
+
+# Build mock rich modules (install.py uses Console and Prompt from rich)
+_mock_rich = ModuleType("rich")
+_mock_rich_console = ModuleType("rich.console")
+_mock_rich_prompt = ModuleType("rich.prompt")
+
+_MockConsole = MagicMock()
+_MockPrompt = MagicMock()
+_mock_rich_console.Console = _MockConsole
+_mock_rich_prompt.Prompt = _MockPrompt
+_mock_rich.console = _mock_rich_console
+_mock_rich.prompt = _mock_rich_prompt
+
+# Inject mocks before importing install (force-set to ensure our custom
+# _mock_safe_load is used even if another test already set a yaml mock).
+sys.modules["yaml"] = _mock_yaml
+sys.modules.setdefault("rich", _mock_rich)
+sys.modules.setdefault("rich.console", _mock_rich_console)
+sys.modules.setdefault("rich.prompt", _mock_rich_prompt)
 
 import install  # noqa: E402
 
@@ -36,7 +98,7 @@ def make_preset(
     d = presets_dir / name
     d.mkdir(parents=True, exist_ok=True)
     if manifest is not None:
-        (d / "manifest.yaml").write_text(yaml.dump(manifest))
+        (d / "manifest.yaml").write_text(json.dumps(manifest))
     if settings is not None:
         (d / "settings.json").write_text(json.dumps(settings))
     if claude_md is not None:

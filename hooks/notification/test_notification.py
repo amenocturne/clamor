@@ -1,5 +1,6 @@
 """Tests for notification hook."""
 
+import importlib.util
 import json
 import runpy
 import sys
@@ -8,16 +9,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 # ---------------------------------------------------------------------------
-# Import hook module by manipulating sys.path
+# Import hook module using importlib to avoid sys.modules collisions with
+# other hook.py files (e.g. save-conversation/hook.py).
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-NOTIFICATION_DIR = REPO_ROOT / "hooks" / "notification"
-HOOK_FILE = str(NOTIFICATION_DIR / "hook.py")
+HOOK_DIR = Path(__file__).resolve().parent
+HOOK_FILE = str(HOOK_DIR / "hook.py")
 
-sys.path.insert(0, str(NOTIFICATION_DIR))
-
-import hook as notification  # noqa: E402
+_spec = importlib.util.spec_from_file_location("notification_hook", HOOK_FILE)
+notification = importlib.util.module_from_spec(_spec)
+sys.modules["notification_hook"] = notification
+_spec.loader.exec_module(notification)
 
 
 # ===================================================================
@@ -28,39 +30,39 @@ import hook as notification  # noqa: E402
 class TestNotify:
     """Test the notify() helper function."""
 
-    @patch("hook.subprocess.run")
+    @patch("notification_hook.subprocess.run")
     def test_notify_on_darwin(self, mock_run):
-        with patch("hook.sys.platform", "darwin"):
+        with patch("notification_hook.sys.platform", "darwin"):
             notification.notify("hello world")
         mock_run.assert_called_once_with([
             "osascript", "-e",
             'display notification "hello world" with title "Claude Code"',
         ])
 
-    @patch("hook.subprocess.run")
+    @patch("notification_hook.subprocess.run")
     def test_notify_on_darwin_custom_title(self, mock_run):
-        with patch("hook.sys.platform", "darwin"):
+        with patch("notification_hook.sys.platform", "darwin"):
             notification.notify("msg", title="Custom")
         mock_run.assert_called_once_with([
             "osascript", "-e",
             'display notification "msg" with title "Custom"',
         ])
 
-    @patch("hook.subprocess.run")
+    @patch("notification_hook.subprocess.run")
     def test_notify_on_linux(self, mock_run):
-        with patch("hook.sys.platform", "linux"):
+        with patch("notification_hook.sys.platform", "linux"):
             notification.notify("hello world")
         mock_run.assert_called_once_with(["notify-send", "Claude Code", "hello world"])
 
-    @patch("hook.subprocess.run")
+    @patch("notification_hook.subprocess.run")
     def test_notify_on_linux_custom_title(self, mock_run):
-        with patch("hook.sys.platform", "linux"):
+        with patch("notification_hook.sys.platform", "linux"):
             notification.notify("msg", title="Custom")
         mock_run.assert_called_once_with(["notify-send", "Custom", "msg"])
 
-    @patch("hook.subprocess.run")
+    @patch("notification_hook.subprocess.run")
     def test_notify_on_unsupported_platform(self, mock_run):
-        with patch("hook.sys.platform", "win32"):
+        with patch("notification_hook.sys.platform", "win32"):
             notification.notify("hello")
         mock_run.assert_not_called()
 

@@ -11,9 +11,9 @@ import pytest
 # Import script modules by loading them as modules from file paths
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-YT_SUBS_PATH = REPO_ROOT / "skills" / "youtube" / "scripts" / "yt-subs.py"
-INJECT_PATH = REPO_ROOT / "skills" / "youtube" / "scripts" / "inject-transcript.py"
+SKILL_DIR = Path(__file__).resolve().parent
+YT_SUBS_PATH = SKILL_DIR / "scripts" / "yt-subs.py"
+INJECT_PATH = SKILL_DIR / "scripts" / "inject-transcript.py"
 
 
 def _load_module(name: str, path: Path):
