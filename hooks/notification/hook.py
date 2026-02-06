@@ -3,7 +3,8 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Send notification when Claude Code session ends."""
+"""Send system notification for Claude Code events."""
+import json
 import subprocess
 import sys
 
@@ -17,8 +18,16 @@ def notify(message: str, title: str = "Claude Code"):
         ])
     elif sys.platform == "linux":
         subprocess.run(["notify-send", title, message])
-    # Windows not yet supported
 
 
 if __name__ == "__main__":
-    notify("Session complete")
+    try:
+        data = json.load(sys.stdin)
+    except (json.JSONDecodeError, EOFError):
+        data = {}
+
+    event = data.get("hook_event_name", "")
+    if event == "Notification":
+        notify("Claude needs your input")
+    else:
+        notify("Session complete")

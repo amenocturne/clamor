@@ -1,28 +1,15 @@
 # Notification Hook
 
-Send system notification when Claude Code session ends.
+Send system notifications for Claude Code events.
+
+## Events
+
+- **Stop** — "Session complete" when conversation ends
+- **Notification** — "Claude needs your input" when Claude is waiting
 
 ## Setup
 
-Add to `.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python path/to/notification/hook.py",
-            "timeout": 5
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+Configured automatically via `hooks.json`. Both events are included.
 
 ## Platforms
 

@@ -1,15 +1,3 @@
 {
-  "hooks": {
-    "Notification": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "terminal-notifier -title 'Claude Code' -message 'Claude needs your input' -sound Ping"
-          }
-        ]
-      }
-    ]
-  }
+  "hooks": {}
 }
