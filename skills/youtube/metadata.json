@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Fetch YouTube transcripts for processing",
   "author": "amenocturne",
-  "repository": "https://github.com/amenocturne/skills",
+  "repository": "https://github.com/amenocturne/agentic-kit",
   "keywords": [
     "youtube",
     "transcript",
