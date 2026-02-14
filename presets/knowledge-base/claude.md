@@ -5,9 +5,10 @@ You are managing an Obsidian vault with atomic notes following zettelkasten prin
 ### Quick Rules
 
 - **YouTube URLs**: Never use WebFetch. Use the **youtube** skill to fetch transcripts.
-- **No subtitles?**: If a YouTube video has no captions, use the **transcribe** skill to transcribe from audio instead.
+- **No subtitles?**: Download audio with `uvx yt-dlp -x --audio-format mp3 -o "tmp/%(id)s.%(ext)s" <url>` and use the **transcribe** skill.
 - **No auto memory**: Do not use `~/.claude/projects/*/memory/`. Store all persistent knowledge in this vault.
 - **tmp/ folder**: Scripts output to `tmp/` inside the vault root. This folder is gitignored.
+- **Don't paste transcripts manually**: Always use the inject script to place content into notes.
 
 ### Key Conventions
 
@@ -26,20 +27,23 @@ You are managing an Obsidian vault with atomic notes following zettelkasten prin
 - `sources/` — source material with transcripts
 - `logs/` — conversation summaries
 
-### Source Materials
+### Extracting Source Content
 
-When user shares a YouTube video or article with their thoughts:
-1. Use the **youtube** skill to download transcript to `tmp/`
-2. Create source note in `sources/<type>/` with `{{transcript}}` placeholder
-3. Use the **youtube** skill's inject script to replace placeholder with content
-4. Create notes only for concepts user reacted to — don't extract everything
+When user shares a YouTube video, article, or audio:
 
-If no subtitles are available, download audio with `uvx yt-dlp -x --audio-format mp3 -o "tmp/%(id)s.%(ext)s" <url>` and use the **transcribe** skill.
+1. **YouTube with subtitles**: Use the **youtube** skill's `yt-subs.py` to download transcript to `tmp/`
+2. **YouTube without subtitles**: Download audio with `uvx yt-dlp`, then use the **transcribe** skill
+3. **Articles**: Save text content to `tmp/<slug>.txt`
+4. **Audio files**: Use the **transcribe** skill
+
+Do NOT read full content into context — it wastes tokens.
+
+After extracting, create source note with `{{transcript}}` placeholder, then use the **youtube** skill's `inject-transcript.py` to replace the placeholder with formatted content.
 
 ### Project Specs
 
 When using the **spec** skill to create project specifications:
-- Save specs in `projects/<name>/`
+- Save specs in `projects/<category>/<name>/`
 - Name the main spec `_project-<name>.md` (underscore prefix for Obsidian pinning)
 - Save implementation plan alongside as `implementation-plan.md`
 

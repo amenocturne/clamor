@@ -109,7 +109,16 @@ author: your-name
 Instructions for the agent...
 ```
 
-Skills reference each other by name ("use the **youtube** skill"), never by internal paths. Script paths in SKILL.md are relative to the skill folder.
+Script paths in SKILL.md are relative to the skill folder.
+
+### Atomicity Principle
+
+Skills must be **self-contained and independent**:
+
+- A skill must not reference or depend on other skills
+- Cross-skill integration (e.g. "if youtube fails, use transcribe") belongs in the **preset**, not in skills
+- Tool-specific workflows that combine multiple skills belong in the preset's `claude.md`
+- Skills describe *what they do*, presets describe *how to use them together*
 
 ## Manual Installation
 
