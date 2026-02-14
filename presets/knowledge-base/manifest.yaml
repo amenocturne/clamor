@@ -4,6 +4,7 @@ skills:
   - youtube
   - transcribe
   - commit-style
+  - uv-over-python
 hooks:
   - notification
   - save-conversation

@@ -61,6 +61,7 @@ uv run install.py --list
 | `transcribe` | Transcribe audio with Whisper (local) or API |
 | `spec` | Create technical specs from project ideas |
 | `commit-style` | Commit message conventions |
+| `uv-over-python` | Always use uv instead of python/pip |
 
 ### Hooks
 

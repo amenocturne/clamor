@@ -1,0 +1,14 @@
+{
+  "name": "uv-over-python",
+  "version": "1.0.0",
+  "description": "Always use uv instead of python/pip",
+  "abstract": "Enforces uv as the default Python runner. Covers uv run, uvx, inline script dependencies (PEP 723), and project management.",
+  "author": "amenocturne",
+  "repository": "https://github.com/amenocturne/agent-kit",
+  "keywords": [
+    "uv",
+    "python",
+    "pip",
+    "package-manager"
+  ]
+}
