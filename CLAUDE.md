@@ -9,10 +9,10 @@ agent-kit is a personal toolkit for Claude Code, providing skills, hooks, pipeli
 ## Common Commands
 
 ```bash
-# Install presets (interactive)
+# Install preset (interactive)
 just install            # or: uv run install.py
 
-# Install specific preset to target directory
+# Install preset to target directory
 just install-to ~/projects/my-app knowledge-base
 
 # List available presets
@@ -65,13 +65,14 @@ Each hook folder contains:
 
 ### Installer (`install.py`)
 
-The installer reads a preset's manifest and:
-1. Symlinks skills → `.claude/skills/<name>/`
-2. Symlinks hooks → `.claude/hooks/<name>/`
-3. Symlinks pipelines → `pipelines/<name>/`
-4. Copies instructions → `.claude/instructions/`
-5. Merges hook configs into `.claude/settings.json`
-6. Writes preset instructions to `.claude/CLAUDE.md`
+The installer reads a preset's manifest and symlinks everything for auto-sync:
+1. Symlinks `.claude/CLAUDE.md` → preset's `claude.md`
+2. Symlinks `.claude/instructions/` → preset's `instructions/`
+3. Symlinks `.claude/templates/` → preset's `templates/`
+4. Symlinks `.claude/skills/<name>/` → skill folders
+5. Symlinks `.claude/hooks/<name>/` → hook folders
+6. Symlinks `pipelines/<name>/` → pipeline folders
+7. Merges hook configs into `.claude/settings.json`
 
 Root `CLAUDE.md` in target project is left untouched for project-specific instructions.
 

@@ -5,13 +5,13 @@
 default:
     @just --list
 
-# Install presets interactively
+# Install preset interactively
 install:
     uv run install.py
 
-# Install specific presets to a target directory
-install-to target *presets:
-    uv run install.py --presets {{ presets }} --target {{ target }}
+# Install preset to a target directory
+install-to target preset:
+    uv run install.py --preset {{ preset }} --target {{ target }}
 
 # List available presets
 list:
