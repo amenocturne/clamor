@@ -134,31 +134,48 @@ def install(presets: list[str], target: Path):
     (target_claude / "settings.json").write_text(json.dumps(settings, indent=2))
     console.print("  [green]✓[/green] .claude/settings.json")
 
-    # Merge and write .claude/CLAUDE.md (preset instructions)
+    # Symlink or merge .claude/CLAUDE.md (preset instructions)
     # Root CLAUDE.md is left for user's project-specific instructions
-    claude_md = merge_claude_md(presets)
-    (target_claude / "CLAUDE.md").write_text(claude_md)
-    console.print("  [green]✓[/green] .claude/CLAUDE.md")
+    target_claude_md = target_claude / "CLAUDE.md"
+    if target_claude_md.exists() or target_claude_md.is_symlink():
+        target_claude_md.unlink()
+    if len(presets) == 1:
+        # Single preset: symlink for auto-sync
+        src = PRESETS_DIR / presets[0] / "claude.md"
+        if src.exists():
+            target_claude_md.symlink_to(src)
+            console.print("  [green]✓[/green] .claude/CLAUDE.md (symlinked)")
+    else:
+        # Multiple presets: merge content
+        claude_md = merge_claude_md(presets)
+        target_claude_md.write_text(claude_md)
+        console.print("  [green]✓[/green] .claude/CLAUDE.md (merged)")
 
-    # Copy instructions folder from presets
+    # Symlink instructions folder from presets
     for preset in presets:
         instructions_src = PRESETS_DIR / preset / "instructions"
         if instructions_src.exists():
             instructions_dst = target_claude / "instructions"
-            if instructions_dst.exists():
-                shutil.rmtree(instructions_dst)
-            shutil.copytree(instructions_src, instructions_dst)
-            console.print("  [green]✓[/green] .claude/instructions/")
+            if instructions_dst.exists() or instructions_dst.is_symlink():
+                if instructions_dst.is_symlink():
+                    instructions_dst.unlink()
+                else:
+                    shutil.rmtree(instructions_dst)
+            instructions_dst.symlink_to(instructions_src)
+            console.print("  [green]✓[/green] .claude/instructions/ (symlinked)")
 
-    # Copy templates folder from presets
+    # Symlink templates folder from presets
     for preset in presets:
         templates_src = PRESETS_DIR / preset / "templates"
         if templates_src.exists():
             templates_dst = target_claude / "templates"
-            if templates_dst.exists():
-                shutil.rmtree(templates_dst)
-            shutil.copytree(templates_src, templates_dst)
-            console.print("  [green]✓[/green] .claude/templates/")
+            if templates_dst.exists() or templates_dst.is_symlink():
+                if templates_dst.is_symlink():
+                    templates_dst.unlink()
+                else:
+                    shutil.rmtree(templates_dst)
+            templates_dst.symlink_to(templates_src)
+            console.print("  [green]✓[/green] .claude/templates/ (symlinked)")
 
     # Symlink skills
     skills_dir = target_claude / "skills"
