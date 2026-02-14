@@ -604,7 +604,7 @@ class TestInstall:
         install.install(["base"], target)
         assert (target / ".claude").is_dir()
         assert (target / ".claude" / "settings.json").exists()
-        assert (target / "CLAUDE.md").exists()
+        assert (target / ".claude" / "CLAUDE.md").exists()
 
     def test_symlinks_skills(self, fake_repo, tmp_path):
         target = tmp_path / "project"
@@ -617,7 +617,7 @@ class TestInstall:
             settings={"hooks": {}},
         )
         install.install(["p1"], target)
-        link = target / ".claude" / "commands" / "spec"
+        link = target / ".claude" / "skills" / "spec"
         assert link.is_symlink()
         assert link.resolve() == (fake_repo["skills"] / "spec").resolve()
 
@@ -665,7 +665,7 @@ class TestInstall:
         )
         # First install
         install.install(["p1"], target)
-        link = target / ".claude" / "commands" / "spec"
+        link = target / ".claude" / "skills" / "spec"
         assert link.is_symlink()
 
         # Second install should not raise
@@ -683,7 +683,7 @@ class TestInstall:
             settings={"hooks": {}},
         )
         install.install(["p1"], target)
-        assert not (target / ".claude" / "commands" / "nonexistent-skill").exists()
+        assert not (target / ".claude" / "skills" / "nonexistent-skill").exists()
 
     def test_skips_missing_hook_source(self, fake_repo, tmp_path):
         target = tmp_path / "project"
@@ -720,7 +720,7 @@ class TestInstall:
             claude_md="## My Rules",
         )
         install.install(["p1"], target)
-        content = (target / "CLAUDE.md").read_text()
+        content = (target / ".claude" / "CLAUDE.md").read_text()
         assert "# From p1" in content
         assert "## My Rules" in content
 
@@ -801,10 +801,10 @@ class TestInstall:
             claude_md="From B",
         )
         install.install(["a", "b"], target)
-        assert (target / ".claude" / "commands" / "spec").is_symlink()
-        assert (target / ".claude" / "commands" / "youtube").is_symlink()
+        assert (target / ".claude" / "skills" / "spec").is_symlink()
+        assert (target / ".claude" / "skills" / "youtube").is_symlink()
         assert (target / "hooks" / "notification").is_symlink()
-        content = (target / "CLAUDE.md").read_text()
+        content = (target / ".claude" / "CLAUDE.md").read_text()
         assert "From A" in content
         assert "From B" in content
 
@@ -985,16 +985,16 @@ class TestEdgeCases:
         )
         install.install(["p1"], target)
         first_settings = (target / ".claude" / "settings.json").read_text()
-        first_claude_md = (target / "CLAUDE.md").read_text()
+        first_claude_md = (target / ".claude" / "CLAUDE.md").read_text()
 
         install.install(["p1"], target)
         second_settings = (target / ".claude" / "settings.json").read_text()
-        second_claude_md = (target / "CLAUDE.md").read_text()
+        second_claude_md = (target / ".claude" / "CLAUDE.md").read_text()
 
-        # CLAUDE.md is always overwritten, should be same
+        # .claude/CLAUDE.md is always overwritten, should be same
         assert first_claude_md == second_claude_md
         # Symlinks should still be valid
-        assert (target / ".claude" / "commands" / "spec").is_symlink()
+        assert (target / ".claude" / "skills" / "spec").is_symlink()
         assert (target / "hooks" / "notification").is_symlink()
 
     def test_settings_accumulate_on_reinstall(self, fake_repo, tmp_path):

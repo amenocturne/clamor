@@ -133,17 +133,18 @@ def install(presets: list[str], target: Path):
     (target_claude / "settings.json").write_text(json.dumps(settings, indent=2))
     console.print("  [green]✓[/green] .claude/settings.json")
 
-    # Merge and write CLAUDE.md
+    # Merge and write .claude/CLAUDE.md (preset instructions)
+    # Root CLAUDE.md is left for user's project-specific instructions
     claude_md = merge_claude_md(presets)
-    (target / "CLAUDE.md").write_text(claude_md)
-    console.print("  [green]✓[/green] CLAUDE.md")
+    (target_claude / "CLAUDE.md").write_text(claude_md)
+    console.print("  [green]✓[/green] .claude/CLAUDE.md")
 
     # Symlink skills
-    commands_dir = target_claude / "commands"
-    commands_dir.mkdir(exist_ok=True)
+    skills_dir = target_claude / "skills"
+    skills_dir.mkdir(exist_ok=True)
     for skill in components["skills"]:
         src = SKILLS_DIR / skill
-        dst = commands_dir / skill
+        dst = skills_dir / skill
         if src.exists() and not dst.exists():
             dst.symlink_to(src)
             console.print(f"  [green]✓[/green] Skill: {skill}")
