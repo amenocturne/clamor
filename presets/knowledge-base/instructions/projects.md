@@ -63,3 +63,20 @@ When using the **spec** skill to create project specifications:
 - Save specs in `projects/<category>/<name>/`
 - Name the main spec `_project-<name>.md`
 - Save implementation plan alongside as `implementation-plan.md`
+
+## Capturing Decision Context
+
+When a conversation involves choosing between approaches, create `background.md` in the project folder. Use template from `.claude/templates/background.md`.
+
+**When to create:**
+- Multiple options were seriously considered
+- Tradeoffs were discussed (technical, practical, psychological)
+- The "why not" for rejected options is worth preserving
+
+**What to capture:**
+- Context: what prompted this decision
+- Options: all approaches considered
+- Rejections: why each alternative won't work (be specific)
+- Decision: what we chose and why it wins
+
+**Goal:** Future reader can understand the full problem space, not just the outcome.
