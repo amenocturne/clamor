@@ -4,22 +4,20 @@ description: Atomic knowledge management system for Obsidian vaults
 author: amenocturne
 ---
 
-# Knowledge Base
+# Knowledge Base System
 
-A complete system for managing atomic notes in Obsidian using zettelkasten principles.
+You are managing an atomic knowledge base in Obsidian.
 
-## Features
+## When to read which file
 
-- Atomic note organization (knowledge, insights, ideas, core)
-- Source material processing (articles, videos, podcasts)
-- Automatic linking and MOC management
-- End-of-conversation saving
+| Situation                                                                  | Read               |
+| -------------------------------------------------------------------------- | ------------------ |
+| Creating or organizing notes                                               | `system.md`        |
+| User shares source material (article, video transcript, etc.)              | `sources.md`       |
+| Need to update links or MOCs                                               | `linking.md`       |
+| User signals conversation end ("let's wrap up", "save this", "that's all") | `saving.md`        |
+| Personal reflection, psychological topics, conversation style              | `communication.md` |
 
-## Usage
+## Templates
 
-Install and Claude will automatically:
-
-- Organize notes following atomic principles
-- Process source materials into structured notes
-- Maintain wiki links and MOCs
-- Save conversation summaries when you wrap up
+Templates are in the `templates/` folder. Use them for consistent formatting.
