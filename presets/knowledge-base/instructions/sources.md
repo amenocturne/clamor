@@ -4,7 +4,7 @@ When the user shares source material (article, video, podcast) with their though
 
 ## Step 1: Create Source Note
 
-Create source note in `sources/<type>/` using `templates/source.md`:
+Create source note in `sources/<type>/` using the source template (see `.claude/templates/source.md`):
 
 - Include `{{transcript}}` placeholder for content that will be injected later
 - Fill in metadata: URL, title, type
@@ -26,7 +26,7 @@ Update the source note's "Key Concepts" section to link to created notes.
 ## Important
 
 - User's reactions guide what to extract — not the source content itself
-- Templates live in the `templates/` folder within this skill
+- Templates are in `.claude/templates/`
 
 ## Source Credibility Assessment
 

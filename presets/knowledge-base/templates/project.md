@@ -1,6 +1,6 @@
 ---
 type: project
-started: { { date:YYYY-MM-DD } }
+started: {{date:YYYY-MM-DD}}
 status: idea
 category:
 ---

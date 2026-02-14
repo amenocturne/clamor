@@ -1,0 +1,65 @@
+# Working with Projects
+
+## When to Create a Project
+
+Use `projects/` for:
+- Learning plans with exercises and schedules
+- Step-by-step guides for achieving a goal
+- Curricula synthesized from research/conversations
+- Actionable plans that are too structured for `knowledge/`
+
+## Project Structure
+
+Projects go in category subfolders:
+
+```
+projects/
+├── software/          # Software projects (apps, tools, systems)
+├── goals/             # Life goals (immigration, career, health, learning)
+├── presentations/     # Talks, workshops, docs-as-code
+└── content/           # YouTube video ideas, articles
+```
+
+Each project gets its own folder:
+
+```
+projects/goals/music-theory/
+├── _project-music-theory.md  # Overview, goal, core insight
+├── skills.md                 # Techniques/exercises (optional)
+├── schedule.md               # Routines (optional)
+└── resources.md              # Tools, links (optional)
+```
+
+## Naming Convention
+
+- Index file: `_project-<name>.md` (underscore for Obsidian pinning)
+- Never use generic `index.md` — causes link collisions
+
+## Creating a Project
+
+1. **Identify category** — software, goals, presentations, or content
+2. **Create folder** — `projects/<category>/<name>/`
+3. **Create index file** — use template from `.claude/templates/project.md`
+4. **Split if needed** — large projects get separate files for skills, schedule, resources
+
+## Processing User's Guide/Plan
+
+When user provides a detailed guide to save:
+
+1. **Identify natural split points:**
+   - Core problem/insight → `_project-<name>.md`
+   - Skills/exercises → `skills.md`
+   - Schedules/routines → `schedule.md`
+   - Tools/resources → `resources.md`
+   - General research findings → extract to `knowledge/`
+
+2. **Keep small guides whole** — don't over-split simple plans
+
+3. **Add wiki links** — tag with relevant topics, link to related projects/goals
+
+## Using the Spec Skill
+
+When using the **spec** skill to create project specifications:
+- Save specs in `projects/<category>/<name>/`
+- Name the main spec `_project-<name>.md`
+- Save implementation plan alongside as `implementation-plan.md`

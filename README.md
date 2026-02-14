@@ -11,7 +11,7 @@ agent-kit/
 ├── skills/           # Self-contained skill folders (SKILL.md + scripts, templates, etc.)
 ├── hooks/            # Event-triggered scripts (stop, pre-tool-use, etc.)
 ├── pipelines/        # Data processing pipelines
-├── presets/          # Recipes that bundle skills + hooks + pipelines
+├── presets/          # Recipes that bundle skills + hooks + pipelines + instructions
 ├── install.py        # Installer: symlinks components into target projects
 └── justfile          # Task runner shortcuts
 ```
@@ -24,8 +24,9 @@ agent-kit/
 1. Symlinks skills → `.claude/skills/<name>/`
 2. Symlinks hooks → `hooks/<name>/`
 3. Symlinks pipelines → `pipelines/<name>/`
-4. Merges hook configs into `.claude/settings.json`
-5. Writes preset instructions to `.claude/CLAUDE.md`
+4. Copies instruction files → `.claude/instructions/`
+5. Merges hook configs into `.claude/settings.json`
+6. Writes preset instructions to `.claude/CLAUDE.md`
 
 Root `CLAUDE.md` is left untouched for your project-specific instructions. Both files are loaded by Claude Code at startup.
 
@@ -56,7 +57,6 @@ uv run install.py --list
 
 | Skill | Description |
 | ----- | ----------- |
-| `knowledge-base` | Atomic knowledge management for Obsidian vaults |
 | `youtube` | Fetch YouTube transcripts for processing |
 | `transcribe` | Transcribe audio with Whisper (local) or API |
 | `spec` | Create technical specs from project ideas |
@@ -82,6 +82,49 @@ uv run install.py --list
 | Preset | Description |
 | ------ | ----------- |
 | `knowledge-base` | Obsidian vault with atomic notes, sources, and auto-saving |
+
+## Preset Architecture
+
+Presets can include instructions in two ways:
+
+### 1. Embedded in `claude.md`
+
+Instructions that should always be active go directly in the preset's `claude.md`. These are loaded automatically at conversation start.
+
+```
+presets/my-preset/
+├── manifest.yaml
+└── claude.md         # Core instructions embedded here
+```
+
+### 2. Action-specific instruction files
+
+Instructions for specific actions (saving, linking, processing sources) go in separate files. The agent reads these when performing that action.
+
+```
+presets/my-preset/
+├── manifest.yaml
+├── claude.md                    # References instruction files
+└── instructions/
+    ├── linking.md               # Read when creating/updating links
+    ├── saving.md                # Read when saving conversations
+    └── sources.md               # Read when processing sources
+```
+
+In `claude.md`, reference these with `@` imports:
+
+```markdown
+## Action-Specific Instructions
+
+- **Creating notes with links**: Read @.claude/instructions/linking.md first
+- **Saving conversations**: Read @.claude/instructions/saving.md first
+```
+
+### Why this split?
+
+- **Embedded instructions** are always in context — folder structure, naming conventions, communication style
+- **Action-specific files** are read on-demand — keeps context focused, agent reads when needed
+- **Skills remain atomic** — complex workflows live in presets, not skills
 
 ## Skill Format
 
@@ -125,9 +168,9 @@ Skills must be **self-contained and independent**:
 If you prefer not to use presets:
 
 ```bash
-npx skills add amenocturne/agent-kit@knowledge-base
 npx skills add amenocturne/agent-kit@youtube
 npx skills add amenocturne/agent-kit@spec
+npx skills add amenocturne/agent-kit@transcribe
 ```
 
 ## Links

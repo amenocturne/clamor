@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import json
+import shutil
 from pathlib import Path
 
 import yaml
@@ -138,6 +139,26 @@ def install(presets: list[str], target: Path):
     claude_md = merge_claude_md(presets)
     (target_claude / "CLAUDE.md").write_text(claude_md)
     console.print("  [green]✓[/green] .claude/CLAUDE.md")
+
+    # Copy instructions folder from presets
+    for preset in presets:
+        instructions_src = PRESETS_DIR / preset / "instructions"
+        if instructions_src.exists():
+            instructions_dst = target_claude / "instructions"
+            if instructions_dst.exists():
+                shutil.rmtree(instructions_dst)
+            shutil.copytree(instructions_src, instructions_dst)
+            console.print("  [green]✓[/green] .claude/instructions/")
+
+    # Copy templates folder from presets
+    for preset in presets:
+        templates_src = PRESETS_DIR / preset / "templates"
+        if templates_src.exists():
+            templates_dst = target_claude / "templates"
+            if templates_dst.exists():
+                shutil.rmtree(templates_dst)
+            shutil.copytree(templates_src, templates_dst)
+            console.print("  [green]✓[/green] .claude/templates/")
 
     # Symlink skills
     skills_dir = target_claude / "skills"
