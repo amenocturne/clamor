@@ -14,7 +14,7 @@ Arguments:
 
 Options:
     --output=PATH  Save to file instead of stdout (default: stdout)
-    --lang=LANG    Language codes, comma-separated (default: en)
+    --lang=LANG    Language codes, comma-separated (default: en,ru)
     --raw          Output raw VTT format instead of cleaned text
 
 Examples:
@@ -165,7 +165,7 @@ def main():
         sys.exit(0 if len(sys.argv) >= 2 else 1)
 
     url = sys.argv[1]
-    lang = "en"
+    lang = "en,ru"
     raw = False
     output_path = None
 

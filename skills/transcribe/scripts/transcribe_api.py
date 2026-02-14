@@ -13,7 +13,7 @@ Arguments:
     audio_file      Path to audio file (mp3, wav, m4a, etc.)
 
 Options:
-    --model=MODEL   Model to use (default: google/gemini-2.0-flash-001)
+    --model=MODEL   Model to use (default: google/gemini-3-flash-preview)
     --lang=LANG     Language hint (e.g., 'ru', 'en')
     --timestamps    Request timestamps in output
     --output=PATH   Output file (default: tmp/<filename>.txt)
@@ -42,7 +42,7 @@ import httpx
 
 
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "google/gemini-2.0-flash-001"
+DEFAULT_MODEL = "google/gemini-3-flash-preview"
 MAX_FILE_SIZE_MB = 18
 
 

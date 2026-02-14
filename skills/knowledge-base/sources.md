@@ -4,10 +4,11 @@ When the user shares source material (article, video, podcast) with their though
 
 ## Step 1: Extract Content
 
-Use appropriate tool to extract content to `tmp/`:
+Use the appropriate skill to extract content:
 
-- **YouTube**: `uv run scripts/yt-subs.py <url>` → saves to `tmp/<video_id>.txt`
-- **Articles**: save text content to `tmp/<slug>.txt`
+- **YouTube**: Use the **youtube** skill to fetch the transcript
+- **Audio** (no subtitles available): Use the **transcribe** skill
+- **Articles**: Save text content to `tmp/<slug>.txt`
 
 Do NOT read the full content into context — it wastes tokens.
 
@@ -20,13 +21,7 @@ Create source note in `sources/<type>/` using `templates/source.md`:
 
 ## Step 3: Inject Content
 
-Run inject script to copy content from tmp to source note:
-
-```bash
-uv run scripts/inject-transcript.py sources/youtube/<note-name>.md
-```
-
-This replaces `{{transcript}}` with formatted content and deletes tmp file.
+Use the **youtube** skill's inject script to copy content from tmp into the source note. This replaces `{{transcript}}` with formatted content and deletes the tmp file.
 
 ## Step 4: Create Notes Based on User's Reactions
 
@@ -46,7 +41,7 @@ Update the source note's "Key Concepts" section to link to created notes.
 
 - User's reactions guide what to extract — not the source content itself
 - Don't paste transcripts manually — use the inject script
-- Templates live in `templates/` folder
+- Templates live in the `templates/` folder within this skill
 
 ## Source Credibility Assessment
 

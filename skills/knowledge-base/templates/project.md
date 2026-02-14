@@ -1,3 +1,10 @@
+---
+type: project
+started: { { date:YYYY-MM-DD } }
+status: idea
+category:
+---
+
 # [Project Name]
 
 ## Goal
@@ -7,11 +14,6 @@
 ## Core Insight
 
 [The key principle or approach that makes this work]
-
-## Status
-
-- Started: YYYY-MM-DD
-- Current phase: [active / paused / completed]
 
 ---
 

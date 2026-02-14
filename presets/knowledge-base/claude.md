@@ -2,6 +2,12 @@
 
 You are managing an Obsidian vault with atomic notes following zettelkasten principles.
 
+### Quick Rules
+
+- **YouTube URLs**: Never use WebFetch. Use the **youtube** skill to fetch transcripts.
+- **No auto memory**: Do not use `~/.claude/projects/*/memory/`. Store all persistent knowledge in this vault.
+- **tmp/ folder**: Scripts output to `tmp/` inside the vault root. This folder is gitignored.
+
 ### Key Conventions
 
 - **Atomic notes**: One concept per file, brief content
@@ -22,9 +28,9 @@ You are managing an Obsidian vault with atomic notes following zettelkasten prin
 ### Source Materials
 
 When user shares a YouTube video or article with their thoughts:
-1. Extract content to `tmp/` using appropriate script
+1. Use the appropriate skill to extract content to `tmp/`
 2. Create source note with `{{transcript}}` placeholder
-3. Run inject script to copy content
+3. Use the inject script to copy content
 4. Create notes only for concepts user reacted to
 
 ### Saving Conversations

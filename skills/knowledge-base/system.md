@@ -22,6 +22,19 @@ Your vault should have these primary folders for atomic notes:
 
 When unsure which folder, ask the user. Gray areas exist.
 
+## Loading Context
+
+When beginning a conversation, load relevant files based on the topic:
+
+- Load `core/*` for conversations about identity, patterns, values
+- Load `ideas/*` for conversations involving personal frameworks/theories
+- Load `context/situation.md` + relevant `goals/*` for practical planning
+- Load `context/history/*` for understanding past context
+- Reference `insights/*` when relevant topics come up
+- Reference `knowledge/*` for general facts on a topic
+- Reference `projects/*` for actionable plans on a topic
+- Search `logs/*` for past discussion context
+
 ## Zettelkasten Principles
 
 These apply to `core/`, `ideas/`, `insights/`, and `knowledge/`:
@@ -41,30 +54,71 @@ Note names must be unique and unambiguous across all folders.
 - `framework.md` — meaningless
 - `core-four.md` — could mean anything
 
-**Good names** (self-descriptive):
+**Good names** (self-descriptive with domain prefix):
 - `psychology-attention.md` — clear topic
 - `agentic-core-four.md` — clearly about agentic coding
 - `llm-meta-prompting.md` — LLM-specific technique
+- `afk-peter-framework.md` — specific framework name + context
 
-**When to add prefix:** When the concept exists in multiple fields. "Focus" appears in psychology and productivity — use `psychology-focus.md` or `productivity-deep-focus.md`.
+**Prefixes to use:**
+- `agentic-` for agentic coding concepts
+- `llm-` for LLM/prompt engineering patterns
+- `psychology-` or specific framework names for psych concepts
+- Domain-specific prefix when concept comes from a specific field
+
+**Rule of thumb:** If the name could reasonably appear in two different domains, add a prefix. When in doubt, be more specific.
 
 ## Project Structure
 
-Each project gets its own folder:
+Projects are organized into category subfolders:
 
 ```
 projects/
-└── project-name/
-    ├── _project-name.md     # Overview, goal, core insight
-    ├── skills.md            # Techniques/exercises (optional)
-    ├── schedule.md          # Routines (optional)
-    └── resources.md         # Tools, links (optional)
+├── software/          # Software projects (apps, tools, systems)
+├── goals/             # Life goals (immigration, career, health, learning)
+├── presentations/     # Talks, workshops, docs-as-code
+└── content/           # YouTube video ideas, articles
+```
+
+Each project gets its own folder within its category:
+
+```
+projects/goals/music-theory/
+    ├── _project-music-theory.md  # Overview, goal, core insight
+    ├── skills.md                 # Techniques/exercises (optional)
+    ├── schedule.md               # Routines (optional)
+    └── resources.md              # Tools, links (optional)
 ```
 
 **Naming convention for index files:**
 - Projects: `_project-<name>.md` (e.g., `_project-music-theory.md`)
 - Sources: `source-<name>.md` (e.g., `source-article-title.md`)
 - Never use generic `index.md` — causes link collisions in Obsidian
+
+Use `templates/project.md` for the project file. Split into additional files when sections become large or independently useful.
+
+### When to use projects/
+
+- Learning plans with exercises and schedules
+- Step-by-step guides for achieving a goal
+- Curricula synthesized from research/conversations
+- Any "how to approach X" that's too actionable for knowledge/
+
+### Processing incoming guides
+
+When user provides a detailed guide/plan to save:
+
+1. **Identify the project name** — short, kebab-case (e.g., `music-theory`)
+2. **Create the project folder** — `projects/[category]/[name]/`
+3. **Analyze the content** — identify natural split points:
+   - Core problem/insight → `_project-<name>.md`
+   - Skills/exercises → `skills.md`
+   - Schedules/routines → `schedule.md`
+   - Tools/resources → `resources.md`
+   - Research findings that are general → extract to `knowledge/`
+4. **Split or keep whole** — small guides can stay as single `_project-<name>.md`
+5. **Add wiki links** — tag with relevant topics, link to related goals
+6. **Update goals if relevant** — add reference in `context/goals/` if this supports a stated goal
 
 ## Archive
 
@@ -73,9 +127,12 @@ The `archive/` folder holds projects that are no longer active but worth preserv
 - **Projects** = active, have a deadline or clear next action
 - **Archive** = completed, paused, or abandoned — out of sight but not deleted
 
-When to archive:
+**When to archive:**
 - Project completed (goal achieved)
 - Project abandoned (no longer relevant)
 - Project paused indefinitely (may resume someday)
 
-Move entire folder to `archive/`. Wiki links still work (Obsidian resolves by filename).
+**How to archive:**
+- Move entire folder to `archive/`
+- Optionally update status in project file
+- Wiki links still work (Obsidian resolves by filename)

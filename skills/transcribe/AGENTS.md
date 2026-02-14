@@ -2,6 +2,8 @@
 
 Transcribe audio files when no subtitles are available.
 
+> All script paths below are relative to this skill folder.
+
 ## When to Use
 
 - YouTube video has no captions
@@ -12,23 +14,25 @@ Transcribe audio files when no subtitles are available.
 ### Local (offline, private)
 
 ```bash
-uv run scripts/transcribe.py <audio_file> [--model=MODEL] [--lang=LANG]
+uv run scripts/transcribe.py <audio_file> [--model=MODEL] [--lang=LANG] [--output=PATH]
 ```
 
 - Uses faster-whisper (local Whisper)
 - Best quality: `--model=large-v3` (~10GB VRAM)
 - Good balance: `--model=medium` (~5GB VRAM)
 - Fast/CPU: `--model=small`
+- Default output: `tmp/<filename>.txt`
 
 ### API (fast, no GPU)
 
 ```bash
-uv run scripts/transcribe_api.py <audio_file> [--lang=LANG]
+uv run scripts/transcribe_api.py <audio_file> [--lang=LANG] [--output=PATH]
 ```
 
 - Uses OpenRouter API with Gemini Flash
 - Requires `OPENROUTER_API_KEY` env var
 - Auto-chunks files over 18MB
+- Default output: `tmp/<filename>.txt`
 
 ## Workflow
 
@@ -49,5 +53,6 @@ uv run scripts/transcribe_api.py <audio_file> [--lang=LANG]
 ## Options
 
 Both scripts support:
+- `--output=PATH`: Custom output file path
 - `--lang=LANG`: Language hint (e.g., `ru`, `en`)
 - `--timestamps`: Include timestamps in output
