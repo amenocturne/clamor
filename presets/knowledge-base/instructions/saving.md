@@ -1,6 +1,8 @@
 # End-of-Conversation Saving
 
-When the user signals conversation end ("let's wrap up", "save this", "that's all"), follow this process:
+**Trigger phrases:** "let's wrap up", "save this", "that's all", "let's finish", "we're done", "done for now", "that's it", "end this"
+
+**Default action:** When ANY end signal is detected, ALWAYS propose a save plan. Don't just summarize or say goodbye — saving is the default, not optional.
 
 ## Step 1: Explore Existing Notes
 
