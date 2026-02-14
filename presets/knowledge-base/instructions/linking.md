@@ -42,21 +42,7 @@ MOCs are **jumping points** to explore a topic, not mandatory connections for ev
 - Name format: `MOC-<topic>.md` (e.g., `MOC-psychology.md`)
 - Purpose: quick guide on where to start with a topic
 - Not every note needs a direct MOC link — the links between notes provide structure
-
-**MOC format:**
-
-```markdown
-# MOC: Topic Name
-
-## Core Concepts
-
-- [[concept-one]] — brief description
-- [[concept-two]] — brief description
-
-## Sources
-
-- [[source-article-name]]
-```
+- Template: `.claude/templates/moc.md`
 
 ## Connection Notes
 

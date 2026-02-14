@@ -13,6 +13,7 @@ You are managing an Obsidian vault with atomic notes following zettelkasten prin
 
 Before performing these actions, read the corresponding instruction file:
 
+- **Planning, priorities, goals, life direction**: Read @.claude/instructions/context.md first
 - **Creating/updating notes with links**: Read @.claude/instructions/linking.md first
 - **Saving conversations / wrapping up**: Read @.claude/instructions/saving.md first
 - **Processing sources (articles, videos, podcasts)**: Read @.claude/instructions/sources.md first
@@ -29,13 +30,12 @@ vault/
 ├── insights/                # Personal realizations and discoveries
 ├── knowledge/               # General facts (not personal)
 ├── context/
-│   ├── situation.md         # Current life snapshot (update regularly)
 │   ├── goals/
 │   │   ├── life.md          # Ongoing, not time-bound
-│   │   ├── 2026.md          # Year goals
-│   │   └── 2026-02.md       # Monthly goals
+│   │   ├── YYYY.md          # Year goals
+│   │   └── YYYY-MM.md       # Monthly goals
 │   └── history/
-│       └── 2026-02.md       # What was happening this month
+│       └── YYYY[-MM[-DD]]-event.md  # Life events (date-prefixed)
 ├── projects/                # Active actionable plans
 │   ├── software/
 │   ├── goals/
@@ -49,9 +49,6 @@ vault/
 │   └── YYYY-MM-DD/
 │       ├── HHMMSS.json      # Raw transcript (auto-saved)
 │       └── HHMMSS Topic.md  # Summary (renamed by hook)
-├── reviews/                 # Periodic reviews
-│   ├── weekly/
-│   └── monthly/
 ├── archive/                 # Completed/paused projects (PARA-style)
 └── tmp/                     # Temporary files (gitignored)
 ```
@@ -68,23 +65,25 @@ vault/
 | `projects/`  | Actionable plans with deadlines                   | "What am I doing?"        |
 | `sources/`   | Source material references                        | "Where did this come from?" |
 | `logs/`      | Conversation logs and summaries                   | "What did we discuss?"    |
-| `reviews/`   | Weekly and monthly reviews                        | "How am I progressing?"   |
 | `archive/`   | Completed or paused projects                      | "What's done?"            |
 
 When unsure which folder, ask the user.
 
 ## Loading Context
 
-When beginning a conversation, load relevant files based on the topic:
+**At conversation start**, proactively load relevant files based on topic signals:
 
-- Load `core/*` for conversations about identity, patterns, values
-- Load `ideas/*` for conversations involving personal frameworks/theories
-- Load `context/situation.md` + relevant `goals/*` for practical planning
-- Load `context/history/*` for understanding past context
-- Reference `insights/*` when relevant topics come up
-- Reference `knowledge/*` for general facts on a topic
-- Reference `projects/*` for actionable plans on a topic
-- Search `logs/*` for past discussion context
+| Topic Signal | Load These |
+|-------------|------------|
+| Identity, patterns, values | `core/*` |
+| Personal frameworks, theories | `ideas/*` |
+| Planning, priorities, "what should I do" | `context/history/YYYY-MM.md` + `context/goals/*` (see @.claude/instructions/context.md) |
+| "What was I working on", catching up | `context/history/YYYY-MM.md` |
+| Specific topic facts | `knowledge/*`, `insights/*` |
+| Active work | `projects/*` |
+| Past discussions | `logs/*` |
+
+**Rule:** When planning-related topics come up, always load context files first, then respond.
 
 ## Zettelkasten Principles
 

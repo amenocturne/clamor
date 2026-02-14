@@ -23,6 +23,10 @@ Present a concise plan for user approval. Use this format:
 **Existing notes to update:** (if any)
 - `knowledge/existing-note.md` — add link to new concept
 
+**Context updates:** (if any)
+- `context/history/2024-03-career-change.md` — add new event
+- `context/goals/YYYY-MM.md` — mark goal complete
+
 **Log:** `logs/YYYY-MM-DD/_topic.md`
 
 **Skip:** [brief reason if skipping anything discussed]
@@ -56,31 +60,25 @@ Before writing any note:
 
 ## Step 4: Create Conversation Summary
 
-Save to `logs/YYYY-MM-DD/_Topic.md` using the summary template.
+Save to `logs/YYYY-MM-DD/_Topic.md` using `.claude/templates/summary.md`.
 
-The summary should **link to the notes created** instead of repeating content:
-
-```markdown
-# {Topic}
-
-## Key Points
-
-- Explored [[note-created]] — brief context
-- Realized [[insight-created]]
-
-## Decisions Made
-
-- Any decisions or conclusions reached
-
-## Open Questions
-
-- Unresolved questions for future exploration
-```
+The summary should **link to the notes created** instead of repeating content.
 
 ## Step 5: Update Knowledge Graph
 
 - Add backlinks to existing notes where the new content is relevant
 - Update MOCs if they exist
+
+## Step 6: Consider Context Updates
+
+Check if conversation affects context files (see `context.md` for details):
+
+- **history/** — Did a significant life event occur? Create `history/<event>.md`
+- **goals/** — Was a goal achieved, abandoned, or priorities shifted?
+
+History = life events (so user doesn't have to re-explain). Goals = what user is trying to achieve.
+
+If updates needed, include them in the save plan.
 
 ## What to Save vs. Skip
 

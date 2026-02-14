@@ -127,7 +127,7 @@ def install(presets: list[str], target: Path):
 
     # Add hook configurations from hooks.json files
     for hook in components["hooks"]:
-        hook_dir = target / "hooks" / hook
+        hook_dir = target_claude / "hooks" / hook
         hook_config = load_hook_config(hook, hook_dir)
         merge_hooks(settings["hooks"], hook_config)
 
@@ -170,8 +170,8 @@ def install(presets: list[str], target: Path):
             dst.symlink_to(src)
             console.print(f"  [green]✓[/green] Skill: {skill}")
 
-    # Symlink hooks
-    hooks_target = target / "hooks"
+    # Symlink hooks into .claude/hooks/
+    hooks_target = target_claude / "hooks"
     hooks_target.mkdir(exist_ok=True)
     for hook in components["hooks"]:
         src = HOOKS_DIR / hook
