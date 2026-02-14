@@ -20,23 +20,56 @@ Before performing these actions, read the corresponding instruction file:
 
 ---
 
-## Folder Structure
+## Vault Structure
 
-| Folder       | Purpose                                           | Example                                      |
-| ------------ | ------------------------------------------------- | -------------------------------------------- |
-| `core/`      | Stable identity facts (who I am, how I function)  | values, patterns, traits                     |
-| `ideas/`     | Personal theories, frameworks, concepts I created | models, approaches, methodologies            |
-| `insights/`  | Personal realizations and discoveries             | "I work better when...", learned patterns    |
-| `knowledge/` | General facts (not personal)                      | research findings, external information      |
-| `projects/`  | Actionable plans with deadlines                   | learning plans, project specs                |
-| `sources/`   | Source material references                        | articles, videos, podcasts                   |
-| `logs/`      | Conversation logs and summaries                   | dated folders with transcripts and summaries |
+```
+vault/
+├── core/                    # Stable identity (who I am, how I function)
+├── ideas/                   # Personal theories, frameworks, concepts
+├── insights/                # Personal realizations and discoveries
+├── knowledge/               # General facts (not personal)
+├── context/
+│   ├── situation.md         # Current life snapshot (update regularly)
+│   ├── goals/
+│   │   ├── life.md          # Ongoing, not time-bound
+│   │   ├── 2026.md          # Year goals
+│   │   └── 2026-02.md       # Monthly goals
+│   └── history/
+│       └── 2026-02.md       # What was happening this month
+├── projects/                # Active actionable plans
+│   ├── software/
+│   ├── goals/
+│   ├── presentations/
+│   └── content/
+├── sources/                 # Source material references
+│   ├── youtube/
+│   ├── articles/
+│   └── books/
+├── logs/                    # Conversation logs
+│   └── YYYY-MM-DD/
+│       ├── HHMMSS.json      # Raw transcript (auto-saved)
+│       └── HHMMSS Topic.md  # Summary (renamed by hook)
+├── reviews/                 # Periodic reviews
+│   ├── weekly/
+│   └── monthly/
+├── archive/                 # Completed/paused projects (PARA-style)
+└── tmp/                     # Temporary files (gitignored)
+```
 
-**Key distinction:**
-- `core/` answers "who am I?" — traits, values, patterns of functioning
-- `ideas/` answers "what do I think?" — theories, models, frameworks that could apply beyond just me
-- `insights/` answers "what did I learn about myself?" — discoveries from reflection/experience
-- `knowledge/` answers "what is true?" — facts independent of me
+## Folder Purposes
+
+| Folder       | Purpose                                           | Key Question              |
+| ------------ | ------------------------------------------------- | ------------------------- |
+| `core/`      | Stable identity facts                             | "Who am I?"               |
+| `ideas/`     | Personal theories, frameworks, concepts I created | "What do I think?"        |
+| `insights/`  | Personal realizations and discoveries             | "What did I learn?"       |
+| `knowledge/` | General facts (not personal)                      | "What is true?"           |
+| `context/`   | Current situation, goals, and history             | "Where am I now?"         |
+| `projects/`  | Actionable plans with deadlines                   | "What am I doing?"        |
+| `sources/`   | Source material references                        | "Where did this come from?" |
+| `logs/`      | Conversation logs and summaries                   | "What did we discuss?"    |
+| `reviews/`   | Weekly and monthly reviews                        | "How am I progressing?"   |
+| `archive/`   | Completed or paused projects                      | "What's done?"            |
 
 When unsure which folder, ask the user.
 
@@ -47,6 +80,7 @@ When beginning a conversation, load relevant files based on the topic:
 - Load `core/*` for conversations about identity, patterns, values
 - Load `ideas/*` for conversations involving personal frameworks/theories
 - Load `context/situation.md` + relevant `goals/*` for practical planning
+- Load `context/history/*` for understanding past context
 - Reference `insights/*` when relevant topics come up
 - Reference `knowledge/*` for general facts on a topic
 - Reference `projects/*` for actionable plans on a topic
@@ -77,24 +111,21 @@ Note names must be unique and unambiguous across all folders.
 
 **Rule:** If the name could appear in two different domains, add a prefix.
 
-## Project Structure
+## Archive (PARA-style)
 
-Projects go in category subfolders:
+The `archive/` folder holds projects that are no longer active but worth preserving:
 
-```
-projects/
-├── software/          # Software projects
-├── goals/             # Life goals
-├── presentations/     # Talks, workshops
-└── content/           # YouTube ideas, articles
-```
+- **Projects** = active, have a deadline or clear next action
+- **Archive** = completed, paused, or abandoned — out of sight but not deleted
 
-**Naming:** `_project-<name>.md` for index files (underscore for Obsidian pinning).
+**When to archive:**
+- Project completed (goal achieved)
+- Project abandoned (no longer relevant)
+- Project paused indefinitely (may resume someday)
 
-When using the **spec** skill:
-- Save specs in `projects/<category>/<name>/`
-- Name the main spec `_project-<name>.md`
-- Save implementation plan alongside as `implementation-plan.md`
+**How to archive:**
+- Move entire folder to `archive/`
+- Wiki links still work (Obsidian resolves by filename)
 
 ---
 
