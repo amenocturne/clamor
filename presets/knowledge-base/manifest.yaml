@@ -4,6 +4,7 @@ skills:
   - transcribe
   - commit-style
   - uv-over-python
+  - graph
 hooks:
   - notification
   - save-conversation

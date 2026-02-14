@@ -8,6 +8,7 @@ You are managing an Obsidian vault with atomic notes following zettelkasten prin
 - **No subtitles?**: Download audio with `uvx yt-dlp -x --audio-format mp3 -o "tmp/%(id)s.%(ext)s" <url>` and use the **transcribe** skill.
 - **No auto memory**: Do not use `~/.claude/projects/*/memory/`. Store all persistent knowledge in this vault.
 - **tmp/ folder**: Scripts output to `tmp/` inside the vault root. This folder is gitignored.
+- **Graph analysis**: Use the **graph** skill with `--exclude=logs,tmp,archive` to analyze the knowledge graph.
 
 ## Action-Specific Instructions
 
