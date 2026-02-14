@@ -3,6 +3,7 @@ skills:
   - knowledge-base
   - youtube
   - transcribe
+  - commit-style
 hooks:
   - notification
   - save-conversation

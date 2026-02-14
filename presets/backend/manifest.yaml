@@ -1,8 +1,0 @@
-description: Backend development
-skills:
-  - spec
-hooks:
-  - link-proxy
-pipelines:
-  - workspace
-external: []

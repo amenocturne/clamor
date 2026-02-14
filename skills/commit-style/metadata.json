@@ -1,0 +1,11 @@
+{
+  "name": "commit-style",
+  "version": "1.0.0",
+  "description": "Commit message conventions",
+  "author": "amenocturne",
+  "keywords": [
+    "git",
+    "commit",
+    "conventions"
+  ]
+}

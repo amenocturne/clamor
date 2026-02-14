@@ -1,8 +1,0 @@
-description: Frontend development (React, Vue, etc.)
-skills:
-  - spec
-hooks: []
-pipelines: []
-external:
-  - vercel-labs/agent-skills#react-best-practices
-  - vercel-labs/agent-skills#web-design-guidelines
