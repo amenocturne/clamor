@@ -16,12 +16,11 @@ Create technical specifications from project ideas.
    - Explore naming ideas if relevant
 
 2. **Determine output location**
-   - Check if `projects/` folder exists → use `projects/<name>/`
-   - Otherwise ask the user where to save
+   - Ask the user where to save the spec files
 
 3. **Create spec files**
 
-   **Main spec** (`spec.md` or `_project-<name>.md`):
+   **Main spec** (`spec.md`):
    - One-line description
    - Core features (bullet list)
    - User flow (numbered steps)

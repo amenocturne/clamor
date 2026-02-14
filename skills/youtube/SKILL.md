@@ -12,20 +12,13 @@ Fetch transcripts from YouTube videos.
 
 ## Usage
 
-When user provides a YouTube URL:
+When user provides a YouTube URL, download the transcript:
 
-1. Download transcript:
-   ```bash
-   uv run scripts/yt-subs.py <url> --output=tmp/<video_id>.txt
-   ```
-   The `tmp/` folder is relative to the project root.
+```bash
+uv run scripts/yt-subs.py <url> --output=tmp/<video_id>.txt
+```
 
-2. Create source note with `{{transcript}}` placeholder (don't paste content)
-
-3. Inject transcript into source note:
-   ```bash
-   uv run scripts/inject-transcript.py sources/youtube/<note-name>.md
-   ```
+The `tmp/` folder is relative to the project root.
 
 ## Scripts
 
@@ -41,8 +34,10 @@ yt-subs.py <url> [--output=PATH] [--lang=LANG] [--raw]
 
 ### inject-transcript.py
 
+Injects a previously downloaded transcript into a note that contains a `{{transcript}}` placeholder.
+
 ```
-inject-transcript.py <source-note> [--keep]
+inject-transcript.py <note-path> [--keep]
 ```
 
 - Reads source URL from note's frontmatter
@@ -50,12 +45,7 @@ inject-transcript.py <source-note> [--keep]
 - Replaces `{{transcript}}` placeholder with formatted content
 - Deletes tmp file (unless `--keep`)
 
-## No Subtitles Available?
-
-If no captions exist, use the **transcribe** skill to transcribe from audio instead.
-
 ## Important
 
 - Do NOT use WebFetch for YouTube URLs
-- Do NOT paste transcripts manually — use inject-transcript.py
 - Language codes can be chained: `--lang=en,ru`

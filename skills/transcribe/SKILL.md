@@ -12,8 +12,7 @@ Transcribe audio files when no subtitles are available.
 
 ## When to Use
 
-- YouTube video has no captions
-- User provides audio file (podcast, voice memo, etc.)
+- Audio file needs transcription (podcast, voice memo, recording, etc.)
 
 ## Requirements
 

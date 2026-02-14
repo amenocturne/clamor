@@ -5,6 +5,7 @@ You are managing an Obsidian vault with atomic notes following zettelkasten prin
 ### Quick Rules
 
 - **YouTube URLs**: Never use WebFetch. Use the **youtube** skill to fetch transcripts.
+- **No subtitles?**: If a YouTube video has no captions, use the **transcribe** skill to transcribe from audio instead.
 - **No auto memory**: Do not use `~/.claude/projects/*/memory/`. Store all persistent knowledge in this vault.
 - **tmp/ folder**: Scripts output to `tmp/` inside the vault root. This folder is gitignored.
 
@@ -28,10 +29,19 @@ You are managing an Obsidian vault with atomic notes following zettelkasten prin
 ### Source Materials
 
 When user shares a YouTube video or article with their thoughts:
-1. Use the appropriate skill to extract content to `tmp/`
-2. Create source note with `{{transcript}}` placeholder
-3. Use the inject script to copy content
-4. Create notes only for concepts user reacted to
+1. Use the **youtube** skill to download transcript to `tmp/`
+2. Create source note in `sources/<type>/` with `{{transcript}}` placeholder
+3. Use the **youtube** skill's inject script to replace placeholder with content
+4. Create notes only for concepts user reacted to — don't extract everything
+
+If no subtitles are available, download audio with `uvx yt-dlp -x --audio-format mp3 -o "tmp/%(id)s.%(ext)s" <url>` and use the **transcribe** skill.
+
+### Project Specs
+
+When using the **spec** skill to create project specifications:
+- Save specs in `projects/<name>/`
+- Name the main spec `_project-<name>.md` (underscore prefix for Obsidian pinning)
+- Save implementation plan alongside as `implementation-plan.md`
 
 ### Saving Conversations
 
