@@ -24,16 +24,17 @@ Each project gets its own folder:
 
 ```
 projects/goals/music-theory/
-├── _project-music-theory.md  # Overview, goal, core insight
-├── skills.md                 # Techniques/exercises (optional)
-├── schedule.md               # Routines (optional)
-└── resources.md              # Tools, links (optional)
+├── _project-music-theory.md      # Overview, goal, core insight
+├── skills-music-theory.md        # Techniques/exercises (optional)
+├── schedule-music-theory.md      # Routines (optional)
+└── resources-music-theory.md     # Tools, links (optional)
 ```
 
 ## Naming Convention
 
 - Index file: `_project-<name>.md` (underscore for Obsidian pinning)
-- Never use generic `index.md` — causes link collisions
+- Support files: `<type>-<project-name>.md` (e.g., `background-music-theory.md`)
+- Never use generic names like `index.md`, `background.md`, `resources.md` — causes link collisions in graph analysis
 
 ## Creating a Project
 
@@ -48,9 +49,9 @@ When user provides a detailed guide to save:
 
 1. **Identify natural split points:**
    - Core problem/insight → `_project-<name>.md`
-   - Skills/exercises → `skills.md`
-   - Schedules/routines → `schedule.md`
-   - Tools/resources → `resources.md`
+   - Skills/exercises → `skills-<name>.md`
+   - Schedules/routines → `schedule-<name>.md`
+   - Tools/resources → `resources-<name>.md`
    - General research findings → extract to `knowledge/`
 
 2. **Keep small guides whole** — don't over-split simple plans
@@ -66,7 +67,7 @@ When using the **spec** skill to create project specifications:
 
 ## Capturing Decision Context
 
-When a conversation involves choosing between approaches, create `background.md` in the project folder. Use template from `.claude/templates/background.md`.
+When a conversation involves choosing between approaches, create `background-<project-name>.md` in the project folder. Use template from `.claude/templates/background.md`.
 
 **When to create:**
 - Multiple options were seriously considered

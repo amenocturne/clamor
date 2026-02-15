@@ -23,8 +23,9 @@ Commands:
     hubs [--alpha]        Show notes with unusually high outgoing links
     ghosts [--alpha]      Show missing notes referenced unusually often
     bridges [N]           Show notes that connect different clusters
+    meta-ideas [N]        Show content notes bridging multiple domains
     suggest [N]           Suggest missing links (notes with shared neighbors)
-    clusters              Show detected communities/clusters
+    clusters [--no-moc]   Show detected communities/clusters
     path <note1> <note2>  Find shortest path between two notes
     weak                  Show fragile notes (only 1 connection)
 """
@@ -491,9 +492,16 @@ def cmd_suggest(vault: Path, top_n: int = 20):
         print(f"      {common_count} shared neighbors\n")
 
 
-def cmd_clusters(vault: Path):
+def cmd_clusters(vault: Path, exclude_mocs: bool = False):
     """Detect and show communities in the graph."""
     G, notes = build_nx_graph(vault)
+
+    # Optionally remove MOC nodes to see organic clustering
+    if exclude_mocs:
+        moc_nodes = [n for n in G.nodes() if n.lower().startswith('moc-')]
+        G = G.copy()
+        G.remove_nodes_from(moc_nodes)
+        print(f"(Excluded {len(moc_nodes)} MOC nodes)\n")
 
     # Remove isolated nodes for better clustering
     G_connected = G.subgraph([n for n in G.nodes() if G.degree(n) > 0]).copy()
@@ -599,6 +607,127 @@ def cmd_weak(vault: Path):
         print(f"  {rel_path:<50} via [[{neighbor}]]")
 
 
+def cmd_meta_ideas(vault: Path, top_n: int = 20):
+    """
+    Find meta-ideas: content notes that bridge multiple knowledge domains.
+
+    Uses participation coefficient - measures how evenly a node's connections
+    are distributed across different communities. High coefficient means
+    the note connects multiple clusters rather than being embedded in just one.
+    """
+    G, notes = build_nx_graph(vault)
+
+    # Remove isolated nodes
+    G_connected = G.subgraph([n for n in G.nodes() if G.degree(n) > 0]).copy()
+
+    if len(G_connected) < 3:
+        print("Not enough connected notes to analyze")
+        return
+
+    # Detect communities
+    try:
+        communities = nx.community.louvain_communities(G_connected, seed=42)
+    except AttributeError:
+        communities = list(nx.community.greedy_modularity_communities(G_connected))
+
+    # Build node -> community mapping
+    node_to_community: dict[str, int] = {}
+    for i, community in enumerate(communities):
+        for node in community:
+            node_to_community[node] = i
+
+    num_communities = len(communities)
+
+    # Calculate participation coefficient for each node
+    # P_i = 1 - sum((k_is / k_i)^2) for all communities s
+    # where k_is = edges from node i to community s, k_i = total degree
+    participation: dict[str, float] = {}
+    community_connections: dict[str, dict[int, int]] = {}  # node -> {community: count}
+
+    for node in G_connected.nodes():
+        degree = G_connected.degree(node)
+        if degree < 2:  # Need at least 2 connections for meaningful participation
+            continue
+
+        # Count connections to each community
+        comm_counts: dict[int, int] = defaultdict(int)
+        for neighbor in G_connected.neighbors(node):
+            neighbor_comm = node_to_community[neighbor]
+            comm_counts[neighbor_comm] += 1
+
+        community_connections[node] = dict(comm_counts)
+
+        # Calculate participation coefficient
+        # P = 1 - sum((k_s/k)^2)
+        # P = 0 means all connections in one community
+        # P approaches 1 means connections spread evenly across all communities
+        sum_squared = sum((count / degree) ** 2 for count in comm_counts.values())
+        p = 1 - sum_squared
+
+        # Only include if connected to multiple communities
+        if len(comm_counts) > 1:
+            participation[node] = p
+
+    if not participation:
+        print("No cross-domain notes found")
+        return
+
+    # Filter out MOCs and other index-style notes
+    def is_index_note(name: str) -> bool:
+        lower = name.lower()
+        return (
+            lower.startswith('moc-') or
+            lower.startswith('_') or
+            lower.endswith('-index') or
+            lower == 'index'
+        )
+
+    # Calculate composite score: participation * (num_communities - 1)
+    # This rewards both even distribution AND connecting many communities
+    composite_scores = {}
+    for name, p_coeff in participation.items():
+        if is_index_note(name):
+            continue
+        num_comms = len(community_connections.get(name, {}))
+        # Score = participation * community_factor
+        # community_factor grows with more communities connected
+        composite_scores[name] = p_coeff * (num_comms - 1)
+
+    # Sort by composite score (descending)
+    sorted_nodes = sorted(
+        [(name, composite_scores[name]) for name in composite_scores],
+        key=lambda x: (-x[1], x[0])
+    )[:top_n]
+
+    if not sorted_nodes:
+        print("No meta-ideas found (only MOCs bridge communities)")
+        return
+
+    print(f"Meta-ideas (content notes bridging multiple domains):\n")
+    print(f"{'Note':<50} {'Score':<7} {'P.coef':<7} {'Clusters'}")
+    print("-" * 80)
+
+    for name, score in sorted_nodes:
+        rel_path = str(notes[name].relative_to(vault))
+        comm_info = community_connections.get(name, {})
+        num_comms = len(comm_info)
+        p_coeff = participation[name]
+
+        # Get community hubs for context
+        connected_comms = sorted(comm_info.keys(), key=lambda c: -comm_info[c])[:4]
+        comm_hubs = []
+        for c in connected_comms:
+            # Find the hub (most connected node) of this community
+            comm_nodes = list(communities[c])
+            subgraph = G_connected.subgraph(comm_nodes)
+            hub = max(comm_nodes, key=lambda n: subgraph.degree(n))
+            comm_hubs.append(hub)
+
+        print(f"  {rel_path:<48} {score:.2f}    {p_coeff:.2f}    {num_comms}")
+        print(f"      bridges: {', '.join(f'[[{h}]]' for h in comm_hubs)}")
+        print()
+
+
 def main():
     global EXCLUDED_FOLDERS
 
@@ -666,6 +795,12 @@ def main():
             top_n = int(args[1])
         cmd_bridges(vault, top_n)
 
+    elif cmd == 'meta-ideas':
+        top_n = 20
+        if len(args) >= 2 and args[1].isdigit():
+            top_n = int(args[1])
+        cmd_meta_ideas(vault, top_n)
+
     elif cmd == 'suggest':
         top_n = 20
         if len(args) >= 2 and args[1].isdigit():
@@ -673,7 +808,8 @@ def main():
         cmd_suggest(vault, top_n)
 
     elif cmd == 'clusters':
-        cmd_clusters(vault)
+        exclude_mocs = '--no-moc' in args
+        cmd_clusters(vault, exclude_mocs)
 
     elif cmd == 'path' and len(args) >= 3:
         cmd_path(vault, args[1], args[2])

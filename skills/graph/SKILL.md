@@ -44,6 +44,7 @@ uv run scripts/wikilinks.py [--exclude=FOLDERS] <command> [args]
 | `hubs [--alpha]` | Notes with unusually high outgoing links |
 | `ghosts [--alpha]` | Missing notes referenced unusually often |
 | `bridges [N]` | Notes that connect different clusters (high betweenness) |
+| `meta-ideas [N]` | Content notes bridging multiple domains (participation coefficient) |
 | `weak` | Fragile notes with only 1 connection |
 
 ### Discovery
@@ -77,8 +78,11 @@ uv run scripts/wikilinks.py orphans
 # See which concepts are most referenced
 uv run scripts/wikilinks.py popular
 
-# Find notes that bridge different topic clusters
+# Find notes that bridge different topic clusters (includes MOCs)
 uv run scripts/wikilinks.py bridges
+
+# Find meta-ideas: content notes that connect multiple domains (excludes MOCs)
+uv run scripts/wikilinks.py meta-ideas
 
 # Discover potential links between related notes
 uv run scripts/wikilinks.py suggest 10
