@@ -27,7 +27,14 @@ if __name__ == "__main__":
         data = {}
 
     event = data.get("hook_event_name", "")
+    notification_type = data.get("notification_type", "")
+
     if event == "Notification":
-        notify("Claude needs your input")
-    else:
+        if notification_type == "permission_prompt":
+            notify("Permission required")
+        elif notification_type == "idle_prompt":
+            notify("Waiting for your input")
+        else:
+            notify("Claude needs your input")
+    elif event == "Stop":
         notify("Session complete")

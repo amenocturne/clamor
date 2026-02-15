@@ -5,7 +5,10 @@ Send system notifications for Claude Code events.
 ## Events
 
 - **Stop** — "Session complete" when conversation ends
-- **Notification** — "Claude needs your input" when Claude is waiting
+- **Notification** — triggered when Claude needs user input:
+  - `permission_prompt` — "Permission required" (tool approval needed)
+  - `idle_prompt` — "Waiting for your input" (idle for 60+ seconds)
+  - Other — "Claude needs your input"
 
 ## Setup
 
