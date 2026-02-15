@@ -4,14 +4,22 @@
 
 **Default action:** When ANY end signal is detected, ALWAYS propose a save plan. Don't just summarize or say goodbye — saving is the default, not optional.
 
-## Step 1: Explore Existing Notes
+## Step 1: Review Todo List
 
-First, understand what already exists:
+The todo list contains save-worthy items accumulated during the conversation. Use it as a reference to ensure nothing is forgotten.
+
+Note: Items don't map 1:1 to notes — some may merge into a single concept, others may split into several notes. Decide the structure based on atomic note principles.
+
+If the todo list is empty or sparse, mentally review the conversation for save-worthy content.
+
+## Step 2: Explore Existing Notes
+
+Understand what already exists:
 - Search `knowledge/`, `insights/`, `ideas/`, `core/` for related content
 - Check for notes that already cover discussed concepts
 - Note similar names to avoid collisions
 
-## Step 2: Propose a Save Plan (REQUIRED)
+## Step 3: Propose a Save Plan (REQUIRED)
 
 Present a concise plan for user approval. Use this format:
 
@@ -42,7 +50,7 @@ Proceed?
 - No lengthy explanations — user can ask for details
 - Wait for user confirmation before creating anything
 
-## Step 3: Create Atomic Notes
+## Step 4: Create Atomic Notes
 
 After user approves, create notes:
 
@@ -60,18 +68,18 @@ Before writing any note:
 2. **Check links before writing.** Verify `[[wikilink]]` targets exist or match what you're creating.
 3. **Calibrate length.** Read an existing note if available. If your draft is 2x+ longer, split it.
 
-## Step 4: Create Conversation Summary
+## Step 5: Create Conversation Summary
 
 Save to `logs/YYYY-MM-DD/_Topic.md` using `.claude/templates/summary.md`.
 
 The summary should **link to the notes created** instead of repeating content.
 
-## Step 5: Update Knowledge Graph
+## Step 6: Update Knowledge Graph
 
 - Add backlinks to existing notes where the new content is relevant
 - Update MOCs if they exist
 
-## Step 6: Consider Context Updates
+## Step 7: Consider Context Updates
 
 Check if conversation affects context files (see `context.md` for details):
 

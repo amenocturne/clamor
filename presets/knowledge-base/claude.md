@@ -10,6 +10,16 @@ You are managing an Obsidian vault with atomic notes following zettelkasten prin
 - **tmp/ folder**: Scripts output to `tmp/` inside the vault root. This folder is gitignored.
 - **Graph analysis**: Use the **graph** skill with `--exclude=logs,tmp,archive` to analyze the knowledge graph.
 
+## Tracking Save-worthy Items
+
+Use the TodoWrite tool to maintain a running list of things worth saving throughout the conversation. This is a scratchpad — not a structured plan.
+
+**What to track:** Anything that might be worth saving later — insights, decisions, interesting ideas, realizations, new information. Don't worry about categorization or structure yet.
+
+**Update frequency:** After each substantive exchange, review and update the list — add new items, consolidate duplicates, refine descriptions.
+
+**At save time:** Use this list as a reference to ensure nothing is forgotten. The items don't map 1:1 to notes — some may merge into a single concept, others may split into several notes. The structure emerges during save planning (see @.claude/instructions/saving.md).
+
 ## Action-Specific Instructions
 
 Before performing these actions, read the corresponding instruction file:
