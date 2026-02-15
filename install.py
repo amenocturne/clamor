@@ -49,12 +49,39 @@ def load_hook_config(hook_name: str, hook_dir: Path) -> dict:
     return json.loads(content)
 
 
+def get_hook_key(hook_entry: dict) -> str | None:
+    """Extract unique identifier from a hook entry (the command path)."""
+    hooks_list = hook_entry.get("hooks", [])
+    if hooks_list and "command" in hooks_list[0]:
+        return hooks_list[0]["command"]
+    return None
+
+
 def merge_hooks(base: dict, new: dict) -> dict:
-    """Merge hook configurations, combining arrays for each hook type."""
-    for hook_type, hooks in new.items():
+    """Merge hook configurations, deduplicating and overriding existing hooks."""
+    for hook_type, new_hooks in new.items():
         if hook_type not in base:
             base[hook_type] = []
-        base[hook_type].extend(hooks)
+
+        # Build index of existing hooks by their command
+        existing_by_key = {}
+        for i, hook_entry in enumerate(base[hook_type]):
+            key = get_hook_key(hook_entry)
+            if key:
+                existing_by_key[key] = i
+
+        # Add or replace hooks
+        for new_hook in new_hooks:
+            key = get_hook_key(new_hook)
+            if key and key in existing_by_key:
+                # Replace existing hook with new version
+                base[hook_type][existing_by_key[key]] = new_hook
+            else:
+                # Add new hook
+                base[hook_type].append(new_hook)
+                if key:
+                    existing_by_key[key] = len(base[hook_type]) - 1
+
     return base
 
 
