@@ -1,0 +1,7 @@
+{
+  "name": "orchestrator",
+  "description": "Multi-agent orchestration mode. Use when user explicitly asks to orchestrate, delegate, or run a long session. Produces coordinated work across subagents with incremental commits and comprehensive wrap-up.",
+  "author": "amenocturne",
+  "version": "1.0.0",
+  "tags": ["workflow", "subagents", "delegation", "orchestration"]
+}
