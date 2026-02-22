@@ -37,6 +37,9 @@ Present a concise plan for user approval. Use this format:
 - `context/history/2024-03-career-change.md` — add new event
 - `context/goals/YYYY-MM.md` — mark goal complete
 
+**Source notes to create:** (if research involved)
+- `sources/articles/source-name.md` — authoritative reference worth revisiting
+
 **Log:** `logs/YYYY-MM-DD/_topic.md`
 
 **Skip:** [brief reason if skipping anything discussed]
@@ -97,6 +100,7 @@ If updates needed, include them in the save plan.
 - Decisions with rationale
 - Synthesized knowledge from research
 - Frameworks or models developed
+- Primary sources from research (authoritative references, foundational articles/papers)
 
 **Skip:**
 - Trivial Q&A exchanges
