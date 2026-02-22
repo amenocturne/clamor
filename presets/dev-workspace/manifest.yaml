@@ -1,0 +1,24 @@
+description: Multi-project development workspace with language-specific guidance
+skills:
+  - commit-style
+  - spec
+  - uv-over-python
+  - workspace
+  - documentation
+  - agentic-kit
+  - orchestrator
+  - brainstorm
+  - idea-roaster
+  - frontend-design
+  - playwright
+  - python
+  - rust
+  - haskell
+  - scala
+  - config
+  - project-setup
+hooks:
+  - notification
+pipelines: []
+external:
+  - github.com/anthropics/skills/skill-creator
