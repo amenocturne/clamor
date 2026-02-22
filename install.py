@@ -90,7 +90,19 @@ def load_existing_settings(target: Path) -> dict:
     settings_path = target / ".claude" / "settings.json"
     if settings_path.exists():
         return json.loads(settings_path.read_text())
-    return {"hooks": {}}
+    return {"hooks": {}, "permissions": {}}
+
+
+def merge_permissions(existing: dict, new: dict):
+    """Merge permissions from preset into existing permissions."""
+    for key in ["allow", "deny"]:
+        if key in new:
+            if key not in existing:
+                existing[key] = []
+            # Add new permissions, avoiding duplicates
+            for perm in new[key]:
+                if perm not in existing[key]:
+                    existing[key].append(perm)
 
 
 def merge_settings(preset: str, target: Path) -> dict:
@@ -103,6 +115,11 @@ def merge_settings(preset: str, target: Path) -> dict:
     if settings_path.exists():
         settings = json.loads(settings_path.read_text())
         merge_hooks(merged["hooks"], settings.get("hooks", {}))
+        # Merge permissions
+        if "permissions" in settings:
+            if "permissions" not in merged:
+                merged["permissions"] = {}
+            merge_permissions(merged["permissions"], settings["permissions"])
     return merged
 
 
@@ -124,7 +141,29 @@ def resolve_dependencies(components: dict) -> dict:
     return components
 
 
-def install(preset: str, target: Path):
+def update_config(target: Path, knowledge_base: Path | None = None):
+    """Create or update .claude/agentic-kit.json with paths."""
+    config_path = target / ".claude" / "agentic-kit.json"
+
+    # Load existing config or start fresh
+    if config_path.exists():
+        config = json.loads(config_path.read_text())
+    else:
+        config = {}
+
+    # Always update agentic_kit path (detected from this script's location)
+    config["agentic_kit"] = str(REPO_ROOT)
+
+    # Update knowledge_base if provided
+    if knowledge_base:
+        config["knowledge_base"] = str(knowledge_base.expanduser().resolve())
+
+    # Write config
+    config_path.write_text(json.dumps(config, indent=2))
+    return config
+
+
+def install(preset: str, target: Path, knowledge_base: Path | None = None):
     """Main installation logic."""
     console.print(f"[bold]Installing preset:[/bold] {preset}")
 
@@ -145,6 +184,13 @@ def install(preset: str, target: Path):
 
     (target_claude / "settings.json").write_text(json.dumps(settings, indent=2))
     console.print("  [green]✓[/green] .claude/settings.json")
+
+    # Create/update agentic-kit.json with paths
+    config = update_config(target, knowledge_base)
+    console.print("  [green]✓[/green] .claude/agentic-kit.json")
+    console.print(f"      agentic_kit: {config.get('agentic_kit', 'not set')}")
+    if config.get("knowledge_base"):
+        console.print(f"      knowledge_base: {config['knowledge_base']}")
 
     # Symlink .claude/CLAUDE.md (preset instructions)
     # Root CLAUDE.md is left for user's project-specific instructions
@@ -237,6 +283,11 @@ def main():
         "--target", type=Path, default=Path.cwd(), help="Target directory"
     )
     parser.add_argument("--list", action="store_true", help="List available presets")
+    parser.add_argument(
+        "--knowledge-base",
+        type=Path,
+        help="Path to knowledge base (Obsidian vault) for integration",
+    )
     args = parser.parse_args()
 
     if args.list:
@@ -261,7 +312,7 @@ def main():
             console.print("[red]Invalid selection[/red]")
             return
 
-    install(preset, args.target)
+    install(preset, args.target, args.knowledge_base)
 
 
 if __name__ == "__main__":

@@ -10,8 +10,8 @@ install:
     uv run install.py
 
 # Install preset to a target directory
-install-to target preset:
-    uv run install.py --preset {{ preset }} --target {{ target }}
+install-to target preset kb="":
+    uv run install.py --preset {{ preset }} --target {{ target }} {{ if kb != "" { "--knowledge-base " + kb } else { "" } }}
 
 # List available presets
 list:
