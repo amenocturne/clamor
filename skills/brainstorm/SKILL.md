@@ -1,6 +1,6 @@
 ---
 name: brainstorm
-description: Creative exploration for vague ideas. Use when user has a general concept but doesn't know what they want yet, or wants to discover unconventional approaches. Produces diverse options including experimental and niche solutions.
+description: Creative exploration for vague ideas. Use when user has a general concept but doesn't know what they want yet, wants to explore options, or discover unconventional approaches. Triggers on "brainstorm", "explore options", "what are my options", "I'm not sure what I want", "let's think about", "ideas for".
 author: amenocturne
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: project-setup
-description: Project scaffolding patterns. Use when creating new projects. Provides templates for justfile, CLAUDE.md, gitignore, and proper structure.
+description: Project scaffolding patterns. Use when creating new projects, initializing repos, or setting up project structure. Triggers on "new project", "create project", "scaffold", "initialize project", "project setup", "start a new".
 author: amenocturne
 ---
 

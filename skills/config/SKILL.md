@@ -1,6 +1,6 @@
 ---
 name: config
-description: Configuration and infrastructure patterns. Use when working with Ansible, Docker, or YAML-heavy projects. Provides deployment workflows and security practices.
+description: Configuration and infrastructure patterns. Use when working with Ansible, Docker, YAML configs, server setup, deployment, or infrastructure code. Triggers on "ansible", "docker", "deployment", "server config", "infrastructure", "devops", "compose".
 author: amenocturne
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: playwright
-description: Browser automation and testing. Use when user wants to test a web app, take screenshots, debug UI behavior, or write frontend tests. Supports both quick ad-hoc checks and full test suites.
+description: Browser automation and testing. Use when user wants to test a web app, take screenshots, debug UI, write e2e tests, or automate browser tasks. Triggers on "playwright", "e2e test", "browser test", "screenshot", "visual test", "test the UI", "selenium" (as alternative).
 author: amenocturne
 ---
 

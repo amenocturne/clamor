@@ -1,6 +1,6 @@
 ---
 name: documentation
-description: Project documentation guidelines. Use before committing features that change commands, architecture, or behavior. Produces clean, non-redundant docs that don't duplicate what already exists in code and config.
+description: Project documentation guidelines. Use before committing features that change commands, architecture, or behavior. Also use when writing or updating docs, README, or CLAUDE.md. Triggers on "update docs", "write documentation", "document this", "update README".
 author: amenocturne
 ---
 

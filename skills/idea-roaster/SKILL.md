@@ -1,6 +1,6 @@
 ---
 name: idea-roaster
-description: Rigorous critical evaluation of ideas and arguments. Use when user wants to stress-test a concept, find flaws in reasoning, or validate an argument before committing to it. Produces honest analysis that challenges weak points while acknowledging genuine strengths.
+description: Rigorous critical evaluation of ideas and arguments. Use when user wants to stress-test a concept, find flaws in reasoning, critique an idea, or validate an argument. Triggers on "critique", "roast this", "find flaws", "stress-test", "does this make sense", "review my argument", "devil's advocate".
 author: amenocturne
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: python
-description: Python development patterns. Use when working on Python projects. Ensures consistent use of uv, ruff, type hints, and functional style.
+description: Python development patterns. Use when working on Python projects or writing Python code. Triggers on ".py files", "python project", "pytest", "pyproject.toml", working in a project with tech:[python].
 author: amenocturne
 ---
 

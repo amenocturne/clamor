@@ -1,6 +1,6 @@
 ---
 name: haskell
-description: Haskell development patterns. Use when working on Haskell projects. Provides cabal workflows, type-driven design, and functional idioms.
+description: Haskell development patterns. Use when working on Haskell projects or writing Haskell code. Triggers on ".hs files", "cabal", "haskell project", "ghc", "hspec", working in a project with tech:[haskell].
 author: amenocturne
 ---
 

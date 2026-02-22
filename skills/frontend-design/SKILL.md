@@ -1,6 +1,6 @@
 ---
 name: frontend-design
-description: Frontend development with TypeScript, Snabbdom, and Elm Architecture. Use when building web UI, designing pages, or working on frontend code. Provides opinionated design system and functional patterns.
+description: Frontend development with TypeScript, Snabbdom, and Elm Architecture. Use when building web UI, designing pages, discussing website design, planning UI/UX, or working on frontend code. Triggers on "frontend", "website design", "UI design", "page layout", "web app design", "design the frontend".
 author: amenocturne
 ---
 

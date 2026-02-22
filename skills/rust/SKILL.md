@@ -1,6 +1,6 @@
 ---
 name: rust
-description: Rust development patterns. Use when working on Rust projects. Provides cargo workflows, error handling, and functional idioms.
+description: Rust development patterns. Use when working on Rust projects or writing Rust code. Triggers on ".rs files", "cargo", "rust project", "Cargo.toml", working in a project with tech:[rust].
 author: amenocturne
 ---
 

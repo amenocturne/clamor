@@ -9,12 +9,12 @@ import subprocess
 import sys
 
 
-def notify(message: str, title: str = "Claude Code"):
-    """Send system notification."""
+def notify(message: str, title: str = "Claude Code", sound: str = "Tink"):
+    """Send system notification with sound."""
     if sys.platform == "darwin":
         subprocess.run([
             "osascript", "-e",
-            f'display notification "{message}" with title "{title}"'
+            f'display notification "{message}" with title "{title}" sound name "{sound}"'
         ])
     elif sys.platform == "linux":
         subprocess.run(["notify-send", title, message])

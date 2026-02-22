@@ -1,6 +1,6 @@
 ---
 name: spec
-description: Technical specification generator. Use when user has a project idea and wants to plan before coding. Produces spec.md with features, tech stack, and data schema, plus implementation-plan.md with MVP scope and task breakdown.
+description: Technical specification generator. Use when user has a project idea and wants to plan before coding, create a spec, or write an implementation plan. Triggers on "write a spec", "create specification", "plan this project", "implementation plan", "design document", "spec.md".
 author: amenocturne
 ---
 

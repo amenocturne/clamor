@@ -1,6 +1,6 @@
 ---
 name: scala
-description: Scala development patterns. Use when working on Scala projects. Provides sbt workflows and functional patterns with cats.
+description: Scala development patterns. Use when working on Scala projects or writing Scala code. Triggers on ".scala files", "sbt", "scala project", "build.sbt", working in a project with tech:[scala].
 author: amenocturne
 ---
 

@@ -16,6 +16,10 @@ Configured automatically via `hooks.json`. Both events are included.
 
 ## Platforms
 
-- **macOS**: Uses `osascript` for native notifications
-- **Linux**: Uses `notify-send` (requires libnotify)
+- **macOS**: Uses `osascript` for native notifications with sound
+- **Linux**: Uses `notify-send` (requires libnotify, no sound)
 - **Windows**: Not yet supported
+
+## Sound
+
+macOS notifications play a subtle "Tink" sound. To customize, edit `hook.py` and change the `sound` parameter in `notify()` calls. Available sounds: `default`, `Glass`, `Ping`, `Pop`, `Purr`, `Sosumi`, `Submarine`, `Blow`, `Bottle`, `Frog`, `Funk`, `Hero`, `Morse`, `Tink`.

@@ -1,6 +1,6 @@
 ---
 name: agentic-kit
-description: Toolkit self-modification. Use when user wants to add or edit skills, update instructions, or change presets in agentic-kit itself. Enables improving the toolkit without switching projects.
+description: Toolkit self-modification. Use when working on agentic-kit itself — modifying skills, hooks, presets, instructions, pipelines, or any toolkit component. Triggers on "agentic-kit", "modify skill", "add hook", "update preset".
 author: amenocturne
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: workspace
-description: Multi-project workspace management. Use when user mentions a project name, wants to switch projects, or needs to refresh the project index. Provides project paths, tech stacks, and commands from WORKSPACE.yaml.
+description: Multi-project workspace management. Use when user mentions a project by name, wants to switch projects, list projects, or refresh the project index. Triggers on "work on [project]", "switch to", "list projects", "refresh workspace", "which projects".
 author: amenocturne
 ---
 
