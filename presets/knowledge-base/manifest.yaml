@@ -5,6 +5,8 @@ skills:
   - commit-style
   - uv-over-python
   - graph
+  - brainstorm
+  - idea-roaster
 hooks:
   - notification
   - save-conversation
