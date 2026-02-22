@@ -1,6 +1,6 @@
 ---
 name: youtube
-description: Fetch YouTube transcripts for processing
+description: YouTube transcript fetcher. Use when user shares a YouTube URL and wants to process or summarize the content. Produces transcript text without needing to watch the video.
 author: amenocturne
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: spec
-description: Create technical specs from project ideas
+description: Technical specification generator. Use when user has a project idea and wants to plan before coding. Produces spec.md with features, tech stack, and data schema, plus implementation-plan.md with MVP scope and task breakdown.
 author: amenocturne
 ---
 

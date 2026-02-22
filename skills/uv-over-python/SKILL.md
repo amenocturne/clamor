@@ -1,6 +1,6 @@
 ---
 name: uv-over-python
-description: Always use uv instead of python/pip
+description: Python execution rules. Use when running Python scripts, installing packages, or managing dependencies. Ensures consistent use of uv instead of raw python/pip commands.
 author: amenocturne
 ---
 

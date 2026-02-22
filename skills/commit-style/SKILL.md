@@ -1,6 +1,6 @@
 ---
 name: commit-style
-description: Commit message conventions
+description: Git commit conventions. Use when creating commits. Produces clean, concise commit messages without boilerplate.
 author: amenocturne
 ---
 

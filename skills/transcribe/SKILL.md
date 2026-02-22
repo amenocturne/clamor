@@ -1,6 +1,6 @@
 ---
 name: transcribe
-description: Transcribe audio files using Whisper (local) or API
+description: Audio transcription. Use when user has audio/video files that need transcription. Produces text transcripts using Whisper locally or via API.
 author: amenocturne
 ---
 

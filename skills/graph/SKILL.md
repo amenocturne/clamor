@@ -1,6 +1,6 @@
 ---
 name: graph
-description: Analyze Obsidian vault link graph
+description: Obsidian vault graph analysis. Use when user wants to analyze note connections, find orphans, or understand vault structure. Produces insights about link patterns and note relationships.
 author: amenocturne
 ---
 
