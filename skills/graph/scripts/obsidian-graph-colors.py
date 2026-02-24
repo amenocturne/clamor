@@ -28,18 +28,18 @@ from pathlib import Path
 
 import networkx as nx
 
-# Predefined color palette (RGB integers for Obsidian)
+# Catppuccin Mocha palette - cohesive colors for dark themes
 COLORS = [
-    {"a": 1, "rgb": 6333946},   # Blue
-    {"a": 1, "rgb": 10182117},  # Purple
-    {"a": 1, "rgb": 16638023},  # Yellow
-    {"a": 1, "rgb": 16089216},  # Orange
-    {"a": 1, "rgb": 4906624},   # Green
-    {"a": 1, "rgb": 16737280},  # Red-Orange
-    {"a": 1, "rgb": 52479},     # Cyan
-    {"a": 1, "rgb": 16711935},  # Magenta
-    {"a": 1, "rgb": 8388608},   # Maroon
-    {"a": 1, "rgb": 32896},     # Teal
+    {"a": 1, "rgb": 9024762},   # Blue #89B4FA
+    {"a": 1, "rgb": 13346551},  # Mauve #CBA6F7
+    {"a": 1, "rgb": 16429959},  # Peach #FAB387
+    {"a": 1, "rgb": 10937249},  # Green #A6E3A1
+    {"a": 1, "rgb": 9757397},   # Teal #94E2D5
+    {"a": 1, "rgb": 15442092},  # Maroon #EBA0AC
+    {"a": 1, "rgb": 16376495},  # Yellow #F9E2AF
+    {"a": 1, "rgb": 7653356},   # Sapphire #74C7EC
+    {"a": 1, "rgb": 16106215},  # Pink #F5C2E7
+    {"a": 1, "rgb": 11845374},  # Lavender #B4BEFE
 ]
 
 # Match [[target]] or [[target|display]] etc.
@@ -162,8 +162,9 @@ def get_cluster_label(G: nx.Graph, cluster: set[str]) -> str:
 
 def generate_query(anchors: list[str]) -> str:
     """Generate Obsidian graph query from anchor notes."""
-    # Use line:([[note]]) syntax to match notes that link to anchors
-    parts = [f'line:([[{anchor}]])' for anchor in anchors]
+    # Use line:("[[note]]") syntax to match notes that link to anchors
+    # Brackets must be quoted as they are reserved search characters
+    parts = [f'line:("[[{anchor}]]")' for anchor in anchors]
     return ' OR '.join(parts)
 
 
