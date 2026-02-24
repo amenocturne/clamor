@@ -8,6 +8,7 @@ skills:
   - brainstorm
   - idea-roaster
   - crazy
+  - orchestrator
 hooks:
   - notification
   - save-conversation
