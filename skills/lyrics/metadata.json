@@ -1,0 +1,14 @@
+{
+  "name": "lyrics",
+  "version": "1.0.0",
+  "description": "Fetch song lyrics from Genius",
+  "abstract": "Downloads lyrics for songs and albums from Genius. Supports searching by artist and song name, fetching artist discographies, and batch downloading album tracks.",
+  "author": "amenocturne",
+  "repository": "https://github.com/amenocturne/agent-kit",
+  "keywords": [
+    "lyrics",
+    "genius",
+    "music",
+    "songs"
+  ]
+}
