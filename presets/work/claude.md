@@ -1,92 +1,68 @@
 # Work Workspace
 
-Work development workspace focused on Scala and infrastructure. Run Claude from this directory and specify which project to work on.
+Scala and infrastructure focused workspace.
 
 ## Skills
 
-**Proactively use skills whenever relevant.** Skills enhance understanding and provide domain-specific patterns. Before starting a task, check if any available skill matches the context — invoke it immediately as your first action. Don't just work on a task when a skill could provide better guidance.
+Proactively use skills whenever relevant. Before starting a task, check if any available skill matches the context — invoke it immediately as your first action.
 
 ## Project Index
 
-**WORKSPACE.yaml** contains all projects with their paths, tech stacks, and commands. Check it when:
+**WORKSPACE.yaml** contains all projects with paths, tech stacks, and commands. Check it when:
 - User mentions a project name → find path and tech stack
-- Need to run commands → use project-specific commands from the index
-- Starting work → load the project's context
+- Need to run commands → use project-specific commands
+- Starting work → load project context
 
 ## Configuration
 
-Check `.claude/agentic-kit.json` for workspace-specific paths:
-```json
-{
-  "knowledge_base": "/path/to/obsidian/vault",
-  "agentic_kit": "/path/to/agentic-kit"
-}
-```
+Read `.claude/agentic-kit.json` for workspace paths:
+- `knowledge_base` — path to Obsidian vault
+- `agentic_kit` — path to agentic-kit
 
-If not configured, ask the user or skip knowledge base integration.
+If not configured, ask or skip knowledge base integration.
 
 ## Working on a Project
 
-When user says "work on X" or mentions a project:
+When user mentions a project:
+1. Find it in WORKSPACE.yaml
+2. Load `<project>/CLAUDE.md` if exists
+3. Check `{knowledge_base}/projects/` for project notes
 
-1. **Find project** in WORKSPACE.yaml by name or path
-2. **Load project CLAUDE.md** if it exists (`<project>/CLAUDE.md`)
-3. **Check knowledge base** for project notes (if configured) at `{knowledge_base}/projects/`
+Run commands from project directory, not workspace root.
 
-Run all commands from the project directory, not workspace root.
+## Knowledge Base
 
-Language-specific skills (scala, config) will trigger automatically based on the work being done.
+When `knowledge_base` is configured:
+- Check for project notes with context, goals, decisions
+- Update notes when significant decisions are made
 
-## Knowledge Base Integration
+## Commands
 
-If `knowledge_base` is configured in `.claude/agentic-kit.json`, project ideas and plans live there. When working on a project:
-- Check if there's a matching project note with context, goals, or decisions
-- Update project notes when significant decisions are made
-- Use the knowledge base for design inspiration references
-
-## Universal Rules
-
-### Commands
-- Always use `just` for command aliases when available
+- Use `just` for command aliases when available
 - Run `just` (no args) to see available commands
-- Never run raw `python` — use `uv run` instead
+- Never run raw `python` — use `uv run`
 
-Standard command names across projects:
-- `just run` — run the project (optionally: `just run prod`)
-- `just setup` — initial setup / install dependencies
-- `just test` — run tests
-- `just lint` / `just fmt` — code quality
-- `just build` — compile/bundle
-- `just clean` / `just reset` — cleanup
+## Code Style
 
-### Code Style
-- **Functional programming**: Pure functions, no classes, no `this`
-- **Immutability**: Use `const`, spread operators, `readonly` in types
-- **Side effects at boundaries**: IO operations only at entry points (CLI, server handlers)
-- **No over-engineering**: Solve the current problem, not hypothetical future ones
+- Functional: pure functions, no classes
+- Immutable: `const`, spread operators, `readonly`
+- Side effects at boundaries only
+- No over-engineering
 
-### Comments
-Only meaningful comments that add value:
-- **Good**: Why something is done a certain way, complex flow explanations, non-obvious tradeoffs
-- **Bad**: What the code does (code is self-documenting), change history (that's git), TODO/FIXME
+## Comments
 
-```scala
-// Bad: "increment counter by 1"
-// Bad: "fixed bug #123"
-// Good: "Using median instead of mean to handle outliers in sensor data"
-// Good: "Retry logic needed because API returns 503 during deployments"
-```
+Only add comments explaining why, not what. No TODO/FIXME.
 
-### Quality
-- Run tests and linter after changes: `just test && just lint` or equivalent
-- Never consider a task complete until both pass
-- Fix issues immediately, don't leave broken code
+## Quality
 
-### Git
-Commit message format: `ITAL-1234 | app | Message`
-- `ITAL-1234` — task number from tracker
-- `app` — affected component(s): app name, `docs`, or multiple comma-separated
-- Message — concise description (Russian or English)
+Run `just test && just lint` after changes. Fix issues immediately.
+
+## Git
+
+Format: `ITAL-1234 | app | Message`
+- `ITAL-1234` — task number
+- `app` — component(s): app name, `docs`, multiple comma-separated
+- Message — concise (Russian or English)
 
 Examples:
 ```
@@ -94,9 +70,3 @@ ITAL-1234 | autobroker | Добавили новый клиент для tcrm
 ITAL-5678 | autobroker, docs | Обновили API и документацию
 ITAL-9012 | infra | Fix deployment config for staging
 ```
-
-### Documentation
-- **CLAUDE.md**: Commands, architecture, key patterns (AI context)
-- **README.md**: Setup + overview (human context)
-- Update docs before committing features
-- Keep high-level — code is the source of truth for details
