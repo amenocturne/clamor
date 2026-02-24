@@ -83,9 +83,17 @@ Only meaningful comments that add value:
 - Fix issues immediately, don't leave broken code
 
 ### Git
-- Concise commit messages (1-2 sentences)
-- Focus on "why" not "what"
-- No emoji prefixes, no Co-Authored-By lines
+Commit message format: `ITAL-1234 | app | Message`
+- `ITAL-1234` — task number from tracker
+- `app` — affected component(s): app name, `docs`, or multiple comma-separated
+- Message — concise description (Russian or English)
+
+Examples:
+```
+ITAL-1234 | autobroker | Добавили новый клиент для tcrm
+ITAL-5678 | autobroker, docs | Обновили API и документацию
+ITAL-9012 | infra | Fix deployment config for staging
+```
 
 ### Documentation
 - **CLAUDE.md**: Commands, architecture, key patterns (AI context)
