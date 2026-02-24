@@ -28,6 +28,55 @@ Update the source note's "Key Concepts" section to link to created notes.
 - User's reactions guide what to extract — not the source content itself
 - Templates are in `.claude/templates/`
 
+## Music Sources
+
+For music (artists, albums, tracks), use a hierarchical structure in `sources/music/`:
+
+### Naming Pattern
+
+- `artist-<primary-alias>.md` — one note per person, named by most established alias
+- `album-<artist-slug>-<album-slug>.md` — album notes
+- `track-<artist-slug>-<track-slug>.md` — individual track notes
+
+### Artist Notes
+
+For artists with multiple personas/aliases (e.g., Aphex Twin/AFX, Bumble Beezy/кровь из носа):
+- Use **one artist note per person**, named by primary/most-known alias
+- List all aliases in frontmatter
+- Document projects/eras in the body with links to albums
+
+```yaml
+---
+aliases:
+  - Primary Alias
+  - Secondary Alias
+  - Real Name (if relevant)
+type: artist
+---
+```
+
+### Album/Track Notes
+
+- Link to artist note using display text for the releasing alias: `[[artist-primary|releasing-alias]]`
+- Include frontmatter with artist, album, track number
+- Add "About" section with key lines/themes before lyrics
+
+### When to Create Track Notes
+
+Create individual track notes when:
+- The track has personal relevance (resonates with user's experience)
+- Lyrics contain quotable/linkable content
+- Track is standalone single or needs separate reference
+
+For casual references, album notes with tracklist may suffice.
+
+### Fetching Lyrics
+
+Use the **lyrics** skill to fetch lyrics from Genius:
+```bash
+uv run .claude/skills/lyrics/scripts/fetch-lyrics.py --artist "Artist" --song "Song"
+```
+
 ## Source Credibility Assessment
 
 When citing academic sources or research in knowledge notes, proactively check and report:
