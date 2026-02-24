@@ -1,0 +1,17 @@
+description: Work workspace focused on Scala and infrastructure configs
+skills:
+  - commit-style
+  - spec
+  - uv-over-python
+  - workspace
+  - documentation
+  - agentic-kit
+  - orchestrator
+  - brainstorm
+  - scala
+  - config
+hooks:
+  - notification
+  - link-proxy
+pipelines: []
+external: []
