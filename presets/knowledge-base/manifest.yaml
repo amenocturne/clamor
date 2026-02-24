@@ -12,5 +12,6 @@ skills:
 hooks:
   - notification
   - save-conversation
+  - graph-colors
 pipelines: []
 external: []

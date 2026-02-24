@@ -93,3 +93,49 @@ uv run scripts/wikilinks.py path "attention" "productivity"
 # Safe rename with automatic backlink updates
 uv run scripts/wikilinks.py rename knowledge/old-name.md knowledge/new-name.md
 ```
+
+## Obsidian Graph Colors
+
+Auto-generate Obsidian graph color groups based on detected clusters.
+
+```bash
+uv run scripts/obsidian-graph-colors.py [--exclude=FOLDERS] [--dry-run] [--min-cluster=N]
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--exclude=FOLDERS` | Comma-separated folder names to exclude |
+| `--dry-run` | Preview groups without updating graph.json |
+| `--min-cluster=N` | Minimum cluster size to include (default: 5) |
+
+### How It Works
+
+1. Detects clusters using Louvain community detection
+2. For each cluster, identifies "anchor" notes (most connected content notes)
+3. Generates Obsidian queries: `line:([[anchor1]]) OR line:([[anchor2]]) ...`
+4. Updates `.obsidian/graph.json` with color groups
+
+### Examples
+
+```bash
+# Preview what groups would be generated
+uv run scripts/obsidian-graph-colors.py --exclude=logs,tmp,archive --dry-run
+
+# Update graph.json with cluster-based colors
+uv run scripts/obsidian-graph-colors.py --exclude=logs,tmp,archive
+
+# Only include larger clusters (10+ notes)
+uv run scripts/obsidian-graph-colors.py --exclude=logs,tmp,archive --min-cluster=10
+```
+
+### Automation
+
+Use the `graph-colors` hook to auto-update on conversation end:
+
+```yaml
+# In manifest.yaml
+hooks:
+  - graph-colors
+```
