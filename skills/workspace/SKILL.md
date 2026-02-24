@@ -39,7 +39,7 @@ This scans for git repos and detects tech stacks. User should fill in `descripti
 ## Working on a Project
 
 When user mentions a project:
-1. Find it in WORKSPACE.yaml
+1. Read `WORKSPACE.yaml` at the workspace root directly with the Read tool — never spawn an agent just to look up project info.
 2. Load project's CLAUDE.md if exists
 3. Load language instruction based on tech stack
 4. Use commands from WORKSPACE.yaml (format_cmd, test_cmd, etc.)
