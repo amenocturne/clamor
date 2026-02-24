@@ -9,6 +9,7 @@ You are managing an Obsidian vault with atomic notes following zettelkasten prin
 - **No auto memory**: Do not use `~/.claude/projects/*/memory/`. Store all persistent knowledge in this vault.
 - **tmp/ folder**: Scripts output to `tmp/` inside the vault root. This folder is gitignored.
 - **Graph analysis**: Use the **graph** skill with `--exclude=logs,tmp,archive` to analyze the knowledge graph.
+- **Project specs**: Use the **spec** skill to create technical specs. Save to `projects/software/<project-name>/`. Specs are the source of truth passed to dev-workspace for implementation.
 
 ## Tracking Save-worthy Items
 
@@ -29,6 +30,7 @@ Before performing these actions, read the corresponding instruction file:
 - **Saving conversations / wrapping up**: Read @.claude/instructions/saving.md first
 - **Processing sources (articles, videos, podcasts)**: Read @.claude/instructions/sources.md first
 - **Creating or updating projects**: Read @.claude/instructions/projects.md first
+- **Writing technical specs**: Read @.claude/instructions/projects.md first, then use the **spec** skill
 
 ---
 
