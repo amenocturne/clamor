@@ -10,6 +10,7 @@ skills:
   - idea-roaster
   - crazy
   - orchestrator
+  - frontend-design
 hooks:
   - notification
   - save-conversation
