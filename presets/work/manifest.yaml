@@ -1,5 +1,6 @@
 description: Work workspace focused on Scala and infrastructure configs
 skills:
+  - dp-jira
   - commit-style
   - spec
   - uv-over-python

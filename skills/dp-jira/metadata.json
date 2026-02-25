@@ -1,0 +1,7 @@
+{
+  "name": "dp-jira",
+  "description": "Fetch Jira issue details via the dp CLI. Use when working with Jira issue keys like ITAL-1234.",
+  "author": "amenocturne",
+  "version": "1.0.0",
+  "tags": ["jira", "dp", "issues", "tickets", "devplatform"]
+}
