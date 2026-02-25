@@ -159,15 +159,16 @@ def resolve_dependencies(components: dict) -> dict:
     return components
 
 
-def update_config(target: Path, knowledge_base: Path | None = None):
+def update_config(target: Path, preset: str, knowledge_base: Path | None = None):
     """Create or update .claude/agentic-kit.json with paths."""
     config_path = target / ".claude" / "agentic-kit.json"
 
-    # Load existing config or start fresh
     if config_path.exists():
         config = json.loads(config_path.read_text())
     else:
-        config = {}
+        # Bootstrap from preset template if available
+        template_path = PRESETS_DIR / preset / "agentic-kit.template.json"
+        config = json.loads(template_path.read_text()) if template_path.exists() else {}
 
     # Always update agentic_kit path (detected from this script's location)
     config["agentic_kit"] = str(REPO_ROOT)
@@ -176,7 +177,6 @@ def update_config(target: Path, knowledge_base: Path | None = None):
     if knowledge_base:
         config["knowledge_base"] = str(knowledge_base.expanduser().resolve())
 
-    # Write config
     config_path.write_text(json.dumps(config, indent=2))
     return config
 
@@ -204,7 +204,7 @@ def install(preset: str, target: Path, knowledge_base: Path | None = None):
     console.print("  [green]✓[/green] .claude/settings.json")
 
     # Create/update agentic-kit.json with paths
-    config = update_config(target, knowledge_base)
+    config = update_config(target, preset, knowledge_base)
     console.print("  [green]✓[/green] .claude/agentic-kit.json")
     console.print(f"      agentic_kit: {config.get('agentic_kit', 'not set')}")
     if config.get("knowledge_base"):

@@ -8,6 +8,7 @@ skills:
   - orchestrator
   - brainstorm
   - config
+  - confluence
 hooks:
   - notification
   - link-proxy
