@@ -8,15 +8,40 @@ author: amenocturne
 
 Import Confluence pages to local Markdown files using `@acq-tech/confluence`.
 
-## Setup
+> **Important:** Do NOT read `.claude/agentic-kit.json` to check credentials — a hook redacts the host URL, making it look broken. The wrapper reads config directly from disk and works correctly without Claude inspecting it.
 
-Before first use, add the internal npm registry:
+## Running Import
+
+The wrapper reads `host` and `username` from `.claude/agentic-kit.json` automatically. Just run:
 
 ```bash
-npm config set registry <internal-registry-url>
+uv run .claude/skills/confluence/scripts/confluence.py --page-id 123456 --folder-path ./tmp/confluence
+uv run .claude/skills/confluence/scripts/confluence.py --page-id 123456 --folder-path ./tmp/confluence --recursive
 ```
 
-Add Confluence credentials to `.claude/agentic-kit.json` at the workspace root:
+Override config values ad-hoc:
+
+```bash
+uv run .claude/skills/confluence/scripts/confluence.py --page-id 123456 --host https://other.example.com --username other
+```
+
+## CLI Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--page-id <id>` | Confluence page ID | required |
+| `--folder-path <path>` | Local path for saved files | `./docs` |
+| `--recursive` | Download child pages recursively | false |
+| `--host <url>` | Override Confluence host from config | — |
+| `--username <name>` | Override username from config | — |
+
+## After Download
+
+Read the downloaded `.md` file from `--folder-path` to present content to the user.
+
+## First-time Setup
+
+If credentials are not yet configured, add to `.claude/agentic-kit.json`:
 
 ```json
 {
@@ -27,68 +52,8 @@ Add Confluence credentials to `.claude/agentic-kit.json` at the workspace root:
 }
 ```
 
-Optionally generate a `.wiki.config.yml` for per-project settings (Jira hosts, retry config):
+Optionally create `.wiki.config.yml` for Jira link resolution and retry config:
 
 ```bash
 npx @acq-tech/confluence generate-config
 ```
-
-## Config File (`.wiki.config.yml`)
-
-```yaml
-useBadge: false          # Use <Badge/> component in generated markdown
-useJsonViewer: false     # Use JSON viewer for JSON content
-
-jiraHosts:               # Jira hosts for link resolution
-  - host: https://jira.example.com
-    prefix:
-      - ITAL
-      - AS
-
-timeout: 10000           # Request timeout (ms)
-maxRetries: 3            # Max retry attempts
-baseDelay: 1000          # Base delay for exponential backoff (ms)
-```
-
-Set all relevant Jira hosts and project prefixes for correct link imports.
-
-## Running Import
-
-Use the wrapper script (reads host + username from `agentic-kit.json` automatically):
-
-```bash
-uv run skills/confluence/scripts/confluence.py --page-id 123456 --folder-path ./docs
-uv run skills/confluence/scripts/confluence.py --page-id 123456 --folder-path ./docs --recursive
-```
-
-Override config values ad-hoc:
-
-```bash
-uv run skills/confluence/scripts/confluence.py --page-id 123456 --host https://other.example.com --username other
-```
-
-Or call `npx` directly:
-
-```bash
-npx @acq-tech/confluence \
-  --host https://confluence.example.com \
-  --username myuser \
-  --start-page-id 123456 \
-  --folder-path ./docs \
-  --recursive
-```
-
-## CLI Parameters
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `--username <name>` | Confluence username (prompted if omitted) | — |
-| `--folder-path <path>` | Local path for saved pages | `./docs` |
-| `--recursive` | Download child pages recursively | false |
-| `page` (positional) | Full URL to Confluence page | required |
-
-## Notes
-
-- The page URL is required — use the full Confluence page URL, or just the page ID (wrapper constructs the URL from config host)
-- Output directory is created automatically if it doesn't exist
-- **Back up existing docs or use version control before running** — existing files may be overwritten
