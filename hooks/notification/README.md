@@ -14,11 +14,20 @@ Send system notifications for Claude Code events.
 
 Configured automatically via `hooks.json`. Both events are included.
 
+## Dependencies
+
+- **macOS**: Install `terminal-notifier` for reliable notification support:
+  ```
+  brew install terminal-notifier
+  ```
+  Without it, falls back to `osascript` which may be silently blocked by macOS on newer versions (Sequoia+).
+- **Linux**: Install `libnotify` (provides `notify-send`)
+
 ## Platforms
 
-- **macOS**: Uses `osascript` for native notifications with sound
-- **Linux**: Uses `notify-send` (requires libnotify, no sound)
-- **Windows**: Not yet supported
+- **macOS**: Uses `terminal-notifier` (preferred) or `osascript` as fallback, with sound
+- **Linux**: Uses `notify-send` (no sound)
+- **Windows**: Not supported
 
 ## Sound
 
