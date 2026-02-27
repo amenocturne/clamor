@@ -50,6 +50,8 @@ If `knowledge_base` is configured in `.claude/agentic-kit.json`, project ideas a
 
 {{include:common/commands.md}}
 
+{{include:common/tmp.md}}
+
 {{include:common/code-style.md}}
 
 {{include:common/comments.md}}

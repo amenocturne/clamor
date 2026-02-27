@@ -62,6 +62,8 @@ When `knowledge_base` is configured:
 
 {{include:common/commands.md}}
 
+{{include:common/tmp.md}}
+
 {{include:common/code-style.md}}
 
 {{include:common/comments.md}}
