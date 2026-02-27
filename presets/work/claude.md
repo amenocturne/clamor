@@ -43,6 +43,14 @@ When user asks to work on an ITAL task (e.g. "work on ITAL-1234", "implement ITA
 2. Create a branch: `git checkout -b feature/ITAL-<number>`
 3. Ask the user any clarifying questions needed before starting
 
+## Modifying Claude Configuration
+
+**Never edit `.claude/` files directly** — they're symlinks to agentic-kit. To modify skills, instructions, or hooks:
+
+1. Get agentic-kit path: `jq -r '.agentic_kit' .claude/agentic-kit.json`
+2. Edit in agentic-kit repo (skills/, presets/, hooks/)
+3. Changes sync automatically via symlinks (or re-run installer if needed)
+
 ## Working on a Project
 
 When user mentions a project:
@@ -63,6 +71,7 @@ When `knowledge_base` is configured:
 - Use `just` for command aliases when available
 - Run `just` (no args) to see available commands
 - Never run raw `python` — use `uv run`
+- Never use `pip` — use package manager (brew) for system tools, `uvx` for Python CLIs
 
 ## Code Style
 

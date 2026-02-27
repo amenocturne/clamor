@@ -1,15 +1,12 @@
 description: Work workspace focused on Scala and infrastructure configs
 skills:
   - dp-jira
-  - commit-style
+  - dev-philosophy
   - spec
-  - uv-over-python
   - workspace
   - documentation
-  - agentic-kit
   - orchestrator
   - brainstorm
-  - scala
   - config
 hooks:
   - notification

@@ -1,20 +1,15 @@
-description: Multi-project development workspace with language-specific guidance
+description: Multi-project development workspace with dev philosophy
 skills:
-  - commit-style
+  - dev-philosophy
   - spec
-  - uv-over-python
   - workspace
   - documentation
-  - agentic-kit
   - orchestrator
   - brainstorm
   - idea-roaster
   - frontend-design
   - playwright
-  - python
-  - rust
-  - haskell
-  - scala
+  - pinchtab
   - config
   - project-setup
 hooks:

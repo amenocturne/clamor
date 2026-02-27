@@ -35,7 +35,17 @@ When user says "work on X" or mentions a project:
 
 Run all commands from the project directory, not workspace root.
 
-Language-specific skills (python, rust, haskell, scala, config, frontend-design) will trigger automatically based on the work being done.
+Domain-specific skills (config, frontend-design, playwright, pinchtab) trigger automatically based on context.
+
+## Modifying Claude Configuration
+
+**Never edit `.claude/` files directly** — they're symlinks to agentic-kit. To modify skills, instructions, or hooks:
+
+1. Get agentic-kit path: `jq -r '.agentic_kit' .claude/agentic-kit.json`
+2. Edit in agentic-kit repo (skills/, presets/, hooks/)
+3. Changes sync automatically via symlinks (or re-run installer if needed)
+
+This keeps all Claude configuration version-controlled in one place.
 
 ## Knowledge Base Integration
 
@@ -50,6 +60,7 @@ If `knowledge_base` is configured in `.claude/agentic-kit.json`, project ideas a
 - Always use `just` for command aliases when available
 - Run `just` (no args) to see available commands
 - Never run raw `python` — use `uv run` instead
+- Never use `pip` — use package manager (brew) for system tools, `uvx` for Python CLIs
 
 Standard command names across projects:
 - `just run` — run the project (optionally: `just run prod`)
