@@ -2,8 +2,6 @@
 
 Scala and infrastructure focused workspace.
 
-{{include:common/skills.md}}
-
 ## Knowledge Base
 
 Project conventions and hard-won patterns live in `/Users/a.ragulin/Vault/Work/knowledge-base/`:
@@ -19,16 +17,12 @@ Project conventions and hard-won patterns live in `/Users/a.ragulin/Vault/Work/k
 
 **Add to it** when a non-obvious convention is established or a mistake is corrected.
 
-{{include:common/workspace.md}}
-
 ## Working on a Task
 
 When user asks to work on an ITAL task (e.g. "work on ITAL-1234", "implement ITAL-1234"):
 1. Fetch task description using the dp-jira skill
 2. Create a branch: `git checkout -b feature/ITAL-<number>`
 3. Ask the user any clarifying questions needed before starting
-
-{{include:common/agentic-kit.md}}
 
 ## Working on a Project
 
@@ -45,6 +39,28 @@ When `knowledge_base` is configured:
 - Check for project notes with context, goals, decisions
 - Update notes when significant decisions are made
 
+## Git
+
+Format: `ITAL-1234 | app | Message`
+- `ITAL-1234` — task number (can be omitted if no task)
+- `app` — component(s): app name, `docs`, multiple comma-separated
+- Message — Russian, passive voice ("добавлен", "обновлен", "исправлен")
+
+Examples:
+```
+ITAL-1234 | autobroker | Добавлен новый клиент для tcrm
+ITAL-5678 | autobroker, docs | Обновлены API и документация
+infra | Исправлен конфиг деплоя для staging
+```
+
+---
+
+{{include:common/skills.md}}
+
+{{include:common/workspace.md}}
+
+{{include:common/agentic-kit.md}}
+
 {{include:common/commands.md}}
 
 {{include:common/tmp.md}}
@@ -54,17 +70,3 @@ When `knowledge_base` is configured:
 {{include:common/comments.md}}
 
 {{include:common/quality.md}}
-
-## Git
-
-Format: `ITAL-1234 | app | Message`
-- `ITAL-1234` — task number
-- `app` — component(s): app name, `docs`, multiple comma-separated
-- Message — concise statement of what was done, not imperative/infinitive form (use "добавлен", "разделены", "обновлены" — not "добавить", "разделить", "обновили")
-
-Examples:
-```
-ITAL-1234 | autobroker | Добавлен новый клиент для tcrm
-ITAL-5678 | autobroker, docs | Обновлены API и документация
-ITAL-9012 | infra | Fix deployment config for staging
-```

@@ -2,12 +2,6 @@
 
 Multi-project development workspace. Run Claude from this directory and specify which project to work on.
 
-{{include:common/skills.md}}
-
-{{include:common/workspace.md}}
-
-{{include:common/agentic-kit.md}}
-
 ## Working on a Project
 
 When user says "work on X" or mentions a project:
@@ -26,6 +20,14 @@ If `knowledge_base` is configured in `.claude/agentic-kit.json`, project ideas a
 - Check if there's a matching project note with context, goals, or decisions
 - Update project notes when significant decisions are made
 - Use the knowledge base for design inspiration references
+
+---
+
+{{include:common/skills.md}}
+
+{{include:common/workspace.md}}
+
+{{include:common/agentic-kit.md}}
 
 {{include:common/commands.md}}
 
