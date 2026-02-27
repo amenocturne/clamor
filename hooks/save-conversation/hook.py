@@ -16,6 +16,16 @@ from datetime import datetime
 from pathlib import Path
 
 
+# Message types to keep in saved transcripts
+# Excludes: progress (subagent streaming - causes GB bloat), file-history-snapshot, queue-operation
+KEEP_TYPES = {'user', 'assistant', 'system'}
+
+
+def filter_entries(entries: list[dict]) -> list[dict]:
+    """Filter out internal/progress messages to reduce file size."""
+    return [e for e in entries if e.get('type') in KEEP_TYPES]
+
+
 def extract_modified_files(entries: list[dict], project_dir: Path) -> list[Path]:
     """Extract file paths from Write/Edit tool uses in transcript."""
     modified = set()
@@ -113,14 +123,18 @@ def main():
     with open(transcript_path, 'r') as f:
         entries = [json.loads(line) for line in f if line.strip()]
 
-    session_id = entries[0].get('leafUuid', timestamp) if entries else timestamp
+    # Use sessionId as filename so re-saves overwrite instead of creating duplicates
+    session_id = entries[0].get('sessionId', timestamp) if entries else timestamp
     output_path = logs_dir / f"{session_id}.json"
     files_to_commit = [output_path]
 
+    # Filter before saving (removes progress messages that cause GB bloat)
+    filtered = filter_entries(entries)
     with open(output_path, 'w') as f:
-        json.dump(entries, f, indent=2)
+        json.dump(filtered, f, indent=2)
 
-    modified_files = extract_modified_files(entries, project_dir)
+    # Use filtered entries for file extraction (has all tool_use blocks we need)
+    modified_files = extract_modified_files(filtered, project_dir)
     files_to_commit.extend(modified_files)
 
     # Rename pending summaries (_*.md -> timestamp *.md)
