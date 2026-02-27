@@ -25,8 +25,6 @@ These apply when committing to the vault or working on agentic-kit:
 
 {{include:common/git.md}}
 
-{{include:common/quality.md}}
-
 ---
 
 ## Tracking Save-worthy Items
