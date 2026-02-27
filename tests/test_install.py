@@ -333,7 +333,7 @@ class TestLoadExistingSettings:
 
     def test_missing_returns_default(self, tmp_path):
         result = install.load_existing_settings(tmp_path)
-        assert result == {"hooks": {}}
+        assert result == {"hooks": {}, "permissions": {}}
 
 
 # ===================================================================
@@ -353,30 +353,9 @@ class TestMergeSettings:
             manifest={"description": "p1"},
             settings={"hooks": {"Stop": [{"command": "a"}]}},
         )
-        result = install.merge_settings(["p1"], target)
+        result = install.merge_settings("p1", target)
         assert "Stop" in result["hooks"]
         assert len(result["hooks"]["Stop"]) == 1
-
-    def test_merges_multiple_presets(self, fake_repo, tmp_path):
-        target = tmp_path / "target"
-        target.mkdir()
-        make_preset(
-            fake_repo["presets"],
-            "p1",
-            manifest={"description": "p1"},
-            settings={"hooks": {"Stop": [{"command": "a"}]}},
-        )
-        make_preset(
-            fake_repo["presets"],
-            "p2",
-            manifest={"description": "p2"},
-            settings={
-                "hooks": {"Stop": [{"command": "b"}], "PreToolUse": [{"command": "c"}]}
-            },
-        )
-        result = install.merge_settings(["p1", "p2"], target)
-        assert len(result["hooks"]["Stop"]) == 2
-        assert len(result["hooks"]["PreToolUse"]) == 1
 
     def test_preset_without_settings(self, fake_repo, tmp_path):
         target = tmp_path / "target"
@@ -386,8 +365,8 @@ class TestMergeSettings:
             "no-settings",
             manifest={"description": "none"},
         )
-        result = install.merge_settings(["no-settings"], target)
-        assert result == {"hooks": {}}
+        result = install.merge_settings("no-settings", target)
+        assert result == {"hooks": {}, "permissions": {}}
 
     def test_preserves_existing_settings(self, fake_repo, tmp_path):
         target = tmp_path / "target"
@@ -402,74 +381,9 @@ class TestMergeSettings:
             manifest={"description": "p1"},
             settings={"hooks": {"Stop": [{"command": "new"}]}},
         )
-        result = install.merge_settings(["p1"], target)
+        result = install.merge_settings("p1", target)
         assert result["other_key"] == "keep"
         assert len(result["hooks"]["Stop"]) == 2
-
-    def test_empty_presets_list(self, fake_repo, tmp_path):
-        target = tmp_path / "target"
-        target.mkdir()
-        result = install.merge_settings([], target)
-        assert result == {"hooks": {}}
-
-    def test_adds_hooks_key_if_missing(self, fake_repo, tmp_path):
-        target = tmp_path / "target"
-        claude_dir = target / ".claude"
-        claude_dir.mkdir(parents=True)
-        (claude_dir / "settings.json").write_text(json.dumps({"custom": True}))
-
-        result = install.merge_settings([], target)
-        assert "hooks" in result
-        assert result["custom"] is True
-
-
-# ===================================================================
-# merge_claude_md
-# ===================================================================
-
-
-class TestMergeClaudeMd:
-    """Test concatenating claude.md from presets."""
-
-    def test_single_preset(self, fake_repo):
-        make_preset(
-            fake_repo["presets"],
-            "p1",
-            manifest={"description": "p1"},
-            claude_md="## Rules\nBe nice.",
-        )
-        result = install.merge_claude_md(["p1"])
-        assert "# From p1" in result
-        assert "## Rules\nBe nice." in result
-
-    def test_multiple_presets_concatenated(self, fake_repo):
-        make_preset(fake_repo["presets"], "a", manifest={}, claude_md="Content A")
-        make_preset(fake_repo["presets"], "b", manifest={}, claude_md="Content B")
-        result = install.merge_claude_md(["a", "b"])
-        assert "# From a" in result
-        assert "# From b" in result
-        assert "Content A" in result
-        assert "Content B" in result
-        # Sections separated by double newline
-        assert "\n\n" in result
-
-    def test_preset_without_claude_md(self, fake_repo):
-        make_preset(fake_repo["presets"], "no-md", manifest={})
-        result = install.merge_claude_md(["no-md"])
-        assert result == ""
-
-    def test_mixed_presets(self, fake_repo):
-        make_preset(
-            fake_repo["presets"], "has-md", manifest={}, claude_md="Has content"
-        )
-        make_preset(fake_repo["presets"], "no-md", manifest={})
-        result = install.merge_claude_md(["has-md", "no-md"])
-        assert "# From has-md" in result
-        assert "From no-md" not in result
-
-    def test_empty_presets(self, fake_repo):
-        result = install.merge_claude_md([])
-        assert result == ""
 
 
 # ===================================================================
@@ -492,35 +406,11 @@ class TestCollectComponents:
                 "external": ["org/repo#skill"],
             },
         )
-        result = install.collect_components(["p1"])
+        result = install.collect_components("p1")
         assert result["skills"] == {"spec"}
         assert result["hooks"] == {"link-proxy"}
         assert result["pipelines"] == {"workspace"}
         assert result["external"] == {"org/repo#skill"}
-
-    def test_deduplicates_across_presets(self, fake_repo):
-        make_preset(
-            fake_repo["presets"],
-            "a",
-            manifest={
-                "skills": ["spec", "knowledge-base"],
-                "hooks": [],
-                "pipelines": [],
-                "external": [],
-            },
-        )
-        make_preset(
-            fake_repo["presets"],
-            "b",
-            manifest={
-                "skills": ["spec", "youtube"],
-                "hooks": [],
-                "pipelines": [],
-                "external": [],
-            },
-        )
-        result = install.collect_components(["a", "b"])
-        assert result["skills"] == {"spec", "knowledge-base", "youtube"}
 
     def test_missing_keys_in_manifest(self, fake_repo):
         make_preset(
@@ -528,47 +418,16 @@ class TestCollectComponents:
             "minimal",
             manifest={"description": "just a description"},
         )
-        result = install.collect_components(["minimal"])
+        result = install.collect_components("minimal")
         assert result["skills"] == set()
         assert result["hooks"] == set()
         assert result["pipelines"] == set()
         assert result["external"] == set()
 
     def test_missing_preset(self, fake_repo):
-        result = install.collect_components(["nonexistent"])
+        result = install.collect_components("nonexistent")
         # load_manifest returns {} for missing, .get returns []
         assert result["skills"] == set()
-
-    def test_empty_presets_list(self, fake_repo):
-        result = install.collect_components([])
-        assert all(v == set() for v in result.values())
-
-    def test_merges_multiple_component_types(self, fake_repo):
-        make_preset(
-            fake_repo["presets"],
-            "a",
-            manifest={
-                "skills": ["s1"],
-                "hooks": ["h1"],
-                "pipelines": [],
-                "external": ["e1"],
-            },
-        )
-        make_preset(
-            fake_repo["presets"],
-            "b",
-            manifest={
-                "skills": ["s2"],
-                "hooks": ["h2"],
-                "pipelines": ["p1"],
-                "external": ["e2"],
-            },
-        )
-        result = install.collect_components(["a", "b"])
-        assert result["skills"] == {"s1", "s2"}
-        assert result["hooks"] == {"h1", "h2"}
-        assert result["pipelines"] == {"p1"}
-        assert result["external"] == {"e1", "e2"}
 
 
 # ===================================================================
@@ -635,7 +494,7 @@ class TestInstall:
             settings={"hooks": {}},
             claude_md="Base rules",
         )
-        install.install(["base"], target)
+        install.install("base", target)
         assert (target / ".claude").is_dir()
         assert (target / ".claude" / "settings.json").exists()
         assert (target / ".claude" / "CLAUDE.md").exists()
@@ -650,7 +509,7 @@ class TestInstall:
             manifest={"skills": ["spec"], "hooks": [], "pipelines": [], "external": []},
             settings={"hooks": {}},
         )
-        install.install(["p1"], target)
+        install.install("p1", target)
         link = target / ".claude" / "skills" / "spec"
         assert link.is_symlink()
         assert link.resolve() == (fake_repo["skills"] / "spec").resolve()
@@ -670,8 +529,8 @@ class TestInstall:
             },
             settings={"hooks": {}},
         )
-        install.install(["p1"], target)
-        link = target / "hooks" / "notification"
+        install.install("p1", target)
+        link = target / ".claude" / "hooks" / "notification"
         assert link.is_symlink()
         assert link.resolve() == (fake_repo["hooks"] / "notification").resolve()
 
@@ -692,7 +551,7 @@ class TestInstall:
             },
             settings={"hooks": {}},
         )
-        install.install(["p1"], target)
+        install.install("p1", target)
         link = target / "pipelines" / "workspace"
         assert link.is_symlink()
         assert link.resolve() == (fake_repo["pipelines"] / "workspace").resolve()
@@ -708,12 +567,12 @@ class TestInstall:
             settings={"hooks": {}},
         )
         # First install
-        install.install(["p1"], target)
+        install.install("p1", target)
         link = target / ".claude" / "skills" / "spec"
         assert link.is_symlink()
 
         # Second install should not raise
-        install.install(["p1"], target)
+        install.install("p1", target)
         assert link.is_symlink()
 
     def test_skips_missing_skill_source(self, fake_repo, tmp_path):
@@ -731,7 +590,7 @@ class TestInstall:
             },
             settings={"hooks": {}},
         )
-        install.install(["p1"], target)
+        install.install("p1", target)
         assert not (target / ".claude" / "skills" / "nonexistent-skill").exists()
 
     def test_skips_missing_hook_source(self, fake_repo, tmp_path):
@@ -748,8 +607,8 @@ class TestInstall:
             },
             settings={"hooks": {}},
         )
-        install.install(["p1"], target)
-        assert not (target / "hooks" / "ghost-hook").exists()
+        install.install("p1", target)
+        assert not (target / ".claude" / "hooks" / "ghost-hook").exists()
 
     def test_skips_missing_pipeline_source(self, fake_repo, tmp_path):
         target = tmp_path / "project"
@@ -765,7 +624,7 @@ class TestInstall:
             },
             settings={"hooks": {}},
         )
-        install.install(["p1"], target)
+        install.install("p1", target)
         assert not (target / "pipelines" / "ghost-pipe").exists()
 
     def test_writes_claude_md(self, fake_repo, tmp_path):
@@ -778,9 +637,8 @@ class TestInstall:
             settings={"hooks": {}},
             claude_md="## My Rules",
         )
-        install.install(["p1"], target)
+        install.install("p1", target)
         content = (target / ".claude" / "CLAUDE.md").read_text()
-        assert "# From p1" in content
         assert "## My Rules" in content
 
     def test_writes_settings_json(self, fake_repo, tmp_path):
@@ -792,7 +650,7 @@ class TestInstall:
             manifest={"skills": [], "hooks": [], "pipelines": [], "external": []},
             settings={"hooks": {"Stop": [{"command": "do-stop"}]}},
         )
-        install.install(["p1"], target)
+        install.install("p1", target)
         settings = json.loads((target / ".claude" / "settings.json").read_text())
         assert "Stop" in settings["hooks"]
 
@@ -824,12 +682,12 @@ class TestInstall:
             },
             settings={"hooks": {}},
         )
-        install.install(["p1"], target)
+        install.install("p1", target)
         settings = json.loads((target / ".claude" / "settings.json").read_text())
         # Hook config should be merged with {hook_dir} resolved
         stop_hooks = settings["hooks"]["Stop"]
         assert len(stop_hooks) == 1
-        expected_cmd = str(target / "hooks" / "my-hook") + "/hook.sh stop"
+        expected_cmd = str(target / ".claude" / "hooks" / "my-hook") + "/hook.sh stop"
         assert stop_hooks[0]["hooks"][0]["command"] == expected_cmd
 
     def test_pipelines_dir_not_created_when_empty(self, fake_repo, tmp_path):
@@ -841,41 +699,8 @@ class TestInstall:
             manifest={"skills": [], "hooks": [], "pipelines": [], "external": []},
             settings={"hooks": {}},
         )
-        install.install(["p1"], target)
+        install.install("p1", target)
         assert not (target / "pipelines").exists()
-
-    def test_multiple_presets_combined(self, fake_repo, tmp_path):
-        target = tmp_path / "project"
-        target.mkdir()
-        make_skill(fake_repo["skills"], "spec")
-        make_skill(fake_repo["skills"], "youtube")
-        make_hook(fake_repo["hooks"], "notification")
-        make_preset(
-            fake_repo["presets"],
-            "a",
-            manifest={"skills": ["spec"], "hooks": [], "pipelines": [], "external": []},
-            settings={"hooks": {}},
-            claude_md="From A",
-        )
-        make_preset(
-            fake_repo["presets"],
-            "b",
-            manifest={
-                "skills": ["youtube"],
-                "hooks": ["notification"],
-                "pipelines": [],
-                "external": [],
-            },
-            settings={"hooks": {}},
-            claude_md="From B",
-        )
-        install.install(["a", "b"], target)
-        assert (target / ".claude" / "skills" / "spec").is_symlink()
-        assert (target / ".claude" / "skills" / "youtube").is_symlink()
-        assert (target / "hooks" / "notification").is_symlink()
-        content = (target / ".claude" / "CLAUDE.md").read_text()
-        assert "From A" in content
-        assert "From B" in content
 
     def test_workspace_pipeline_auto_adds_link_proxy(self, fake_repo, tmp_path):
         target = tmp_path / "project"
@@ -893,9 +718,9 @@ class TestInstall:
             },
             settings={"hooks": {}},
         )
-        install.install(["p1"], target)
+        install.install("p1", target)
         # link-proxy should be auto-added by resolve_dependencies
-        assert (target / "hooks" / "link-proxy").is_symlink()
+        assert (target / ".claude" / "hooks" / "link-proxy").is_symlink()
 
 
 # ===================================================================
@@ -950,16 +775,10 @@ class TestMain:
             settings={"hooks": {}},
         )
         with patch(
-            "sys.argv", ["install.py", "--presets", "base", "--target", str(target)]
+            "sys.argv", ["install.py", "--preset", "base", "--target", str(target)]
         ):
             install.main()
         assert (target / ".claude").is_dir()
-
-    def test_no_presets_selected(self, fake_repo):
-        with patch("sys.argv", ["install.py", "--presets"]):
-            # argparse will error since --presets expects at least 1 arg
-            with pytest.raises(SystemExit):
-                install.main()
 
     def test_interactive_mode(self, fake_repo, tmp_path):
         target = tmp_path / "project"
@@ -1029,7 +848,7 @@ class TestEdgeCases:
         # But .get("skills", []) should return None since key exists with None
         # This tests that the code handles None gracefully or not
         with pytest.raises(TypeError):
-            install.collect_components(["nulls"])
+            install.collect_components("nulls")
 
     def test_hook_dir_placeholder_in_nested_json(self, fake_repo):
         """Placeholder appears in deeply nested values."""
@@ -1074,11 +893,11 @@ class TestEdgeCases:
             settings={"hooks": {}},
             claude_md="Content",
         )
-        install.install(["p1"], target)
+        install.install("p1", target)
         _first_settings = (target / ".claude" / "settings.json").read_text()
         first_claude_md = (target / ".claude" / "CLAUDE.md").read_text()
 
-        install.install(["p1"], target)
+        install.install("p1", target)
         _second_settings = (target / ".claude" / "settings.json").read_text()
         second_claude_md = (target / ".claude" / "CLAUDE.md").read_text()
 
@@ -1086,7 +905,7 @@ class TestEdgeCases:
         assert first_claude_md == second_claude_md
         # Symlinks should still be valid
         assert (target / ".claude" / "skills" / "spec").is_symlink()
-        assert (target / "hooks" / "notification").is_symlink()
+        assert (target / ".claude" / "hooks" / "notification").is_symlink()
 
     def test_settings_accumulate_on_reinstall(self, fake_repo, tmp_path):
         """Hooks from settings.json accumulate across installs because
@@ -1099,12 +918,12 @@ class TestEdgeCases:
             manifest={"skills": [], "hooks": [], "pipelines": [], "external": []},
             settings={"hooks": {"Stop": [{"command": "a"}]}},
         )
-        install.install(["p1"], target)
+        install.install("p1", target)
         settings1 = json.loads((target / ".claude" / "settings.json").read_text())
         assert len(settings1["hooks"]["Stop"]) == 1
 
         # Second install merges on top of existing
-        install.install(["p1"], target)
+        install.install("p1", target)
         settings2 = json.loads((target / ".claude" / "settings.json").read_text())
         assert len(settings2["hooks"]["Stop"]) == 2
 
@@ -1118,6 +937,6 @@ class TestEdgeCases:
             manifest={"skills": [], "hooks": [], "pipelines": [], "external": []},
             settings={"hooks": {}},
         )
-        install.install(["p1"], target)
+        install.install("p1", target)
         assert (target / ".claude").is_dir()
         assert (target / ".claude" / "settings.json").exists()
