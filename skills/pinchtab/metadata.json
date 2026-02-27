@@ -1,0 +1,7 @@
+{
+  "name": "pinchtab",
+  "description": "Lightweight browser control for AI agents. HTTP-based Chrome automation with persistent sessions, stealth mode, and efficient text extraction. Ideal for web scraping, authenticated browsing, and simple automation tasks.",
+  "author": "amenocturne",
+  "version": "1.0.0",
+  "tags": ["browser", "automation", "scraping", "http", "chrome", "sessions"]
+}
