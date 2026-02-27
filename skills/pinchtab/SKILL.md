@@ -1,12 +1,14 @@
 ---
 name: pinchtab
-description: Browser control with persistent sessions. Use for web scraping, authenticated browsing (Kagi, logged-in sites), screenshots, and simple automation. Sessions survive restarts. Triggers on "pinchtab", "scrape", "kagi search", "browser session".
+description: Browser control with persistent sessions. Use for web scraping, authenticated browsing, screenshots, and simple automation. Sessions survive restarts. **Kagi is the default search engine** — use it for all web searches. Triggers on "pinchtab", "scrape", "kagi search", "browser session".
 author: amenocturne
 ---
 
 # Pinchtab Browser Control
 
 HTTP-based browser automation with persistent sessions. Ideal for scraping, authenticated browsing, and quick automation tasks. Server auto-starts when needed.
+
+**Always use Kagi for web searches** — it's the default and preferred engine. Google/DDG are fallbacks only if Kagi is unavailable.
 
 ## Commands
 
@@ -21,8 +23,9 @@ uv run scripts/pinchtab.py snapshot                # Accessibility tree with ref
 uv run scripts/pinchtab.py click <ref>
 uv run scripts/pinchtab.py type -r <ref> -t "text"
 
-# Search engines
-uv run scripts/pinchtab.py search "query" --engine kagi|google|ddg
+# Search (Kagi is default, others are fallbacks)
+uv run scripts/pinchtab.py search "query"                      # Uses Kagi
+uv run scripts/pinchtab.py search "query" --engine google|ddg  # Fallbacks only
 ```
 
 ## Authenticated Sessions
