@@ -39,7 +39,7 @@ from pathlib import Path
 import networkx as nx
 
 # Match [[target]] or [[target|display]] or [[target#heading]] etc.
-WIKILINK_PATTERN = re.compile(r'\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]')
+WIKILINK_PATTERN = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]")
 
 # Global excluded folders (set by main via --exclude)
 EXCLUDED_FOLDERS: set[str] = set()
@@ -54,7 +54,7 @@ def find_vault_root(start: Path) -> Path:
     """Find vault root by looking for .obsidian folder."""
     current = start.resolve()
     while current != current.parent:
-        if (current / '.obsidian').exists():
+        if (current / ".obsidian").exists():
             return current
         current = current.parent
     return start.resolve()
@@ -63,8 +63,8 @@ def find_vault_root(start: Path) -> Path:
 def get_all_notes(vault: Path) -> dict[str, Path]:
     """Map note names (without extension) to their paths."""
     notes = {}
-    for md in vault.rglob('*.md'):
-        if '.obsidian' in md.parts:
+    for md in vault.rglob("*.md"):
+        if ".obsidian" in md.parts:
             continue
         rel_path = md.relative_to(vault)
         if is_excluded(rel_path):
@@ -88,7 +88,9 @@ def calc_stats(values: list[int]) -> tuple[float, float]:
     return mean, sqrt(variance)
 
 
-def find_outliers(counts: dict[str, int], multiplier: float = 1.5) -> tuple[list[tuple[str, int]], int, float]:
+def find_outliers(
+    counts: dict[str, int], multiplier: float = 1.5
+) -> tuple[list[tuple[str, int]], int, float]:
     """
     Find items with counts above mean + multiplier * std.
     Returns (outliers sorted by count desc, threshold, mean).
@@ -118,12 +120,12 @@ def extract_links(file: Path) -> list[str]:
 def resolve_link(target: str, notes: dict[str, Path], vault: Path) -> Path | None:
     """Resolve a wikilink target to a file path."""
     # Handle path-style links like [[folder/note]]
-    if '/' in target:
+    if "/" in target:
         path = vault / f"{target}.md"
         if path.exists():
             return path
         # Try just the filename part
-        target = target.split('/')[-1]
+        target = target.split("/")[-1]
 
     return notes.get(target)
 
@@ -171,7 +173,7 @@ def cmd_backlinks(file: Path, vault: Path):
         links = extract_links(note_path)
         for link in links:
             # Normalize link for comparison
-            link_name = link.split('/')[-1] if '/' in link else link
+            link_name = link.split("/")[-1] if "/" in link else link
             if link_name == target_name:
                 backlinks.append(note_path)
                 break
@@ -206,12 +208,12 @@ def cmd_rename(old: Path, new: Path, vault: Path):
         # Pattern to match links to old file
         # Handles [[old]], [[old|text]], [[old#heading]], [[path/old]], etc.
         pattern = re.compile(
-            r'\[\[([^\]|#]*?/?)' + re.escape(old_name) + r'(#[^\]|]*)?(\|[^\]]+)?\]\]'
+            r"\[\[([^\]|#]*?/?)" + re.escape(old_name) + r"(#[^\]|]*)?(\|[^\]]+)?\]\]"
         )
 
         new_content = pattern.sub(
-            lambda m: f'[[{m.group(1)}{new_name}{m.group(2) or ""}{m.group(3) or ""}]]',
-            content
+            lambda m: f"[[{m.group(1)}{new_name}{m.group(2) or ''}{m.group(3) or ''}]]",
+            content,
         )
 
         if new_content != content:
@@ -239,7 +241,7 @@ def cmd_orphans(vault: Path):
     for note_path in notes.values():
         links = extract_links(note_path)
         for target in links:
-            target_name = target.split('/')[-1] if '/' in target else target
+            target_name = target.split("/")[-1] if "/" in target else target
             if target_name in incoming:
                 incoming[target_name] += 1
 
@@ -272,7 +274,9 @@ def cmd_broken(vault: Path):
         print(f"  {file.relative_to(vault)}: [[{target}]]")
 
 
-def build_graph(vault: Path) -> tuple[dict[str, Path], dict[str, int], dict[str, int], dict[str, int]]:
+def build_graph(
+    vault: Path,
+) -> tuple[dict[str, Path], dict[str, int], dict[str, int], dict[str, int]]:
     """
     Build the full link graph.
     Returns (notes, incoming_counts, outgoing_counts, ghost_counts).
@@ -288,7 +292,7 @@ def build_graph(vault: Path) -> tuple[dict[str, Path], dict[str, int], dict[str,
         unique_targets = set()
 
         for target in links:
-            target_name = target.split('/')[-1] if '/' in target else target
+            target_name = target.split("/")[-1] if "/" in target else target
             unique_targets.add(target_name)
 
         outgoing[name] = len(unique_targets)
@@ -319,7 +323,7 @@ def build_nx_graph(vault: Path) -> tuple[nx.Graph, dict[str, Path]]:
     for name, note_path in notes.items():
         links = extract_links(note_path)
         for target in links:
-            target_name = target.split('/')[-1] if '/' in target else target
+            target_name = target.split("/")[-1] if "/" in target else target
             if target_name in notes and target_name != name:
                 G.add_edge(name, target_name)
 
@@ -343,7 +347,7 @@ def build_nx_digraph(vault: Path) -> tuple[nx.DiGraph, dict[str, Path]]:
         links = extract_links(note_path)
         seen = set()
         for target in links:
-            target_name = target.split('/')[-1] if '/' in target else target
+            target_name = target.split("/")[-1] if "/" in target else target
             if target_name in notes and target_name != name and target_name not in seen:
                 G.add_edge(name, target_name)
                 seen.add(target_name)
@@ -370,7 +374,7 @@ def cmd_stats(vault: Path):
     print(f"Total links:    {total_links}")
     print(f"Ghost notes:    {total_ghosts} ({total_ghost_refs} references)")
     print(f"Orphans:        {orphan_count}")
-    print(f"")
+    print("")
     print(f"Incoming links: {in_mean:.1f} avg, {in_std:.1f} std")
     print(f"Outgoing links: {out_mean:.1f} avg, {out_std:.1f} std")
 
@@ -420,7 +424,9 @@ def cmd_ghosts(vault: Path, sort_alpha: bool = False):
     outliers, threshold, mean = find_outliers(ghosts)
 
     if not outliers:
-        print(f"No notable ghosts (threshold: >{threshold} references, avg: {mean:.1f})")
+        print(
+            f"No notable ghosts (threshold: >{threshold} references, avg: {mean:.1f})"
+        )
         return
 
     if sort_alpha:
@@ -449,8 +455,8 @@ def cmd_bridges(vault: Path, top_n: int = 20):
         print("No bridge notes found")
         return
 
-    print(f"Bridge notes (high betweenness centrality):")
-    print(f"These notes connect different parts of the knowledge graph.\n")
+    print("Bridge notes (high betweenness centrality):")
+    print("These notes connect different parts of the knowledge graph.\n")
     for name, score in bridges:
         rel_path = str(notes[name].relative_to(vault))
         print(f"  {rel_path:<50} {score:.4f}")
@@ -471,7 +477,7 @@ def cmd_suggest(vault: Path, top_n: int = 20):
         # For each pair of neighbors, they share this node as common neighbor
         neighbors_list = list(neighbors)
         for i, n1 in enumerate(neighbors_list):
-            for n2 in neighbors_list[i + 1:]:
+            for n2 in neighbors_list[i + 1 :]:
                 # Skip if already connected
                 if G.has_edge(n1, n2):
                     continue
@@ -485,8 +491,8 @@ def cmd_suggest(vault: Path, top_n: int = 20):
     # Sort by number of common neighbors
     sorted_suggestions = sorted(suggestions.items(), key=lambda x: -x[1])[:top_n]
 
-    print(f"Conceptually close notes (many shared neighbors, no direct link):")
-    print(f"Review if a meaningful connection exists.\n")
+    print("Conceptually close notes (many shared neighbors, no direct link):")
+    print("Review if a meaningful connection exists.\n")
     for (n1, n2), common_count in sorted_suggestions:
         print(f"  [[{n1}]] <-> [[{n2}]]")
         print(f"      {common_count} shared neighbors\n")
@@ -498,7 +504,7 @@ def cmd_clusters(vault: Path, exclude_mocs: bool = False):
 
     # Optionally remove MOC nodes to see organic clustering
     if exclude_mocs:
-        moc_nodes = [n for n in G.nodes() if n.lower().startswith('moc-')]
+        moc_nodes = [n for n in G.nodes() if n.lower().startswith("moc-")]
         G = G.copy()
         G.remove_nodes_from(moc_nodes)
         print(f"(Excluded {len(moc_nodes)} MOC nodes)\n")
@@ -548,8 +554,8 @@ def cmd_path(vault: Path, note1: str, note2: str):
     G, notes = build_nx_graph(vault)
 
     # Normalize note names (remove .md if present)
-    note1 = note1.replace('.md', '')
-    note2 = note2.replace('.md', '')
+    note1 = note1.replace(".md", "")
+    note2 = note2.replace(".md", "")
 
     # Handle partial names - find best match
     def find_note(query: str) -> str | None:
@@ -636,8 +642,6 @@ def cmd_meta_ideas(vault: Path, top_n: int = 20):
         for node in community:
             node_to_community[node] = i
 
-    num_communities = len(communities)
-
     # Calculate participation coefficient for each node
     # P_i = 1 - sum((k_is / k_i)^2) for all communities s
     # where k_is = edges from node i to community s, k_i = total degree
@@ -676,10 +680,10 @@ def cmd_meta_ideas(vault: Path, top_n: int = 20):
     def is_index_note(name: str) -> bool:
         lower = name.lower()
         return (
-            lower.startswith('moc-') or
-            lower.startswith('_') or
-            lower.endswith('-index') or
-            lower == 'index'
+            lower.startswith("moc-")
+            or lower.startswith("_")
+            or lower.endswith("-index")
+            or lower == "index"
         )
 
     # Calculate composite score: participation * (num_communities - 1)
@@ -696,14 +700,14 @@ def cmd_meta_ideas(vault: Path, top_n: int = 20):
     # Sort by composite score (descending)
     sorted_nodes = sorted(
         [(name, composite_scores[name]) for name in composite_scores],
-        key=lambda x: (-x[1], x[0])
+        key=lambda x: (-x[1], x[0]),
     )[:top_n]
 
     if not sorted_nodes:
         print("No meta-ideas found (only MOCs bridge communities)")
         return
 
-    print(f"Meta-ideas (content notes bridging multiple domains):\n")
+    print("Meta-ideas (content notes bridging multiple domains):\n")
     print(f"{'Note':<50} {'Score':<7} {'P.coef':<7} {'Clusters'}")
     print("-" * 80)
 
@@ -734,10 +738,10 @@ def main():
     # Parse --exclude option before command
     args = sys.argv[1:]
     for i, arg in enumerate(args):
-        if arg.startswith('--exclude='):
-            folders = arg.split('=', 1)[1]
-            EXCLUDED_FOLDERS = {f.strip() for f in folders.split(',') if f.strip()}
-            args = args[:i] + args[i + 1:]
+        if arg.startswith("--exclude="):
+            folders = arg.split("=", 1)[1]
+            EXCLUDED_FOLDERS = {f.strip() for f in folders.split(",") if f.strip()}
+            args = args[:i] + args[i + 1 :]
             break
 
     if len(args) < 1:
@@ -747,19 +751,19 @@ def main():
     vault = find_vault_root(Path.cwd())
     cmd = args[0]
 
-    if cmd == 'links' and len(args) >= 2:
+    if cmd == "links" and len(args) >= 2:
         file = Path(args[1])
         if not file.is_absolute():
             file = vault / file
         cmd_links(file, vault)
 
-    elif cmd == 'backlinks' and len(args) >= 2:
+    elif cmd == "backlinks" and len(args) >= 2:
         file = Path(args[1])
         if not file.is_absolute():
             file = vault / file
         cmd_backlinks(file, vault)
 
-    elif cmd == 'rename' and len(args) >= 3:
+    elif cmd == "rename" and len(args) >= 3:
         old = Path(args[1])
         new = Path(args[2])
         if not old.is_absolute():
@@ -768,53 +772,53 @@ def main():
             new = vault / new
         cmd_rename(old, new, vault)
 
-    elif cmd == 'orphans':
+    elif cmd == "orphans":
         cmd_orphans(vault)
 
-    elif cmd == 'broken':
+    elif cmd == "broken":
         cmd_broken(vault)
 
-    elif cmd == 'stats':
+    elif cmd == "stats":
         cmd_stats(vault)
 
-    elif cmd == 'popular':
-        sort_alpha = '--alpha' in args
+    elif cmd == "popular":
+        sort_alpha = "--alpha" in args
         cmd_popular(vault, sort_alpha)
 
-    elif cmd == 'hubs':
-        sort_alpha = '--alpha' in args
+    elif cmd == "hubs":
+        sort_alpha = "--alpha" in args
         cmd_hubs(vault, sort_alpha)
 
-    elif cmd == 'ghosts':
-        sort_alpha = '--alpha' in args
+    elif cmd == "ghosts":
+        sort_alpha = "--alpha" in args
         cmd_ghosts(vault, sort_alpha)
 
-    elif cmd == 'bridges':
+    elif cmd == "bridges":
         top_n = 20
         if len(args) >= 2 and args[1].isdigit():
             top_n = int(args[1])
         cmd_bridges(vault, top_n)
 
-    elif cmd == 'meta-ideas':
+    elif cmd == "meta-ideas":
         top_n = 20
         if len(args) >= 2 and args[1].isdigit():
             top_n = int(args[1])
         cmd_meta_ideas(vault, top_n)
 
-    elif cmd == 'suggest':
+    elif cmd == "suggest":
         top_n = 20
         if len(args) >= 2 and args[1].isdigit():
             top_n = int(args[1])
         cmd_suggest(vault, top_n)
 
-    elif cmd == 'clusters':
-        exclude_mocs = '--no-moc' in args
+    elif cmd == "clusters":
+        exclude_mocs = "--no-moc" in args
         cmd_clusters(vault, exclude_mocs)
 
-    elif cmd == 'path' and len(args) >= 3:
+    elif cmd == "path" and len(args) >= 3:
         cmd_path(vault, args[1], args[2])
 
-    elif cmd == 'weak':
+    elif cmd == "weak":
         cmd_weak(vault)
 
     else:
@@ -822,5 +826,5 @@ def main():
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

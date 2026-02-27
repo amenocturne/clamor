@@ -30,20 +30,20 @@ import networkx as nx
 
 # Catppuccin Mocha palette - cohesive colors for dark themes
 COLORS = [
-    {"a": 1, "rgb": 9024762},   # Blue #89B4FA
+    {"a": 1, "rgb": 9024762},  # Blue #89B4FA
     {"a": 1, "rgb": 13346551},  # Mauve #CBA6F7
     {"a": 1, "rgb": 16429959},  # Peach #FAB387
     {"a": 1, "rgb": 10937249},  # Green #A6E3A1
-    {"a": 1, "rgb": 9757397},   # Teal #94E2D5
+    {"a": 1, "rgb": 9757397},  # Teal #94E2D5
     {"a": 1, "rgb": 15442092},  # Maroon #EBA0AC
     {"a": 1, "rgb": 16376495},  # Yellow #F9E2AF
-    {"a": 1, "rgb": 7653356},   # Sapphire #74C7EC
+    {"a": 1, "rgb": 7653356},  # Sapphire #74C7EC
     {"a": 1, "rgb": 16106215},  # Pink #F5C2E7
     {"a": 1, "rgb": 11845374},  # Lavender #B4BEFE
 ]
 
 # Match [[target]] or [[target|display]] etc.
-WIKILINK_PATTERN = re.compile(r'\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]')
+WIKILINK_PATTERN = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]")
 
 EXCLUDED_FOLDERS: set[str] = set()
 
@@ -55,7 +55,7 @@ def is_excluded(path: Path) -> bool:
 def find_vault_root(start: Path) -> Path:
     current = start.resolve()
     while current != current.parent:
-        if (current / '.obsidian').exists():
+        if (current / ".obsidian").exists():
             return current
         current = current.parent
     return start.resolve()
@@ -63,8 +63,8 @@ def find_vault_root(start: Path) -> Path:
 
 def get_all_notes(vault: Path) -> dict[str, Path]:
     notes = {}
-    for md in vault.rglob('*.md'):
-        if '.obsidian' in md.parts:
+    for md in vault.rglob("*.md"):
+        if ".obsidian" in md.parts:
             continue
         rel_path = md.relative_to(vault)
         if is_excluded(rel_path):
@@ -90,7 +90,7 @@ def build_graph(vault: Path) -> tuple[nx.Graph, dict[str, Path]]:
     for name, note_path in notes.items():
         links = extract_links(note_path)
         for target in links:
-            target_name = target.split('/')[-1] if '/' in target else target
+            target_name = target.split("/")[-1] if "/" in target else target
             if target_name in notes and target_name != name:
                 G.add_edge(name, target_name)
 
@@ -116,7 +116,9 @@ def detect_clusters(G: nx.Graph, min_size: int = 5) -> list[set[str]]:
     return communities
 
 
-def get_cluster_anchors(G: nx.Graph, cluster: set[str], notes: dict[str, Path], max_anchors: int = 5) -> list[str]:
+def get_cluster_anchors(
+    G: nx.Graph, cluster: set[str], notes: dict[str, Path], max_anchors: int = 5
+) -> list[str]:
     """
     Get anchor notes for a cluster - notes that are:
     1. Well-connected within the cluster
@@ -129,10 +131,10 @@ def get_cluster_anchors(G: nx.Graph, cluster: set[str], notes: dict[str, Path], 
     def is_content_note(name: str) -> bool:
         lower = name.lower()
         return not (
-            lower.startswith('moc-') or
-            lower.startswith('_') or
-            lower.endswith('-index') or
-            lower == 'index'
+            lower.startswith("moc-")
+            or lower.startswith("_")
+            or lower.endswith("-index")
+            or lower == "index"
         )
 
     content_nodes = [n for n in cluster if is_content_note(n)]
@@ -153,9 +155,9 @@ def get_cluster_label(G: nx.Graph, cluster: set[str]) -> str:
     hub = max(cluster, key=lambda n: subgraph.degree(n))
 
     # Clean up the hub name for display
-    label = hub.replace('-', ' ').replace('_', ' ')
+    label = hub.replace("-", " ").replace("_", " ")
     # Capitalize first letter of each word
-    label = ' '.join(word.capitalize() for word in label.split())
+    label = " ".join(word.capitalize() for word in label.split())
 
     return label
 
@@ -165,13 +167,11 @@ def generate_query(anchors: list[str]) -> str:
     # Use line:("[[note]]") syntax to match notes that link to anchors
     # Brackets must be quoted as they are reserved search characters
     parts = [f'line:("[[{anchor}]]")' for anchor in anchors]
-    return ' OR '.join(parts)
+    return " OR ".join(parts)
 
 
 def generate_color_groups(
-    vault: Path,
-    min_cluster_size: int = 5,
-    max_clusters: int = 10
+    vault: Path, min_cluster_size: int = 5, max_clusters: int = 10
 ) -> list[dict]:
     """Generate Obsidian color groups from detected clusters."""
     G, notes = build_graph(vault)
@@ -189,28 +189,34 @@ def generate_color_groups(
         color = COLORS[i % len(COLORS)]
         label = get_cluster_label(G, cluster)
 
-        color_groups.append({
-            "query": query,
-            "color": color,
-            "_label": label,  # Not used by Obsidian, but helpful for debugging
-            "_size": len(cluster),
-            "_anchors": anchors,
-        })
+        color_groups.append(
+            {
+                "query": query,
+                "color": color,
+                "_label": label,  # Not used by Obsidian, but helpful for debugging
+                "_size": len(cluster),
+                "_anchors": anchors,
+            }
+        )
 
     return color_groups
 
 
-def update_graph_json(vault: Path, color_groups: list[dict], dry_run: bool = False) -> bool:
+def update_graph_json(
+    vault: Path, color_groups: list[dict], dry_run: bool = False
+) -> bool:
     """Update .obsidian/graph.json with new color groups."""
-    graph_json_path = vault / '.obsidian' / 'graph.json'
+    graph_json_path = vault / ".obsidian" / "graph.json"
 
     # Clean color groups for Obsidian (remove internal keys)
     clean_groups = []
     for group in color_groups:
-        clean_groups.append({
-            "query": group["query"],
-            "color": group["color"],
-        })
+        clean_groups.append(
+            {
+                "query": group["query"],
+                "color": group["color"],
+            }
+        )
 
     if dry_run:
         print("Generated color groups:\n")
@@ -237,7 +243,9 @@ def update_graph_json(vault: Path, color_groups: list[dict], dry_run: bool = Fal
     graph_json_path.parent.mkdir(parents=True, exist_ok=True)
     graph_json_path.write_text(json.dumps(settings, indent=2))
 
-    print(f"Updated {graph_json_path.relative_to(vault)} with {len(clean_groups)} color groups")
+    print(
+        f"Updated {graph_json_path.relative_to(vault)} with {len(clean_groups)} color groups"
+    )
     return True
 
 
@@ -251,13 +259,13 @@ def main():
     # Parse arguments
     remaining_args = []
     for arg in args:
-        if arg.startswith('--exclude='):
-            folders = arg.split('=', 1)[1]
-            EXCLUDED_FOLDERS = {f.strip() for f in folders.split(',') if f.strip()}
-        elif arg == '--dry-run':
+        if arg.startswith("--exclude="):
+            folders = arg.split("=", 1)[1]
+            EXCLUDED_FOLDERS = {f.strip() for f in folders.split(",") if f.strip()}
+        elif arg == "--dry-run":
             dry_run = True
-        elif arg.startswith('--min-cluster='):
-            min_cluster = int(arg.split('=', 1)[1])
+        elif arg.startswith("--min-cluster="):
+            min_cluster = int(arg.split("=", 1)[1])
         else:
             remaining_args.append(arg)
 
@@ -277,5 +285,5 @@ def main():
     update_graph_json(vault, color_groups, dry_run=dry_run)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

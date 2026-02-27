@@ -41,7 +41,12 @@ def get_process_name(conn) -> str | None:
 
 
 @click.command()
-@click.option("--ports", "-p", default=None, help="Comma-separated ports or range (e.g., 3000-3010)")
+@click.option(
+    "--ports",
+    "-p",
+    default=None,
+    help="Comma-separated ports or range (e.g., 3000-3010)",
+)
 @click.option("--json-output/--text", default=True, help="Output format")
 def main(ports: str | None, json_output: bool):
     """Detect running dev servers on common ports."""
@@ -60,12 +65,14 @@ def main(ports: str | None, json_output: bool):
         if conn.status == "LISTEN" and conn.laddr.port in check_ports:
             process_name = get_process_name(conn)
             if process_name:
-                servers.append({
-                    "port": conn.laddr.port,
-                    "process": process_name,
-                    "pid": conn.pid,
-                    "address": conn.laddr.ip,
-                })
+                servers.append(
+                    {
+                        "port": conn.laddr.port,
+                        "process": process_name,
+                        "pid": conn.pid,
+                        "address": conn.laddr.ip,
+                    }
+                )
 
     # Dedupe by port
     seen_ports = set()

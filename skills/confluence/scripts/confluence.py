@@ -50,7 +50,9 @@ def find_page_file(folder: Path, page_id: str) -> Path | None:
     return None
 
 
-def wait_and_kill(proc: subprocess.Popen, folder: Path, page_id: str, grace: float = 1.5):
+def wait_and_kill(
+    proc: subprocess.Popen, folder: Path, page_id: str, grace: float = 1.5
+):
     """Kill process once the target page file appears on disk."""
     while proc.poll() is None:
         if find_page_file(folder, page_id) is not None:
@@ -76,8 +78,12 @@ def cleanup_children(folder: Path, page_id: str):
 def main():
     parser = argparse.ArgumentParser(description="Import Confluence pages to Markdown")
     parser.add_argument("--page-id", required=True, help="Confluence page ID")
-    parser.add_argument("--folder-path", default="./docs", help="Output directory (default: ./docs)")
-    parser.add_argument("--recursive", action="store_true", help="Download child pages recursively")
+    parser.add_argument(
+        "--folder-path", default="./docs", help="Output directory (default: ./docs)"
+    )
+    parser.add_argument(
+        "--recursive", action="store_true", help="Download child pages recursively"
+    )
     parser.add_argument("--host", help="Override Confluence host from config")
     parser.add_argument("--username", help="Override username from config")
     args = parser.parse_args()
@@ -89,10 +95,16 @@ def main():
     username = args.username or confluence_cfg.get("username")
 
     if not host:
-        print("Error: no host configured. Set confluence.host in .claude/agentic-kit.json or pass --host.", file=sys.stderr)
+        print(
+            "Error: no host configured. Set confluence.host in .claude/agentic-kit.json or pass --host.",
+            file=sys.stderr,
+        )
         sys.exit(1)
     if not username:
-        print("Error: no username configured. Set confluence.username in .claude/agentic-kit.json or pass --username.", file=sys.stderr)
+        print(
+            "Error: no username configured. Set confluence.username in .claude/agentic-kit.json or pass --username.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     host = host.rstrip("/")
@@ -100,9 +112,12 @@ def main():
     folder = Path(args.folder_path)
 
     cmd = [
-        "npx", "@acq-tech/confluence",
-        "--username", username,
-        "--folder-path", str(folder),
+        "npx",
+        "@acq-tech/confluence",
+        "--username",
+        username,
+        "--folder-path",
+        str(folder),
         page_url,
     ]
     if args.recursive:

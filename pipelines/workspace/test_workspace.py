@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 # ---------------------------------------------------------------------------
 # Import the generate-workspace module by manipulating sys.path.
@@ -26,7 +25,6 @@ _yaml_mock = MagicMock()
 
 def _fake_dump(data, **kwargs):
     """Minimal YAML-like serialiser used by the mocked ``yaml.dump``."""
-    import json
 
     # Produce a simple YAML-ish output that the CLI tests can assert against
     # by converting to a readable string.
@@ -56,7 +54,9 @@ def _fake_dump(data, **kwargs):
 
 
 _yaml_mock.dump = _fake_dump
-_yaml_mock.safe_load = MagicMock(side_effect=lambda text: __import__("json").loads("{}"))
+_yaml_mock.safe_load = MagicMock(
+    side_effect=lambda text: __import__("json").loads("{}")
+)
 _yaml_mock.add_representer = MagicMock()
 sys.modules.setdefault("yaml", _yaml_mock)
 
@@ -69,7 +69,7 @@ for _mod in [
     sys.modules.setdefault(_mod, MagicMock())
 
 # The module has a hyphenated filename, so use importlib
-import importlib
+import importlib  # noqa: E402
 
 gen_ws = importlib.import_module("generate-workspace")
 
@@ -107,12 +107,16 @@ class TestConstants:
         """Every tool referenced in TECH_DETECTORS should have a DEFAULT_COMMANDS entry."""
         for _filename, (_techs, tools) in gen_ws.TECH_DETECTORS.items():
             for tool in tools:
-                assert tool in gen_ws.DEFAULT_COMMANDS, f"tool '{tool}' has no default commands"
+                assert tool in gen_ws.DEFAULT_COMMANDS, (
+                    f"tool '{tool}' has no default commands"
+                )
 
     def test_all_path_pattern_tools_have_default_commands(self):
         for _pattern, (_techs, tools) in gen_ws.TECH_PATH_PATTERNS.items():
             for tool in tools:
-                assert tool in gen_ws.DEFAULT_COMMANDS, f"tool '{tool}' has no default commands"
+                assert tool in gen_ws.DEFAULT_COMMANDS, (
+                    f"tool '{tool}' has no default commands"
+                )
 
 
 # ===================================================================

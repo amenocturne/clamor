@@ -36,7 +36,10 @@ def get_token() -> str:
                 continue
 
     print("Error: No Genius API token found.", file=sys.stderr)
-    print("Set GENIUS_ACCESS_TOKEN or add 'genius_token' to agentic-kit.json", file=sys.stderr)
+    print(
+        "Set GENIUS_ACCESS_TOKEN or add 'genius_token' to agentic-kit.json",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 
@@ -72,9 +75,13 @@ def fetch_artist_songs(
     return songs
 
 
-def list_artist_songs(genius: lyricsgenius.Genius, artist: str, max_songs: int = 50) -> list[str]:
+def list_artist_songs(
+    genius: lyricsgenius.Genius, artist: str, max_songs: int = 50
+) -> list[str]:
     """List song titles for an artist without fetching lyrics."""
-    artist_obj = genius.search_artist(artist, max_songs=max_songs, sort="popularity", get_full_info=False)
+    artist_obj = genius.search_artist(
+        artist, max_songs=max_songs, sort="popularity", get_full_info=False
+    )
     if not artist_obj:
         return []
     return [song.title for song in artist_obj.songs]
@@ -96,9 +103,15 @@ def main():
     parser.add_argument("--artist", "-a", required=True, help="Artist name")
     parser.add_argument("--song", "-s", help="Single song title")
     parser.add_argument("--songs", nargs="+", help="Multiple song titles")
-    parser.add_argument("--list", action="store_true", help="List artist songs without lyrics")
-    parser.add_argument("--all", action="store_true", help="Fetch all songs from artist")
-    parser.add_argument("--max", type=int, default=10, help="Max songs to fetch (default: 10)")
+    parser.add_argument(
+        "--list", action="store_true", help="List artist songs without lyrics"
+    )
+    parser.add_argument(
+        "--all", action="store_true", help="Fetch all songs from artist"
+    )
+    parser.add_argument(
+        "--max", type=int, default=10, help="Max songs to fetch (default: 10)"
+    )
     parser.add_argument("--output", "-o", help="Output file path")
 
     args = parser.parse_args()

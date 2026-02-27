@@ -34,9 +34,9 @@ from pathlib import Path
 def extract_video_id(url: str) -> str | None:
     """Extract YouTube video ID from URL."""
     patterns = [
-        r'youtu\.be/([a-zA-Z0-9_-]{11})',
-        r'youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})',
-        r'youtube\.com/embed/([a-zA-Z0-9_-]{11})',
+        r"youtu\.be/([a-zA-Z0-9_-]{11})",
+        r"youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})",
+        r"youtube\.com/embed/([a-zA-Z0-9_-]{11})",
     ]
     for pattern in patterns:
         match = re.search(pattern, url)
@@ -50,19 +50,23 @@ def clean_vtt(content: str) -> str:
     lines = []
     seen = set()
 
-    for line in content.split('\n'):
+    for line in content.split("\n"):
         # Skip VTT header, timestamps, and metadata
-        if line.startswith('WEBVTT') or line.startswith('Kind:') or line.startswith('Language:'):
+        if (
+            line.startswith("WEBVTT")
+            or line.startswith("Kind:")
+            or line.startswith("Language:")
+        ):
             continue
-        if '-->' in line:
+        if "-->" in line:
             continue
         if not line.strip():
             continue
-        if line.strip().startswith('['):  # [Music], [Applause], etc.
+        if line.strip().startswith("["):  # [Music], [Applause], etc.
             continue
 
         # Remove VTT formatting tags like <00:00:00.000><c>word</c>
-        clean = re.sub(r'<[^>]+>', '', line)
+        clean = re.sub(r"<[^>]+>", "", line)
         clean = clean.strip()
 
         if not clean:
@@ -73,45 +77,41 @@ def clean_vtt(content: str) -> str:
             seen.add(clean)
             lines.append(clean)
 
-    return '\n'.join(lines)
+    return "\n".join(lines)
 
 
 def expand_lang_with_orig(lang: str) -> str:
     """Expand language codes to include -orig variants for auto-generated captions."""
-    langs = [l.strip() for l in lang.split(',')]
+    langs = [code.strip() for code in lang.split(",")]
     expanded = []
-    for l in langs:
-        expanded.append(l)
+    for code in langs:
+        expanded.append(code)
         # Add -orig variant for auto-generated original language captions
-        if not l.endswith('-orig'):
-            expanded.append(f"{l}-orig")
-    return ','.join(expanded)
+        if not code.endswith("-orig"):
+            expanded.append(f"{code}-orig")
+    return ",".join(expanded)
 
 
 def get_video_metadata(url: str) -> tuple[str | None, str | None]:
     """Get video title and channel name using yt-dlp."""
-    cmd = [
-        "yt-dlp",
-        "--skip-download",
-        "--print", "title",
-        "--print", "channel",
-        url
-    ]
+    cmd = ["yt-dlp", "--skip-download", "--print", "title", "--print", "channel", url]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         return None, None
 
-    lines = result.stdout.strip().split('\n')
+    lines = result.stdout.strip().split("\n")
     title = lines[0] if len(lines) > 0 else None
     channel = lines[1] if len(lines) > 1 else None
     return title, channel
 
 
-def download_subtitles(url: str, lang: str, raw: bool) -> tuple[str | None, str | None, str | None]:
+def download_subtitles(
+    url: str, lang: str, raw: bool
+) -> tuple[str | None, str | None, str | None]:
     """Download subtitles using yt-dlp. Returns (content, title, channel)."""
     video_id = extract_video_id(url)
     if not video_id:
-        print(f"Error: Could not extract video ID from URL", file=sys.stderr)
+        print("Error: Could not extract video ID from URL", file=sys.stderr)
         return None, None, None
 
     # Get video metadata
@@ -131,8 +131,9 @@ def download_subtitles(url: str, lang: str, raw: bool) -> tuple[str | None, str 
             "--ignore-errors",
             f"--sub-lang={expanded_lang}",
             "--sub-format=vtt",
-            "-o", output_template,
-            url
+            "-o",
+            output_template,
+            url,
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -160,7 +161,7 @@ def download_subtitles(url: str, lang: str, raw: bool) -> tuple[str | None, str 
 
 
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] in ('-h', '--help'):
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print(__doc__)
         sys.exit(0 if len(sys.argv) >= 2 else 1)
 
@@ -170,11 +171,11 @@ def main():
     output_path = None
 
     for arg in sys.argv[2:]:
-        if arg.startswith('--lang='):
-            lang = arg.split('=', 1)[1]
-        elif arg.startswith('--output='):
-            output_path = arg.split('=', 1)[1]
-        elif arg == '--raw':
+        if arg.startswith("--lang="):
+            lang = arg.split("=", 1)[1]
+        elif arg.startswith("--output="):
+            output_path = arg.split("=", 1)[1]
+        elif arg == "--raw":
             raw = True
 
     content, title, channel = download_subtitles(url, lang, raw)
@@ -188,7 +189,7 @@ def main():
         header_lines.append(f"Title: {title}")
     if channel:
         header_lines.append(f"Channel: {channel}")
-    header = '\n'.join(header_lines) + '\n\n' if header_lines else ''
+    header = "\n".join(header_lines) + "\n\n" if header_lines else ""
 
     output = header + content
 
@@ -199,5 +200,5 @@ def main():
         print(output)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

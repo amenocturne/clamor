@@ -4,6 +4,7 @@
 # dependencies = []
 # ///
 """Send system notification for Claude Code events."""
+
 import json
 import os
 import subprocess
@@ -13,14 +14,22 @@ import sys
 def notify(message: str, title: str = "Claude Code", sound: str = "Tink"):
     """Send system notification with sound."""
     if sys.platform == "darwin":
-        for tn in ["/opt/homebrew/bin/terminal-notifier", "/usr/local/bin/terminal-notifier"]:
+        for tn in [
+            "/opt/homebrew/bin/terminal-notifier",
+            "/usr/local/bin/terminal-notifier",
+        ]:
             if os.path.exists(tn):
-                subprocess.run([tn, "-message", message, "-title", title, "-sound", sound])
+                subprocess.run(
+                    [tn, "-message", message, "-title", title, "-sound", sound]
+                )
                 return
-        subprocess.run([
-            "osascript", "-e",
-            f'display notification "{message}" with title "{title}" sound name "{sound}"'
-        ])
+        subprocess.run(
+            [
+                "osascript",
+                "-e",
+                f'display notification "{message}" with title "{title}" sound name "{sound}"',
+            ]
+        )
     elif sys.platform == "linux":
         subprocess.run(["notify-send", title, message])
 

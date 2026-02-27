@@ -36,6 +36,7 @@ INCLUDE_PATTERN = r"\{\{include:([^}]+)\}\}"
 
 def process_includes(content: str) -> str:
     """Process {{include:path}} directives, replacing them with file contents."""
+
     def replace_include(match):
         include_path = match.group(1)
         # Resolve path relative to repo root

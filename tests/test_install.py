@@ -1,6 +1,5 @@
 """Tests for install.py — the core installer."""
 
-import importlib
 import json
 import sys
 from pathlib import Path
@@ -231,7 +230,10 @@ class TestLoadHookConfig:
         make_hook(fake_repo["hooks"], "my-hook", hooks_json=hooks_json)
         target_hook_dir = Path("/project/hooks/my-hook")
         result = install.load_hook_config("my-hook", target_hook_dir)
-        assert result["Stop"][0]["hooks"][0]["command"] == "/project/hooks/my-hook/hook.sh stop"
+        assert (
+            result["Stop"][0]["hooks"][0]["command"]
+            == "/project/hooks/my-hook/hook.sh stop"
+        )
 
     def test_multiple_placeholders_resolved(self, fake_repo):
         hooks_json = {
@@ -260,7 +262,9 @@ class TestLoadHookConfig:
         target = Path("/t/hooks/multi")
         result = install.load_hook_config("multi", target)
         assert result["PreToolUse"][0]["hooks"][0]["command"] == "/t/hooks/multi/pre.sh"
-        assert result["PostToolUse"][0]["hooks"][0]["command"] == "/t/hooks/multi/post.sh"
+        assert (
+            result["PostToolUse"][0]["hooks"][0]["command"] == "/t/hooks/multi/post.sh"
+        )
 
     def test_missing_hooks_json_returns_empty(self, fake_repo):
         d = fake_repo["hooks"] / "no-json"
@@ -366,7 +370,9 @@ class TestMergeSettings:
             fake_repo["presets"],
             "p2",
             manifest={"description": "p2"},
-            settings={"hooks": {"Stop": [{"command": "b"}], "PreToolUse": [{"command": "c"}]}},
+            settings={
+                "hooks": {"Stop": [{"command": "b"}], "PreToolUse": [{"command": "c"}]}
+            },
         )
         result = install.merge_settings(["p1", "p2"], target)
         assert len(result["hooks"]["Stop"]) == 2
@@ -453,7 +459,9 @@ class TestMergeClaudeMd:
         assert result == ""
 
     def test_mixed_presets(self, fake_repo):
-        make_preset(fake_repo["presets"], "has-md", manifest={}, claude_md="Has content")
+        make_preset(
+            fake_repo["presets"], "has-md", manifest={}, claude_md="Has content"
+        )
         make_preset(fake_repo["presets"], "no-md", manifest={})
         result = install.merge_claude_md(["has-md", "no-md"])
         assert "# From has-md" in result
@@ -494,12 +502,22 @@ class TestCollectComponents:
         make_preset(
             fake_repo["presets"],
             "a",
-            manifest={"skills": ["spec", "knowledge-base"], "hooks": [], "pipelines": [], "external": []},
+            manifest={
+                "skills": ["spec", "knowledge-base"],
+                "hooks": [],
+                "pipelines": [],
+                "external": [],
+            },
         )
         make_preset(
             fake_repo["presets"],
             "b",
-            manifest={"skills": ["spec", "youtube"], "hooks": [], "pipelines": [], "external": []},
+            manifest={
+                "skills": ["spec", "youtube"],
+                "hooks": [],
+                "pipelines": [],
+                "external": [],
+            },
         )
         result = install.collect_components(["a", "b"])
         assert result["skills"] == {"spec", "knowledge-base", "youtube"}
@@ -529,12 +547,22 @@ class TestCollectComponents:
         make_preset(
             fake_repo["presets"],
             "a",
-            manifest={"skills": ["s1"], "hooks": ["h1"], "pipelines": [], "external": ["e1"]},
+            manifest={
+                "skills": ["s1"],
+                "hooks": ["h1"],
+                "pipelines": [],
+                "external": ["e1"],
+            },
         )
         make_preset(
             fake_repo["presets"],
             "b",
-            manifest={"skills": ["s2"], "hooks": ["h2"], "pipelines": ["p1"], "external": ["e2"]},
+            manifest={
+                "skills": ["s2"],
+                "hooks": ["h2"],
+                "pipelines": ["p1"],
+                "external": ["e2"],
+            },
         )
         result = install.collect_components(["a", "b"])
         assert result["skills"] == {"s1", "s2"}
@@ -597,7 +625,13 @@ class TestInstall:
         make_preset(
             fake_repo["presets"],
             "base",
-            manifest={"description": "base", "skills": [], "hooks": [], "pipelines": [], "external": []},
+            manifest={
+                "description": "base",
+                "skills": [],
+                "hooks": [],
+                "pipelines": [],
+                "external": [],
+            },
             settings={"hooks": {}},
             claude_md="Base rules",
         )
@@ -628,7 +662,12 @@ class TestInstall:
         make_preset(
             fake_repo["presets"],
             "p1",
-            manifest={"skills": [], "hooks": ["notification"], "pipelines": [], "external": []},
+            manifest={
+                "skills": [],
+                "hooks": ["notification"],
+                "pipelines": [],
+                "external": [],
+            },
             settings={"hooks": {}},
         )
         install.install(["p1"], target)
@@ -645,7 +684,12 @@ class TestInstall:
         make_preset(
             fake_repo["presets"],
             "p1",
-            manifest={"skills": [], "hooks": [], "pipelines": ["workspace"], "external": []},
+            manifest={
+                "skills": [],
+                "hooks": [],
+                "pipelines": ["workspace"],
+                "external": [],
+            },
             settings={"hooks": {}},
         )
         install.install(["p1"], target)
@@ -679,7 +723,12 @@ class TestInstall:
         make_preset(
             fake_repo["presets"],
             "p1",
-            manifest={"skills": ["nonexistent-skill"], "hooks": [], "pipelines": [], "external": []},
+            manifest={
+                "skills": ["nonexistent-skill"],
+                "hooks": [],
+                "pipelines": [],
+                "external": [],
+            },
             settings={"hooks": {}},
         )
         install.install(["p1"], target)
@@ -691,7 +740,12 @@ class TestInstall:
         make_preset(
             fake_repo["presets"],
             "p1",
-            manifest={"skills": [], "hooks": ["ghost-hook"], "pipelines": [], "external": []},
+            manifest={
+                "skills": [],
+                "hooks": ["ghost-hook"],
+                "pipelines": [],
+                "external": [],
+            },
             settings={"hooks": {}},
         )
         install.install(["p1"], target)
@@ -703,7 +757,12 @@ class TestInstall:
         make_preset(
             fake_repo["presets"],
             "p1",
-            manifest={"skills": [], "hooks": [], "pipelines": ["ghost-pipe"], "external": []},
+            manifest={
+                "skills": [],
+                "hooks": [],
+                "pipelines": ["ghost-pipe"],
+                "external": [],
+            },
             settings={"hooks": {}},
         )
         install.install(["p1"], target)
@@ -757,7 +816,12 @@ class TestInstall:
         make_preset(
             fake_repo["presets"],
             "p1",
-            manifest={"skills": [], "hooks": ["my-hook"], "pipelines": [], "external": []},
+            manifest={
+                "skills": [],
+                "hooks": ["my-hook"],
+                "pipelines": [],
+                "external": [],
+            },
             settings={"hooks": {}},
         )
         install.install(["p1"], target)
@@ -796,7 +860,12 @@ class TestInstall:
         make_preset(
             fake_repo["presets"],
             "b",
-            manifest={"skills": ["youtube"], "hooks": ["notification"], "pipelines": [], "external": []},
+            manifest={
+                "skills": ["youtube"],
+                "hooks": ["notification"],
+                "pipelines": [],
+                "external": [],
+            },
             settings={"hooks": {}},
             claude_md="From B",
         )
@@ -816,7 +885,12 @@ class TestInstall:
         make_preset(
             fake_repo["presets"],
             "p1",
-            manifest={"skills": [], "hooks": [], "pipelines": ["workspace"], "external": []},
+            manifest={
+                "skills": [],
+                "hooks": [],
+                "pipelines": ["workspace"],
+                "external": [],
+            },
             settings={"hooks": {}},
         )
         install.install(["p1"], target)
@@ -875,7 +949,9 @@ class TestMain:
             manifest={"skills": [], "hooks": [], "pipelines": [], "external": []},
             settings={"hooks": {}},
         )
-        with patch("sys.argv", ["install.py", "--presets", "base", "--target", str(target)]):
+        with patch(
+            "sys.argv", ["install.py", "--presets", "base", "--target", str(target)]
+        ):
             install.main()
         assert (target / ".claude").is_dir()
 
@@ -891,7 +967,13 @@ class TestMain:
         make_preset(
             fake_repo["presets"],
             "base",
-            manifest={"description": "Base", "skills": [], "hooks": [], "pipelines": [], "external": []},
+            manifest={
+                "description": "Base",
+                "skills": [],
+                "hooks": [],
+                "pipelines": [],
+                "external": [],
+            },
             settings={"hooks": {}},
         )
         with (
@@ -967,8 +1049,12 @@ class TestEdgeCases:
         }
         make_hook(fake_repo["hooks"], "deep", hooks_json=hooks_json)
         result = install.load_hook_config("deep", Path("/abs/hooks/deep"))
-        assert result["PreToolUse"][0]["hooks"][0]["command"] == "/abs/hooks/deep/run.sh"
-        assert result["PreToolUse"][0]["hooks"][0]["env"]["HOOK_PATH"] == "/abs/hooks/deep"
+        assert (
+            result["PreToolUse"][0]["hooks"][0]["command"] == "/abs/hooks/deep/run.sh"
+        )
+        assert (
+            result["PreToolUse"][0]["hooks"][0]["env"]["HOOK_PATH"] == "/abs/hooks/deep"
+        )
 
     def test_install_idempotent(self, fake_repo, tmp_path):
         """Running install twice produces same result."""
@@ -979,16 +1065,21 @@ class TestEdgeCases:
         make_preset(
             fake_repo["presets"],
             "p1",
-            manifest={"skills": ["spec"], "hooks": ["notification"], "pipelines": [], "external": []},
+            manifest={
+                "skills": ["spec"],
+                "hooks": ["notification"],
+                "pipelines": [],
+                "external": [],
+            },
             settings={"hooks": {}},
             claude_md="Content",
         )
         install.install(["p1"], target)
-        first_settings = (target / ".claude" / "settings.json").read_text()
+        _first_settings = (target / ".claude" / "settings.json").read_text()
         first_claude_md = (target / ".claude" / "CLAUDE.md").read_text()
 
         install.install(["p1"], target)
-        second_settings = (target / ".claude" / "settings.json").read_text()
+        _second_settings = (target / ".claude" / "settings.json").read_text()
         second_claude_md = (target / ".claude" / "CLAUDE.md").read_text()
 
         # .claude/CLAUDE.md is always overwritten, should be same

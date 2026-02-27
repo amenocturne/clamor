@@ -128,7 +128,7 @@ class TestCleanVtt:
     def test_skips_blank_lines(self):
         vtt = "00:00:00.000 --> 00:00:02.000\nHello\n\n\n00:00:02.000 --> 00:00:04.000\nWorld"
         result = yt_subs.clean_vtt(vtt)
-        lines = [l for l in result.split("\n") if l.strip()]
+        lines = [line for line in result.split("\n") if line.strip()]
         assert len(lines) == 2
 
     def test_empty_input(self):
@@ -315,7 +315,8 @@ class TestMainYtSubs:
         mock_dl.return_value = ("Hello world", "Title", "Channel")
         out_file = tmp_path / "out.txt"
         with patch.object(
-            sys, "argv",
+            sys,
+            "argv",
             ["yt-subs.py", "https://youtu.be/NbGuDcRSXlQ", f"--output={out_file}"],
         ):
             yt_subs.main()
@@ -327,7 +328,8 @@ class TestMainYtSubs:
     def test_lang_and_raw_flags(self, mock_dl):
         mock_dl.return_value = ("raw content", None, None)
         with patch.object(
-            sys, "argv",
+            sys,
+            "argv",
             ["yt-subs.py", "https://youtu.be/NbGuDcRSXlQ", "--lang=ru", "--raw"],
         ):
             yt_subs.main()
@@ -360,7 +362,10 @@ class TestInjectExtractVideoId:
     """Test video ID extraction in inject-transcript (same logic as yt-subs)."""
 
     def test_standard_url(self):
-        assert inject_transcript.extract_video_id("https://youtu.be/NbGuDcRSXlQ") == "NbGuDcRSXlQ"
+        assert (
+            inject_transcript.extract_video_id("https://youtu.be/NbGuDcRSXlQ")
+            == "NbGuDcRSXlQ"
+        )
 
     def test_invalid_url(self):
         assert inject_transcript.extract_video_id("https://example.com") is None
@@ -371,11 +376,17 @@ class TestExtractSourceUrl:
 
     def test_basic_frontmatter(self):
         content = "---\ntitle: Test\nsource: https://youtu.be/NbGuDcRSXlQ\n---\nBody"
-        assert inject_transcript.extract_source_url(content) == "https://youtu.be/NbGuDcRSXlQ"
+        assert (
+            inject_transcript.extract_source_url(content)
+            == "https://youtu.be/NbGuDcRSXlQ"
+        )
 
     def test_source_with_extra_whitespace(self):
         content = "source:   https://youtu.be/NbGuDcRSXlQ   \n"
-        assert inject_transcript.extract_source_url(content) == "https://youtu.be/NbGuDcRSXlQ"
+        assert (
+            inject_transcript.extract_source_url(content)
+            == "https://youtu.be/NbGuDcRSXlQ"
+        )
 
     def test_no_source_field(self):
         content = "---\ntitle: Test\n---\nBody"
@@ -399,7 +410,9 @@ class TestFormatTranscript:
 
     def test_sentence_ending_triggers_paragraph(self):
         # After 3+ lines, a sentence-ending punctuation triggers a paragraph break
-        lines = "First line\nSecond line\nThird line ends here.\nFourth line\nFifth line"
+        lines = (
+            "First line\nSecond line\nThird line ends here.\nFourth line\nFifth line"
+        )
         result = inject_transcript.format_transcript(lines)
         paragraphs = result.split("\n\n")
         assert len(paragraphs) >= 2
@@ -464,7 +477,9 @@ class TestInjectTranscriptPlaceholder:
 
     def test_replaces_placeholder(self, tmp_path):
         note = tmp_path / "note.md"
-        note.write_text("---\nsource: https://youtu.be/NbGuDcRSXlQ\n---\n\n{{transcript}}")
+        note.write_text(
+            "---\nsource: https://youtu.be/NbGuDcRSXlQ\n---\n\n{{transcript}}"
+        )
 
         # Create CLAUDE.md so find_tmp_dir works
         (tmp_path / "CLAUDE.md").write_text("")
@@ -483,7 +498,9 @@ class TestInjectTranscriptPlaceholder:
 
     def test_keeps_tmp_file_with_flag(self, tmp_path):
         note = tmp_path / "note.md"
-        note.write_text("---\nsource: https://youtu.be/NbGuDcRSXlQ\n---\n\n{{transcript}}")
+        note.write_text(
+            "---\nsource: https://youtu.be/NbGuDcRSXlQ\n---\n\n{{transcript}}"
+        )
 
         (tmp_path / "CLAUDE.md").write_text("")
         tmp_dir = tmp_path / "tmp"
@@ -498,7 +515,9 @@ class TestInjectTranscriptPlaceholder:
 
     def test_deletes_tmp_file_by_default(self, tmp_path):
         note = tmp_path / "note.md"
-        note.write_text("---\nsource: https://youtu.be/NbGuDcRSXlQ\n---\n\n{{transcript}}")
+        note.write_text(
+            "---\nsource: https://youtu.be/NbGuDcRSXlQ\n---\n\n{{transcript}}"
+        )
 
         (tmp_path / "CLAUDE.md").write_text("")
         tmp_dir = tmp_path / "tmp"
@@ -513,7 +532,9 @@ class TestInjectTranscriptPlaceholder:
 
     def test_missing_placeholder_exits(self, tmp_path):
         note = tmp_path / "note.md"
-        note.write_text("---\nsource: https://youtu.be/NbGuDcRSXlQ\n---\n\nNo placeholder here")
+        note.write_text(
+            "---\nsource: https://youtu.be/NbGuDcRSXlQ\n---\n\nNo placeholder here"
+        )
 
         with patch.object(sys, "argv", ["inject-transcript.py", str(note)]):
             with pytest.raises(SystemExit) as exc_info:
@@ -538,7 +559,9 @@ class TestInjectTranscriptPlaceholder:
 
     def test_missing_transcript_file_exits(self, tmp_path):
         note = tmp_path / "note.md"
-        note.write_text("---\nsource: https://youtu.be/NbGuDcRSXlQ\n---\n\n{{transcript}}")
+        note.write_text(
+            "---\nsource: https://youtu.be/NbGuDcRSXlQ\n---\n\n{{transcript}}"
+        )
 
         (tmp_path / "CLAUDE.md").write_text("")
         # Do NOT create the tmp transcript file
@@ -550,7 +573,9 @@ class TestInjectTranscriptPlaceholder:
 
     def test_invalid_video_id_in_source_exits(self, tmp_path):
         note = tmp_path / "note.md"
-        note.write_text("---\nsource: https://example.com/not-youtube\n---\n\n{{transcript}}")
+        note.write_text(
+            "---\nsource: https://example.com/not-youtube\n---\n\n{{transcript}}"
+        )
 
         with patch.object(sys, "argv", ["inject-transcript.py", str(note)]):
             with pytest.raises(SystemExit) as exc_info:
@@ -559,7 +584,9 @@ class TestInjectTranscriptPlaceholder:
 
     def test_empty_transcript(self, tmp_path):
         note = tmp_path / "note.md"
-        note.write_text("---\nsource: https://youtu.be/NbGuDcRSXlQ\n---\n\n{{transcript}}")
+        note.write_text(
+            "---\nsource: https://youtu.be/NbGuDcRSXlQ\n---\n\n{{transcript}}"
+        )
 
         (tmp_path / "CLAUDE.md").write_text("")
         tmp_dir = tmp_path / "tmp"

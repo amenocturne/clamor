@@ -4,7 +4,6 @@
 # ///
 """CLI wrapper for pinchtab browser control."""
 
-import json
 import os
 import subprocess
 import sys
@@ -40,6 +39,7 @@ def check_server() -> bool:
 def check_installed() -> bool:
     """Check if pinchtab binary is available."""
     import shutil
+
     return shutil.which("pinchtab") is not None
 
 
@@ -49,7 +49,10 @@ def ensure_server() -> None:
         return
 
     if not check_installed():
-        click.echo("Pinchtab not installed. Install with: curl -fsSL https://pinchtab.com/install.sh | bash", err=True)
+        click.echo(
+            "Pinchtab not installed. Install with: curl -fsSL https://pinchtab.com/install.sh | bash",
+            err=True,
+        )
         sys.exit(1)
 
     click.echo("Starting pinchtab server...", err=True)
@@ -89,8 +92,12 @@ def start(headed: bool, port: int):
     if port != DEFAULT_PORT:
         env["BRIDGE_PORT"] = str(port)
 
-    click.echo(f"Starting pinchtab server on port {port}{'(headed)' if headed else ''}...")
-    subprocess.Popen(["pinchtab"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+    click.echo(
+        f"Starting pinchtab server on port {port}{'(headed)' if headed else ''}..."
+    )
+    subprocess.Popen(
+        ["pinchtab"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env
+    )
 
     # Wait for server to start
     for _ in range(10):
@@ -221,7 +228,13 @@ def evaluate(expression: str):
 
 @cli.command()
 @click.argument("query")
-@click.option("--engine", "-e", default="kagi", type=click.Choice(list(SEARCH_ENGINES.keys())), help="Search engine")
+@click.option(
+    "--engine",
+    "-e",
+    default="kagi",
+    type=click.Choice(list(SEARCH_ENGINES.keys())),
+    help="Search engine",
+)
 def search(query: str, engine: str):
     """Search using a search engine."""
     ensure_server()

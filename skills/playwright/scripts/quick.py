@@ -27,11 +27,17 @@ def cli():
 @cli.command()
 @click.argument("url")
 @click.option("--output", "-o", default="tmp/screenshot.png", help="Output path")
-@click.option("--wait", default="networkidle", help="Wait strategy: load, domcontentloaded, networkidle")
+@click.option(
+    "--wait",
+    default="networkidle",
+    help="Wait strategy: load, domcontentloaded, networkidle",
+)
 @click.option("--selector", "-s", help="Wait for and screenshot specific element")
 @click.option("--delay", type=int, default=0, help="Additional delay in ms after wait")
 @click.option("--headless/--headed", default=True, help="Run headless or visible")
-def screenshot(url: str, output: str, wait: str, selector: str | None, delay: int, headless: bool):
+def screenshot(
+    url: str, output: str, wait: str, selector: str | None, delay: int, headless: bool
+):
     """Take a screenshot of a page."""
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,7 +89,9 @@ def check(url: str, selector: str, timeout: int, headless: bool):
 @cli.command()
 @click.argument("url")
 @click.option("--data", "-d", required=True, help="JSON data for form fields")
-@click.option("--submit-selector", default="button[type=submit]", help="Submit button selector")
+@click.option(
+    "--submit-selector", default="button[type=submit]", help="Submit button selector"
+)
 @click.option("--headless/--headed", default=False, help="Run headless or visible")
 def form(url: str, data: str, submit_selector: str, headless: bool):
     """Fill a form and submit it."""
@@ -107,7 +115,12 @@ def form(url: str, data: str, submit_selector: str, headless: bool):
 
 @cli.command()
 @click.argument("url")
-@click.option("--viewports", "-v", default="desktop,tablet,mobile", help="Comma-separated viewport names")
+@click.option(
+    "--viewports",
+    "-v",
+    default="desktop,tablet,mobile",
+    help="Comma-separated viewport names",
+)
 @click.option("--output", "-o", default="tmp/responsive", help="Output directory")
 @click.option("--wait", default="networkidle")
 @click.option("--delay", type=int, default=0, help="Additional delay in ms")
@@ -143,7 +156,9 @@ def responsive(url: str, viewports: str, output: str, wait: str, delay: int):
 
 @cli.command()
 @click.argument("url")
-@click.option("--follow/--no-follow", default=False, help="Follow links and check recursively")
+@click.option(
+    "--follow/--no-follow", default=False, help="Follow links and check recursively"
+)
 @click.option("--output", "-o", help="Output JSON file for results")
 @click.option("--headless/--headed", default=True)
 def links(url: str, follow: bool, output: str | None, headless: bool):
@@ -175,7 +190,9 @@ def links(url: str, follow: bool, output: str | None, headless: bool):
                     hrefs = page.locator("a[href]").all()
                     for a in hrefs:
                         href = a.get_attribute("href")
-                        if href and not href.startswith(("#", "mailto:", "tel:", "javascript:")):
+                        if href and not href.startswith(
+                            ("#", "mailto:", "tel:", "javascript:")
+                        ):
                             full_url = urljoin(page_url, href)
                             if urlparse(full_url).netloc == base_domain:
                                 check_page(full_url)

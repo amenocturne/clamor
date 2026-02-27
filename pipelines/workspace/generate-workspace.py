@@ -216,7 +216,9 @@ def generate_workspace(root_dir: Path, progress: Progress) -> dict:
     progress.remove_task(scan_task)
 
     # Phase 2: Process repos
-    process_task = progress.add_task("[green]Detecting tech stacks...", total=len(repos))
+    process_task = progress.add_task(
+        "[green]Detecting tech stacks...", total=len(repos)
+    )
     projects = {}
     for repo in repos:
         rel_path = repo.relative_to(root_dir).as_posix()
@@ -228,8 +230,12 @@ def generate_workspace(root_dir: Path, progress: Progress) -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate WORKSPACE.yaml from git repos")
-    parser.add_argument("--root", type=Path, default=Path.cwd(), help="Root directory to scan")
+    parser = argparse.ArgumentParser(
+        description="Generate WORKSPACE.yaml from git repos"
+    )
+    parser.add_argument(
+        "--root", type=Path, default=Path.cwd(), help="Root directory to scan"
+    )
     parser.add_argument(
         "--output", type=Path, default=Path("WORKSPACE.yaml"), help="Output file"
     )
@@ -250,8 +256,12 @@ def main():
     # Custom YAML representer to use flow style for lists
     def list_representer(dumper, data):
         if len(data) <= 4 and all(isinstance(x, str) and len(x) < 20 for x in data):
-            return dumper.represent_sequence("tag:yaml.org,2002:seq", data, flow_style=True)
-        return dumper.represent_sequence("tag:yaml.org,2002:seq", data, flow_style=False)
+            return dumper.represent_sequence(
+                "tag:yaml.org,2002:seq", data, flow_style=True
+            )
+        return dumper.represent_sequence(
+            "tag:yaml.org,2002:seq", data, flow_style=False
+        )
 
     yaml.add_representer(list, list_representer)
 

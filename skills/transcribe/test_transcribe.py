@@ -1,11 +1,9 @@
 """Tests for transcribe and transcribe_api scripts."""
 
 import base64
-import json
 import sys
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -49,14 +47,16 @@ class TestParseArgs:
         assert result["output"] is None
 
     def test_all_options(self):
-        result = transcribe.parse_args([
-            "recording.wav",
-            "--model=medium",
-            "--lang=ru",
-            "--device=cpu",
-            "--timestamps",
-            "--output=/tmp/out.txt",
-        ])
+        result = transcribe.parse_args(
+            [
+                "recording.wav",
+                "--model=medium",
+                "--lang=ru",
+                "--device=cpu",
+                "--timestamps",
+                "--output=/tmp/out.txt",
+            ]
+        )
         assert result["audio_file"] == "recording.wav"
         assert result["model"] == "medium"
         assert result["lang"] == "ru"
@@ -145,7 +145,9 @@ class TestTranscribeFunction:
         mock_model.transcribe.return_value = (iter(segments), info)
         mock_whisper_cls.return_value = mock_model
 
-        with patch.dict("sys.modules", {"faster_whisper": MagicMock(WhisperModel=mock_whisper_cls)}):
+        with patch.dict(
+            "sys.modules", {"faster_whisper": MagicMock(WhisperModel=mock_whisper_cls)}
+        ):
             result = transcribe.transcribe(
                 Path("/fake/audio.mp3"),
                 model_size="base",
@@ -169,7 +171,9 @@ class TestTranscribeFunction:
         mock_model.transcribe.return_value = (iter(segments), info)
         mock_whisper_cls.return_value = mock_model
 
-        with patch.dict("sys.modules", {"faster_whisper": MagicMock(WhisperModel=mock_whisper_cls)}):
+        with patch.dict(
+            "sys.modules", {"faster_whisper": MagicMock(WhisperModel=mock_whisper_cls)}
+        ):
             result = transcribe.transcribe(
                 Path("/fake/audio.mp3"),
                 model_size="base",
@@ -191,10 +195,13 @@ class TestTranscribeFunction:
         mock_whisper_cls.return_value = mock_model
 
         # Simulate torch not available
-        with patch.dict("sys.modules", {
-            "faster_whisper": MagicMock(WhisperModel=mock_whisper_cls),
-            "torch": None,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "faster_whisper": MagicMock(WhisperModel=mock_whisper_cls),
+                "torch": None,
+            },
+        ):
             transcribe.transcribe(
                 Path("/fake/audio.mp3"),
                 model_size="tiny",
@@ -215,7 +222,9 @@ class TestTranscribeFunction:
         mock_model.transcribe.return_value = (iter([]), info)
         mock_whisper_cls.return_value = mock_model
 
-        with patch.dict("sys.modules", {"faster_whisper": MagicMock(WhisperModel=mock_whisper_cls)}):
+        with patch.dict(
+            "sys.modules", {"faster_whisper": MagicMock(WhisperModel=mock_whisper_cls)}
+        ):
             transcribe.transcribe(
                 Path("/fake/audio.mp3"),
                 model_size="large-v3",
@@ -224,7 +233,9 @@ class TestTranscribeFunction:
                 timestamps=False,
             )
 
-        mock_whisper_cls.assert_called_with("large-v3", device="cuda", compute_type="float16")
+        mock_whisper_cls.assert_called_with(
+            "large-v3", device="cuda", compute_type="float16"
+        )
 
     @patch("transcribe.WhisperModel", create=True)
     def test_empty_segments(self, mock_whisper_cls):
@@ -235,7 +246,9 @@ class TestTranscribeFunction:
         mock_model.transcribe.return_value = (iter([]), info)
         mock_whisper_cls.return_value = mock_model
 
-        with patch.dict("sys.modules", {"faster_whisper": MagicMock(WhisperModel=mock_whisper_cls)}):
+        with patch.dict(
+            "sys.modules", {"faster_whisper": MagicMock(WhisperModel=mock_whisper_cls)}
+        ):
             result = transcribe.transcribe(
                 Path("/fake/audio.mp3"),
                 model_size="base",
@@ -300,7 +313,9 @@ class TestMainLocal:
 
         mock_transcribe.return_value = "Transcribed text"
 
-        with patch.object(sys, "argv", ["transcribe.py", str(audio), f"--output={output}"]):
+        with patch.object(
+            sys, "argv", ["transcribe.py", str(audio), f"--output={output}"]
+        ):
             transcribe.main()
 
         assert output.exists()
@@ -324,13 +339,15 @@ class TestParseArgsApi:
         assert result["output"] is None
 
     def test_all_options(self):
-        result = transcribe_api.parse_args([
-            "recording.wav",
-            "--model=google/gemini-pro",
-            "--lang=en",
-            "--timestamps",
-            "--output=/tmp/out.txt",
-        ])
+        result = transcribe_api.parse_args(
+            [
+                "recording.wav",
+                "--model=google/gemini-pro",
+                "--lang=en",
+                "--timestamps",
+                "--output=/tmp/out.txt",
+            ]
+        )
         assert result["audio_file"] == "recording.wav"
         assert result["model"] == "google/gemini-pro"
         assert result["lang"] == "en"
@@ -443,8 +460,11 @@ class TestTranscribeChunk:
         mock_client_cls.return_value = mock_client
 
         result = transcribe_api.transcribe_chunk(
-            audio, model="test-model", language=None,
-            timestamps=False, api_key="test-key",
+            audio,
+            model="test-model",
+            language=None,
+            timestamps=False,
+            api_key="test-key",
         )
         assert result == "Hello world."
 
@@ -464,8 +484,11 @@ class TestTranscribeChunk:
 
         with pytest.raises(SystemExit) as exc_info:
             transcribe_api.transcribe_chunk(
-                audio, model="test-model", language=None,
-                timestamps=False, api_key="test-key",
+                audio,
+                model="test-model",
+                language=None,
+                timestamps=False,
+                api_key="test-key",
             )
         assert exc_info.value.code == 1
 
@@ -485,8 +508,11 @@ class TestTranscribeChunk:
 
         with pytest.raises(SystemExit) as exc_info:
             transcribe_api.transcribe_chunk(
-                audio, model="test-model", language=None,
-                timestamps=False, api_key="test-key",
+                audio,
+                model="test-model",
+                language=None,
+                timestamps=False,
+                api_key="test-key",
             )
         assert exc_info.value.code == 1
 
@@ -507,12 +533,19 @@ class TestTranscribeChunk:
         mock_client_cls.return_value = mock_client
 
         transcribe_api.transcribe_chunk(
-            audio, model="test-model", language=None,
-            timestamps=False, api_key="my-secret-key",
+            audio,
+            model="test-model",
+            language=None,
+            timestamps=False,
+            api_key="my-secret-key",
         )
 
         call_kwargs = mock_client.post.call_args
-        headers = call_kwargs[1]["headers"] if "headers" in call_kwargs[1] else call_kwargs.kwargs["headers"]
+        headers = (
+            call_kwargs[1]["headers"]
+            if "headers" in call_kwargs[1]
+            else call_kwargs.kwargs["headers"]
+        )
         assert headers["Authorization"] == "Bearer my-secret-key"
 
     @patch("transcribe_api.httpx.Client")
@@ -533,12 +566,19 @@ class TestTranscribeChunk:
         mock_client_cls.return_value = mock_client
 
         transcribe_api.transcribe_chunk(
-            audio, model="test-model", language=None,
-            timestamps=False, api_key="key",
+            audio,
+            model="test-model",
+            language=None,
+            timestamps=False,
+            api_key="key",
         )
 
         call_kwargs = mock_client.post.call_args
-        payload = call_kwargs[1]["json"] if "json" in call_kwargs[1] else call_kwargs.kwargs["json"]
+        payload = (
+            call_kwargs[1]["json"]
+            if "json" in call_kwargs[1]
+            else call_kwargs.kwargs["json"]
+        )
         content_parts = payload["messages"][0]["content"]
         image_part = content_parts[1]
         expected_b64 = base64.standard_b64encode(audio_data).decode("utf-8")
@@ -561,12 +601,19 @@ class TestTranscribeChunk:
         mock_client_cls.return_value = mock_client
 
         transcribe_api.transcribe_chunk(
-            audio, model="test-model", language="ru",
-            timestamps=False, api_key="key",
+            audio,
+            model="test-model",
+            language="ru",
+            timestamps=False,
+            api_key="key",
         )
 
         call_kwargs = mock_client.post.call_args
-        payload = call_kwargs[1]["json"] if "json" in call_kwargs[1] else call_kwargs.kwargs["json"]
+        payload = (
+            call_kwargs[1]["json"]
+            if "json" in call_kwargs[1]
+            else call_kwargs.kwargs["json"]
+        )
         text_part = payload["messages"][0]["content"][0]["text"]
         assert "ru" in text_part
 
@@ -587,12 +634,19 @@ class TestTranscribeChunk:
         mock_client_cls.return_value = mock_client
 
         transcribe_api.transcribe_chunk(
-            audio, model="test-model", language=None,
-            timestamps=True, api_key="key",
+            audio,
+            model="test-model",
+            language=None,
+            timestamps=True,
+            api_key="key",
         )
 
         call_kwargs = mock_client.post.call_args
-        payload = call_kwargs[1]["json"] if "json" in call_kwargs[1] else call_kwargs.kwargs["json"]
+        payload = (
+            call_kwargs[1]["json"]
+            if "json" in call_kwargs[1]
+            else call_kwargs.kwargs["json"]
+        )
         text_part = payload["messages"][0]["content"][0]["text"]
         assert "timestamp" in text_part.lower()
 
@@ -615,8 +669,12 @@ class TestTranscribeChunk:
 
         # Should not raise; chunk_num is just for logging
         transcribe_api.transcribe_chunk(
-            audio, model="test-model", language=None,
-            timestamps=False, api_key="key", chunk_num=3,
+            audio,
+            model="test-model",
+            language=None,
+            timestamps=False,
+            api_key="key",
+            chunk_num=3,
         )
 
 
@@ -631,8 +689,11 @@ class TestTranscribeWithApi:
         mock_chunk.return_value = "Transcribed text"
 
         result = transcribe_api.transcribe_with_api(
-            audio, model="test-model", language=None,
-            timestamps=False, api_key="key",
+            audio,
+            model="test-model",
+            language=None,
+            timestamps=False,
+            api_key="key",
         )
         assert result == "Transcribed text"
         mock_chunk.assert_called_once()
@@ -641,7 +702,9 @@ class TestTranscribeWithApi:
     @patch("transcribe_api.get_audio_duration")
     @patch("transcribe_api.shutil.which")
     @patch("transcribe_api.transcribe_chunk")
-    def test_large_file_chunked(self, mock_chunk, mock_which, mock_duration, mock_split, tmp_path):
+    def test_large_file_chunked(
+        self, mock_chunk, mock_which, mock_duration, mock_split, tmp_path
+    ):
         audio = tmp_path / "large.mp3"
         # Create a file larger than 18MB
         audio.write_bytes(b"x" * (19 * 1024 * 1024))
@@ -658,8 +721,11 @@ class TestTranscribeWithApi:
         mock_chunk.side_effect = ["Part one", "Part two"]
 
         result = transcribe_api.transcribe_with_api(
-            audio, model="test-model", language=None,
-            timestamps=False, api_key="key",
+            audio,
+            model="test-model",
+            language=None,
+            timestamps=False,
+            api_key="key",
         )
         assert result == "Part one\n\nPart two"
         assert mock_chunk.call_count == 2
@@ -673,8 +739,11 @@ class TestTranscribeWithApi:
 
         with pytest.raises(SystemExit) as exc_info:
             transcribe_api.transcribe_with_api(
-                audio, model="test-model", language=None,
-                timestamps=False, api_key="key",
+                audio,
+                model="test-model",
+                language=None,
+                timestamps=False,
+                api_key="key",
             )
         assert exc_info.value.code == 1
 
@@ -737,7 +806,9 @@ class TestMainApi:
             assert exc_info.value.code == 1
 
     @patch("transcribe_api.transcribe_with_api")
-    def test_successful_transcription_default_output(self, mock_transcribe, tmp_path, monkeypatch):
+    def test_successful_transcription_default_output(
+        self, mock_transcribe, tmp_path, monkeypatch
+    ):
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
         audio = tmp_path / "test.mp3"
@@ -756,7 +827,9 @@ class TestMainApi:
         assert output_file.read_text() == "API transcription result"
 
     @patch("transcribe_api.transcribe_with_api")
-    def test_successful_transcription_custom_output(self, mock_transcribe, tmp_path, monkeypatch):
+    def test_successful_transcription_custom_output(
+        self, mock_transcribe, tmp_path, monkeypatch
+    ):
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
         audio = tmp_path / "test.mp3"
@@ -765,7 +838,9 @@ class TestMainApi:
 
         mock_transcribe.return_value = "Custom output text"
 
-        with patch.object(sys, "argv", ["transcribe_api.py", str(audio), f"--output={output}"]):
+        with patch.object(
+            sys, "argv", ["transcribe_api.py", str(audio), f"--output={output}"]
+        ):
             transcribe_api.main()
 
         assert output.exists()

@@ -13,8 +13,12 @@ from playwright.sync_api import sync_playwright
 @click.command()
 @click.argument("url")
 @click.option("--pause-on-error", is_flag=True, help="Pause browser on console errors")
-@click.option("--record", type=click.Path(path_type=Path), help="Record video to directory")
-@click.option("--timeout", type=int, default=0, help="Auto-close after N seconds (0 = manual)")
+@click.option(
+    "--record", type=click.Path(path_type=Path), help="Record video to directory"
+)
+@click.option(
+    "--timeout", type=int, default=0, help="Auto-close after N seconds (0 = manual)"
+)
 def main(url: str, pause_on_error: bool, record: Path | None, timeout: int):
     """
     Open URL in visible browser for interactive debugging.

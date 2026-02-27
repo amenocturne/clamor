@@ -270,18 +270,15 @@ class TestMainTranscriptSaving:
     @patch("save_conversation_hook.git_commit")
     @patch("save_conversation_hook.format_markdown")
     @patch("save_conversation_hook.json.load")
-    def test_saves_transcript(self, mock_json_load, mock_format, mock_commit, tmp_path, monkeypatch):
+    def test_saves_transcript(
+        self, mock_json_load, mock_format, mock_commit, tmp_path, monkeypatch
+    ):
         # Clean NO_LOG if set
         monkeypatch.delenv("NO_LOG", raising=False)
 
         # Create a fake transcript JSONL file
         transcript_file = tmp_path / "transcript.jsonl"
-        entry = {
-            "leafUuid": "test-session-123",
-            "message": {
-                "content": "hello"
-            }
-        }
+        entry = {"leafUuid": "test-session-123", "message": {"content": "hello"}}
         transcript_file.write_text(json.dumps(entry) + "\n")
 
         project_dir = tmp_path / "project"
@@ -312,7 +309,9 @@ class TestMainTranscriptSaving:
     @patch("save_conversation_hook.git_commit")
     @patch("save_conversation_hook.format_markdown")
     @patch("save_conversation_hook.json.load")
-    def test_renames_pending_summaries(self, mock_json_load, mock_format, mock_commit, tmp_path, monkeypatch):
+    def test_renames_pending_summaries(
+        self, mock_json_load, mock_format, mock_commit, tmp_path, monkeypatch
+    ):
         monkeypatch.delenv("NO_LOG", raising=False)
 
         transcript_file = tmp_path / "transcript.jsonl"
@@ -332,6 +331,7 @@ class TestMainTranscriptSaving:
 
         # Pre-create the logs date folder and a pending summary
         from datetime import datetime
+
         date_folder = datetime.now().strftime("%Y-%m-%d")
         logs_dir = project_dir / "logs" / date_folder
         logs_dir.mkdir(parents=True)

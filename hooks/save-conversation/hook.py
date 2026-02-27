@@ -18,28 +18,28 @@ from pathlib import Path
 
 # Message types to keep in saved transcripts
 # Excludes: progress (subagent streaming - causes GB bloat), file-history-snapshot, queue-operation
-KEEP_TYPES = {'user', 'assistant', 'system'}
+KEEP_TYPES = {"user", "assistant", "system"}
 
 
 def filter_entries(entries: list[dict]) -> list[dict]:
     """Filter out internal/progress messages to reduce file size."""
-    return [e for e in entries if e.get('type') in KEEP_TYPES]
+    return [e for e in entries if e.get("type") in KEEP_TYPES]
 
 
 def extract_modified_files(entries: list[dict], project_dir: Path) -> list[Path]:
     """Extract file paths from Write/Edit tool uses in transcript."""
     modified = set()
     for entry in entries:
-        message = entry.get('message', {})
-        content = message.get('content', [])
+        message = entry.get("message", {})
+        content = message.get("content", [])
         if not isinstance(content, list):
             continue
         for block in content:
-            if block.get('type') != 'tool_use':
+            if block.get("type") != "tool_use":
                 continue
-            if block.get('name') not in ('Write', 'Edit'):
+            if block.get("name") not in ("Write", "Edit"):
                 continue
-            file_path = block.get('input', {}).get('file_path')
+            file_path = block.get("input", {}).get("file_path")
             if not file_path:
                 continue
             path = Path(file_path)
@@ -56,13 +56,17 @@ def format_markdown(project_dir: Path):
     """Format markdown files with Prettier."""
     try:
         subprocess.run(
-            ['npx', '--yes', 'prettier', '--write', '**/*.md'],
+            ["npx", "--yes", "prettier", "--write", "**/*.md"],
             cwd=project_dir,
             capture_output=True,
-            timeout=60
+            timeout=60,
         )
         return True
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+    ):
         return False
 
 
@@ -72,22 +76,20 @@ def git_commit(project_dir: Path, message: str, files: list[Path]):
         return False
     try:
         subprocess.run(
-            ['git', 'add'] + [str(f) for f in files],
+            ["git", "add"] + [str(f) for f in files],
             cwd=project_dir,
             capture_output=True,
-            check=True
+            check=True,
         )
         result = subprocess.run(
-            ['git', 'diff', '--cached', '--quiet'],
-            cwd=project_dir,
-            capture_output=True
+            ["git", "diff", "--cached", "--quiet"], cwd=project_dir, capture_output=True
         )
         if result.returncode != 0:
             subprocess.run(
-                ['git', 'commit', '-m', message],
+                ["git", "commit", "-m", message],
                 cwd=project_dir,
                 capture_output=True,
-                check=True
+                check=True,
             )
             return True
     except subprocess.CalledProcessError:
@@ -101,36 +103,36 @@ def main():
     except json.JSONDecodeError:
         sys.exit(0)
 
-    if input_data.get('stop_hook_active', False):
+    if input_data.get("stop_hook_active", False):
         sys.exit(0)
 
-    if os.environ.get('NO_LOG'):
+    if os.environ.get("NO_LOG"):
         sys.exit(0)
 
-    transcript_path = input_data.get('transcript_path')
+    transcript_path = input_data.get("transcript_path")
     if not transcript_path or not os.path.exists(transcript_path):
         sys.exit(0)
 
-    project_dir = Path(os.environ.get('CLAUDE_PROJECT_DIR', os.getcwd()))
+    project_dir = Path(os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
 
     now = datetime.now()
-    date_folder = now.strftime('%Y-%m-%d')
-    timestamp = now.strftime('%H%M%S')
+    date_folder = now.strftime("%Y-%m-%d")
+    timestamp = now.strftime("%H%M%S")
 
-    logs_dir = project_dir / 'logs' / date_folder
+    logs_dir = project_dir / "logs" / date_folder
     logs_dir.mkdir(parents=True, exist_ok=True)
 
-    with open(transcript_path, 'r') as f:
+    with open(transcript_path, "r") as f:
         entries = [json.loads(line) for line in f if line.strip()]
 
     # Use sessionId as filename so re-saves overwrite instead of creating duplicates
-    session_id = entries[0].get('sessionId', timestamp) if entries else timestamp
+    session_id = entries[0].get("sessionId", timestamp) if entries else timestamp
     output_path = logs_dir / f"{session_id}.json"
     files_to_commit = [output_path]
 
     # Filter before saving (removes progress messages that cause GB bloat)
     filtered = filter_entries(entries)
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         json.dump(filtered, f, indent=2)
 
     # Use filtered entries for file extraction (has all tool_use blocks we need)
@@ -138,9 +140,9 @@ def main():
     files_to_commit.extend(modified_files)
 
     # Rename pending summaries (_*.md -> timestamp *.md)
-    for pending in logs_dir.glob('_*.md'):
+    for pending in logs_dir.glob("_*.md"):
         content = pending.read_text()
-        content = content.replace('{LOG_ID}', session_id)
+        content = content.replace("{LOG_ID}", session_id)
         pending.write_text(content)
 
         topic = pending.name[1:]
@@ -161,5 +163,5 @@ def main():
     sys.exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

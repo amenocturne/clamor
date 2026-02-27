@@ -1,12 +1,9 @@
 """Tests for link-proxy hook."""
 
 import hashlib
-import json
 import sys
 from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 # ---------------------------------------------------------------------------
 # Import hook module by manipulating sys.path
@@ -16,7 +13,6 @@ HOOK_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(HOOK_DIR))
 
 import main as link_proxy  # noqa: E402
-
 
 # ===================================================================
 # link-proxy tests
@@ -118,9 +114,7 @@ class TestTransformText:
         assert len(mappings) == 1
 
     def test_multiple_urls(self):
-        text = (
-            "See https://a.example.com/one and https://b.example.com/two for details."
-        )
+        text = "See https://a.example.com/one and https://b.example.com/two for details."
         transformed, mappings = link_proxy.transform_text(text, self.pattern)
         assert "example.com" not in transformed
         assert len(mappings) == 2

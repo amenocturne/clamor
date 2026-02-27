@@ -34,28 +34,37 @@ class TestNotify:
     def test_notify_on_darwin(self, mock_run):
         with patch("notification_hook.sys.platform", "darwin"):
             notification.notify("hello world")
-        mock_run.assert_called_once_with([
-            "osascript", "-e",
-            'display notification "hello world" with title "Claude Code" sound name "Tink"',
-        ])
+        mock_run.assert_called_once_with(
+            [
+                "osascript",
+                "-e",
+                'display notification "hello world" with title "Claude Code" sound name "Tink"',
+            ]
+        )
 
     @patch("notification_hook.subprocess.run")
     def test_notify_on_darwin_custom_title(self, mock_run):
         with patch("notification_hook.sys.platform", "darwin"):
             notification.notify("msg", title="Custom")
-        mock_run.assert_called_once_with([
-            "osascript", "-e",
-            'display notification "msg" with title "Custom" sound name "Tink"',
-        ])
+        mock_run.assert_called_once_with(
+            [
+                "osascript",
+                "-e",
+                'display notification "msg" with title "Custom" sound name "Tink"',
+            ]
+        )
 
     @patch("notification_hook.subprocess.run")
     def test_notify_on_darwin_custom_sound(self, mock_run):
         with patch("notification_hook.sys.platform", "darwin"):
             notification.notify("msg", sound="Glass")
-        mock_run.assert_called_once_with([
-            "osascript", "-e",
-            'display notification "msg" with title "Claude Code" sound name "Glass"',
-        ])
+        mock_run.assert_called_once_with(
+            [
+                "osascript",
+                "-e",
+                'display notification "msg" with title "Claude Code" sound name "Glass"',
+            ]
+        )
 
     @patch("notification_hook.subprocess.run")
     def test_notify_on_linux(self, mock_run):

@@ -12,7 +12,9 @@ import numpy as np
 from PIL import Image
 
 
-def compare_images(baseline_path: Path, current_path: Path) -> tuple[float, np.ndarray | None]:
+def compare_images(
+    baseline_path: Path, current_path: Path
+) -> tuple[float, np.ndarray | None]:
     """
     Compare two images pixel-by-pixel.
     Returns (difference_percentage, diff_image_array).
@@ -29,7 +31,9 @@ def compare_images(baseline_path: Path, current_path: Path) -> tuple[float, np.n
 
     # Calculate per-pixel difference
     diff = np.abs(baseline_arr - current_arr)
-    diff_magnitude = np.sqrt(np.sum(diff[:, :, :3] ** 2, axis=2))  # RGB only, ignore alpha
+    diff_magnitude = np.sqrt(
+        np.sum(diff[:, :, :3] ** 2, axis=2)
+    )  # RGB only, ignore alpha
 
     # Normalize to 0-1 range (max possible diff is sqrt(3 * 255^2) ≈ 441.67)
     max_diff = np.sqrt(3 * 255**2)
@@ -43,8 +47,12 @@ def compare_images(baseline_path: Path, current_path: Path) -> tuple[float, np.n
 
     # Create diff visualization
     diff_image = np.zeros((*baseline_arr.shape[:2], 4), dtype=np.uint8)
-    diff_image[:, :, 0] = np.clip(diff_normalized * 255, 0, 255).astype(np.uint8)  # Red channel
-    diff_image[:, :, 3] = np.where(diff_normalized > threshold, 255, 50).astype(np.uint8)  # Alpha
+    diff_image[:, :, 0] = np.clip(diff_normalized * 255, 0, 255).astype(
+        np.uint8
+    )  # Red channel
+    diff_image[:, :, 3] = np.where(diff_normalized > threshold, 255, 50).astype(
+        np.uint8
+    )  # Alpha
 
     return diff_percentage, diff_image
 
@@ -52,10 +60,24 @@ def compare_images(baseline_path: Path, current_path: Path) -> tuple[float, np.n
 @click.command()
 @click.argument("baseline", type=click.Path(exists=True, path_type=Path))
 @click.argument("current", type=click.Path(exists=True, path_type=Path))
-@click.option("--threshold", "-t", type=float, default=1.0, help="Max allowed difference percentage")
-@click.option("--output", "-o", type=click.Path(path_type=Path), help="Output diff image path")
+@click.option(
+    "--threshold",
+    "-t",
+    type=float,
+    default=1.0,
+    help="Max allowed difference percentage",
+)
+@click.option(
+    "--output", "-o", type=click.Path(path_type=Path), help="Output diff image path"
+)
 @click.option("--json/--text", "json_output", default=False, help="Output format")
-def main(baseline: Path, current: Path, threshold: float, output: Path | None, json_output: bool):
+def main(
+    baseline: Path,
+    current: Path,
+    threshold: float,
+    output: Path | None,
+    json_output: bool,
+):
     """
     Compare two images for visual regression testing.
 
@@ -86,7 +108,9 @@ def main(baseline: Path, current: Path, threshold: float, output: Path | None, j
         click.echo(json.dumps(result, indent=2))
     else:
         status = "PASS" if passed else "FAIL"
-        click.echo(f"{status}: {diff_percentage:.2f}% different (threshold: {threshold}%)")
+        click.echo(
+            f"{status}: {diff_percentage:.2f}% different (threshold: {threshold}%)"
+        )
 
         if output:
             click.echo(f"Diff image saved to: {output}")
