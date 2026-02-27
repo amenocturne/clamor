@@ -25,6 +25,8 @@ Check `.claude/agentic-kit.json` for workspace-specific paths:
 
 If not configured, ask the user or skip knowledge base integration.
 
+{{include:common/agentic-kit.md}}
+
 ## Working on a Project
 
 When user says "work on X" or mentions a project:
@@ -37,16 +39,6 @@ Run all commands from the project directory, not workspace root.
 
 Domain-specific skills (config, frontend-design, playwright, pinchtab) trigger automatically based on context.
 
-## Modifying Claude Configuration
-
-**Never edit `.claude/` files directly** — they're symlinks to agentic-kit. To modify skills, instructions, or hooks:
-
-1. Get agentic-kit path: `jq -r '.agentic_kit' .claude/agentic-kit.json`
-2. Edit in agentic-kit repo (skills/, presets/, hooks/)
-3. Changes sync automatically via symlinks (or re-run installer if needed)
-
-This keeps all Claude configuration version-controlled in one place.
-
 ## Knowledge Base Integration
 
 If `knowledge_base` is configured in `.claude/agentic-kit.json`, project ideas and plans live there. When working on a project:
@@ -56,51 +48,14 @@ If `knowledge_base` is configured in `.claude/agentic-kit.json`, project ideas a
 
 ## Universal Rules
 
-### Commands
-- Always use `just` for command aliases when available
-- Run `just` (no args) to see available commands
-- Never run raw `python` — use `uv run` instead
-- Never use `pip` — use package manager (brew) for system tools, `uvx` for Python CLIs
+{{include:common/commands.md}}
 
-Standard command names across projects:
-- `just run` — run the project (optionally: `just run prod`)
-- `just setup` — initial setup / install dependencies
-- `just test` — run tests
-- `just lint` / `just fmt` — code quality
-- `just build` — compile/bundle
-- `just clean` / `just reset` — cleanup
+{{include:common/code-style.md}}
 
-### Code Style
-- **Functional programming**: Pure functions, no classes, no `this`
-- **Immutability**: Use `const`, spread operators, `readonly` in types
-- **Side effects at boundaries**: IO operations only at entry points (CLI, server handlers)
-- **No over-engineering**: Solve the current problem, not hypothetical future ones
+{{include:common/comments.md}}
 
-### Comments
-Only meaningful comments that add value:
-- **Good**: Why something is done a certain way, complex flow explanations, non-obvious tradeoffs
-- **Bad**: What the code does (code is self-documenting), change history (that's git), TODO/FIXME
+{{include:common/quality.md}}
 
-```python
-# Bad: "increment counter by 1"
-# Bad: "fixed bug #123"
-# Good: "Using median instead of mean to handle outliers in sensor data"
-# Good: "Retry logic needed because API returns 503 during deployments"
-```
+{{include:common/git.md}}
 
-### Quality
-- Run tests and linter after changes: `just test && just lint` or equivalent
-- Never consider a task complete until both pass
-- Fix issues immediately, don't leave broken code
-
-### Git
-- Concise commit messages (1-2 sentences)
-- Focus on "why" not "what"
-- No emoji prefixes, no Co-Authored-By lines
-
-### Documentation
-- **CLAUDE.md**: Commands, architecture, key patterns (AI context)
-- **README.md**: Setup + overview (human context)
-- Update docs before committing features
-- Keep high-level — code is the source of truth for details
-
+{{include:common/documentation.md}}

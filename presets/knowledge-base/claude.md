@@ -11,13 +11,7 @@ You are managing an Obsidian vault with atomic notes following zettelkasten prin
 - **Graph analysis**: Use the **graph** skill with `--exclude=logs,tmp,archive` to analyze the knowledge graph.
 - **Project specs**: Use the **spec** skill to create technical specs. Save to `projects/software/<project-name>/`. Specs are the source of truth passed to dev-workspace for implementation.
 
-## Modifying Claude Configuration
-
-**Never edit `.claude/` files directly** — they're symlinks to agentic-kit. To modify skills, instructions, or hooks:
-
-1. Get agentic-kit path: `jq -r '.agentic_kit' .claude/agentic-kit.json`
-2. Edit in agentic-kit repo (skills/, presets/, hooks/)
-3. Changes sync automatically via symlinks (or re-run installer if needed)
+{{include:common/agentic-kit.md}}
 
 ## Tracking Save-worthy Items
 

@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -28,6 +29,23 @@ PRESETS_DIR = REPO_ROOT / "presets"
 SKILLS_DIR = REPO_ROOT / "skills"
 HOOKS_DIR = REPO_ROOT / "hooks"
 PIPELINES_DIR = REPO_ROOT / "pipelines"
+COMMON_DIR = REPO_ROOT / "common"
+
+INCLUDE_PATTERN = r"\{\{include:([^}]+)\}\}"
+
+
+def process_includes(content: str) -> str:
+    """Process {{include:path}} directives, replacing them with file contents."""
+    def replace_include(match):
+        include_path = match.group(1)
+        # Resolve path relative to repo root
+        full_path = REPO_ROOT / include_path
+        if full_path.exists():
+            return full_path.read_text().strip()
+        else:
+            raise FileNotFoundError(f"Include not found: {include_path}")
+
+    return re.sub(INCLUDE_PATTERN, replace_include, content)
 
 
 def load_manifest(preset: str) -> dict:
@@ -192,15 +210,17 @@ def install(preset: str, target: Path, knowledge_base: Path | None = None):
     if config.get("knowledge_base"):
         console.print(f"      knowledge_base: {config['knowledge_base']}")
 
-    # Symlink .claude/CLAUDE.md (preset instructions)
+    # Process and write .claude/CLAUDE.md (preset instructions with includes resolved)
     # Root CLAUDE.md is left for user's project-specific instructions
     target_claude_md = target_claude / "CLAUDE.md"
     if target_claude_md.exists() or target_claude_md.is_symlink():
         target_claude_md.unlink()
     src = PRESETS_DIR / preset / "claude.md"
     if src.exists():
-        target_claude_md.symlink_to(src)
-        console.print("  [green]✓[/green] .claude/CLAUDE.md")
+        content = src.read_text()
+        processed = process_includes(content)
+        target_claude_md.write_text(processed)
+        console.print("  [green]✓[/green] .claude/CLAUDE.md (includes processed)")
 
     # Symlink instructions folder
     instructions_src = PRESETS_DIR / preset / "instructions"
