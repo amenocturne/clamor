@@ -1,12 +1,12 @@
 ---
 name: playwright
-description: Browser automation and testing. Use when user wants to test a web app, take screenshots, debug UI, write e2e tests, or automate browser tasks. Triggers on "playwright", "e2e test", "browser test", "screenshot", "visual test", "test the UI", "selenium" (as alternative).
+description: E2E testing and visual regression. Use for structured test suites, CI pipelines, visual diff testing, and complex multi-step test scenarios. Triggers on "playwright", "e2e test", "visual regression", "test suite", "CI test".
 author: amenocturne
 ---
 
 # Playwright Testing
 
-Browser automation for testing web applications. Supports quick ad-hoc checks and structured test suites.
+E2E testing framework for web applications. Use for structured test suites, CI integration, and visual regression testing.
 
 ## Modes
 

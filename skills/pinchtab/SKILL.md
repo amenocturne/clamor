@@ -1,12 +1,12 @@
 ---
 name: pinchtab
-description: Lightweight browser control for AI agents. Use for web scraping, screenshots, form filling, or authenticated browsing sessions. Lighter alternative to playwright for simple tasks. Triggers on "pinchtab", "browser session", "scrape page", "web automation".
+description: Browser control with persistent sessions. Use for web scraping, authenticated browsing (Kagi, logged-in sites), screenshots, and simple automation. Sessions survive restarts. Triggers on "pinchtab", "scrape", "kagi search", "browser session".
 author: amenocturne
 ---
 
 # Pinchtab Browser Control
 
-Lightweight HTTP-based browser automation with persistent sessions. Server auto-starts when needed.
+HTTP-based browser automation with persistent sessions. Ideal for scraping, authenticated browsing, and quick automation tasks. Server auto-starts when needed.
 
 ## Commands
 
