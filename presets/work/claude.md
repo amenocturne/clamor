@@ -2,9 +2,7 @@
 
 Scala and infrastructure focused workspace.
 
-## Skills
-
-Proactively use skills whenever relevant. Before starting a task, check if any available skill matches the context — invoke it immediately as your first action.
+{{include:common/skills.md}}
 
 ## Knowledge Base
 
@@ -22,14 +20,6 @@ Project conventions and hard-won patterns live in `/Users/a.ragulin/Vault/Work/k
 **Add to it** when a non-obvious convention is established or a mistake is corrected.
 
 {{include:common/workspace.md}}
-
-## Configuration
-
-Read `.claude/agentic-kit.json` for workspace paths:
-- `knowledge_base` — path to Obsidian vault
-- `agentic_kit` — path to agentic-kit
-
-If not configured, ask or skip knowledge base integration.
 
 ## Working on a Task
 

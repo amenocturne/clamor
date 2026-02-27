@@ -2,23 +2,9 @@
 
 Multi-project development workspace. Run Claude from this directory and specify which project to work on.
 
-## Skills
-
-**Proactively use skills whenever relevant.** Skills enhance understanding and provide domain-specific patterns. Before starting a task, check if any available skill matches the context — invoke it immediately as your first action. Don't just work on a task when a skill could provide better guidance.
+{{include:common/skills.md}}
 
 {{include:common/workspace.md}}
-
-## Configuration
-
-Check `.claude/agentic-kit.json` for workspace-specific paths:
-```json
-{
-  "knowledge_base": "/path/to/obsidian/vault",
-  "agentic_kit": "/path/to/agentic-kit"
-}
-```
-
-If not configured, ask the user or skip knowledge base integration.
 
 {{include:common/agentic-kit.md}}
 
@@ -40,8 +26,6 @@ If `knowledge_base` is configured in `.claude/agentic-kit.json`, project ideas a
 - Check if there's a matching project note with context, goals, or decisions
 - Update project notes when significant decisions are made
 - Use the knowledge base for design inspiration references
-
-## Universal Rules
 
 {{include:common/commands.md}}
 

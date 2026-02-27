@@ -1,9 +1,15 @@
-## Modifying Claude Configuration
+## Configuration
 
-**Never edit `.claude/` files directly** — they're symlinks to agentic-kit. To modify skills, instructions, or hooks:
+Check `.claude/agentic-kit.json` for workspace paths:
+- `knowledge_base` — path to Obsidian vault
+- `agentic_kit` — path to agentic-kit
 
-1. Get agentic-kit path: `jq -r '.agentic_kit' .claude/agentic-kit.json`
-2. Edit in agentic-kit repo (skills/, presets/, hooks/)
-3. Re-run installer to apply changes: `uv run <agentic_kit>/install.py --preset <preset> --target .`
+If not configured, ask user or skip knowledge base integration.
 
-Always reinstall after modifying agentic-kit — it's safe and ensures the workspace is up-to-date.
+**Never edit `.claude/` files directly** — modify in agentic-kit repo instead:
+
+1. Get path: `jq -r '.agentic_kit' .claude/agentic-kit.json`
+2. Edit in agentic-kit (skills/, presets/, hooks/, common/)
+3. Reinstall: `uv run <agentic_kit>/install.py --preset <preset> --target .`
+
+Always reinstall after modifying agentic-kit — it's safe and ensures up-to-date config.
