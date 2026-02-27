@@ -15,6 +15,20 @@ You are managing an Obsidian vault with atomic notes following zettelkasten prin
 
 {{include:common/agentic-kit.md}}
 
+---
+
+## Dev Instructions
+
+These apply when committing to the vault or working on agentic-kit:
+
+{{include:common/commands.md}}
+
+{{include:common/git.md}}
+
+{{include:common/quality.md}}
+
+---
+
 ## Tracking Save-worthy Items
 
 Use the TodoWrite tool to maintain a running list of things worth saving throughout the conversation. This is a scratchpad — not a structured plan.
