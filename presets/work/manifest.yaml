@@ -9,6 +9,7 @@ skills:
   - brainstorm
   - config
   - confluence
+  - pinchtab
 hooks:
   - notification
   - link-proxy

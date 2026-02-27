@@ -10,6 +10,7 @@ skills:
   - crazy
   - orchestrator
   - frontend-design
+  - pinchtab
 hooks:
   - notification
   - save-conversation

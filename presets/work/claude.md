@@ -55,3 +55,5 @@ infra | Исправлен конфиг деплоя для staging
 {{include:common/comments.md}}
 
 {{include:common/quality.md}}
+
+{{include:common/communication-style.md}}

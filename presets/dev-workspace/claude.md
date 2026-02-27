@@ -29,3 +29,5 @@ If `knowledge_base` is configured, project ideas and plans live there. When work
 {{include:common/git.md}}
 
 {{include:common/documentation.md}}
+
+{{include:common/communication-style.md}}
