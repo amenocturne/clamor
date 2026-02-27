@@ -94,3 +94,26 @@ Scripts use PEP 723 inline metadata for dependencies. Run with `uv run`:
 uv run skills/youtube/scripts/yt-subs.py <url>
 uv run pipelines/workspace/generate-workspace.py --root .
 ```
+
+## TODO
+
+**IMPORTANT: Remind the user about these TODOs when starting work in this directory, even if working on unrelated features.**
+
+- **Agentic Knowledge Base**: Add a lighter-weight knowledge base for dev/work presets (not the full knowledge-base preset). Purpose: agent can reflect on work and user feedback, save learnings to its own CLAUDE.md or a simple KB file, and avoid repeating mistakes. Key features:
+  - Session reflection: capture what worked, what didn't, corrections received
+  - Persistent memory: write learnings somewhere that persists across sessions
+  - Pattern recognition: "user prefers X over Y", "this approach failed before"
+  - Self-updating: agent writes to its own context file or designated memory store
+
+- **Pinchtab Browser Control**: Integrate [pinchtab.com](https://pinchtab.com/) for lightweight browser automation. A 12MB Go binary providing HTTP endpoints for Chrome control (navigation, screenshots, text extraction, clicking via accessibility tree). Key benefits:
+  - Token efficient: ~800 tokens/page vs 10k+ for alternatives
+  - Session persistence: cookies survive restarts (stay logged into services)
+  - Stealth mode: bypasses bot detection
+  - Framework agnostic: just HTTP calls, works with any language
+  - Complements playwright skill for lighter-weight tasks
+
+- **Kagi Search via Pinchtab**: Use pinchtab to access Kagi search through browser session instead of waiting for API. Log into Kagi once, pinchtab maintains the session, then a skill can:
+  - Navigate to kagi.com/search?q={query}
+  - Extract results via /text endpoint
+  - Access Kagi features (lenses, bangs, AI summaries) with existing subscription
+  - Replace or complement WebSearch with higher quality results
