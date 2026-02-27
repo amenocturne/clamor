@@ -57,31 +57,42 @@ uv run install.py --list
 
 | Skill | Description |
 | ----- | ----------- |
-| `youtube` | Fetch YouTube transcripts for processing |
-| `transcribe` | Transcribe audio with Whisper (local) or API |
-| `spec` | Create technical specs from project ideas |
-| `commit-style` | Commit message conventions |
-| `uv-over-python` | Always use uv instead of python/pip |
+| `brainstorm` | Creative exploration for vague ideas |
+| `config` | Configuration and infrastructure patterns (Ansible, Docker) |
+| `confluence` | Import Confluence pages to Markdown |
+| `crazy` | Altered-state thinking for boundary-breaking ideation |
+| `dev-philosophy` | Core development principles across languages |
+| `documentation` | Project documentation guidelines |
+| `dp-jira` | Fetch Jira issue details via dp CLI |
+| `frontend-design` | Frontend dev with TypeScript, Snabbdom, Elm Architecture |
+| `graph` | Obsidian vault graph analysis |
+| `idea-roaster` | Rigorous critical evaluation of ideas |
+| `lyrics` | Fetch song lyrics from Genius |
+| `orchestrator` | Multi-agent orchestration mode |
+| `pinchtab` | Browser control with persistent sessions |
+| `playwright` | E2E testing and visual regression |
+| `project-setup` | Project scaffolding patterns |
+| `spec` | Technical specification generator |
+| `transcribe` | Audio transcription with Whisper |
+| `workspace` | Multi-project workspace management |
+| `youtube` | YouTube transcript fetcher |
 
 ### Hooks
 
 | Hook | Description |
 | ---- | ----------- |
+| `graph-colors` | Auto-update Obsidian graph colors |
 | `link-proxy` | URL masking for corporate environments |
 | `notification` | System notification on session end |
 | `save-conversation` | Auto-save transcripts and commit on Stop |
-
-### Pipelines
-
-| Pipeline | Description |
-| -------- | ----------- |
-| `workspace` | Generate WORKSPACE.yaml from git repos |
 
 ### Presets
 
 | Preset | Description |
 | ------ | ----------- |
-| `knowledge-base` | Obsidian vault with atomic notes, sources, and auto-saving |
+| `dev-workspace` | Multi-project dev workspace with dev philosophy |
+| `knowledge-base` | Obsidian vault with atomic notes and auto-saving |
+| `work` | Work environment with corporate tooling |
 
 ## Preset Architecture
 
