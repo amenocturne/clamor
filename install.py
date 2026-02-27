@@ -246,6 +246,13 @@ def install(preset: str, target: Path, knowledge_base: Path | None = None):
         templates_dst.symlink_to(templates_src)
         console.print("  [green]✓[/green] .claude/templates/")
 
+    # Copy workspace template if preset has one and target doesn't exist
+    workspace_template = PRESETS_DIR / preset / "workspace_template.yaml"
+    workspace_target = target / "WORKSPACE.yaml"
+    if workspace_template.exists() and not workspace_target.exists():
+        shutil.copy(workspace_template, workspace_target)
+        console.print("  [green]✓[/green] WORKSPACE.yaml (from template)")
+
     # Symlink skills
     skills_dir = target_claude / "skills"
     skills_dir.mkdir(exist_ok=True)

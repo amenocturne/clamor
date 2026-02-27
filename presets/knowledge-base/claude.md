@@ -70,21 +70,7 @@ vault/
 └── tmp/                     # Temporary files (gitignored)
 ```
 
-## Folder Purposes
-
-| Folder       | Purpose                                           | Key Question                |
-| ------------ | ------------------------------------------------- | --------------------------- |
-| `core/`      | Stable identity facts                             | "Who am I?"                 |
-| `ideas/`     | Personal theories, frameworks, concepts I created | "What do I think?"          |
-| `insights/`  | Personal realizations and discoveries             | "What did I learn?"         |
-| `knowledge/` | General facts (not personal)                      | "What is true?"             |
-| `context/`   | Current situation, goals, and history             | "Where am I now?"           |
-| `projects/`  | Actionable plans with deadlines                   | "What am I doing?"          |
-| `sources/`   | Source material references                        | "Where did this come from?" |
-| `logs/`      | Conversation logs and summaries                   | "What did we discuss?"      |
-| `archive/`   | Completed or paused projects                      | "What's done?"              |
-
-When unsure which folder, ask the user.
+See `WORKSPACE.yaml` at vault root for folder descriptions. When unsure which folder, ask the user.
 
 ## Loading Context
 

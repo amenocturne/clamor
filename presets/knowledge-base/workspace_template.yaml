@@ -1,0 +1,17 @@
+version: 1
+
+# Folder structure descriptions
+# Used by workspace skill to understand vault organization
+folders:
+  core: Stable identity facts - "Who am I?"
+  ideas: Personal theories, frameworks, concepts - "What do I think?"
+  insights: Personal realizations and discoveries - "What did I learn?"
+  knowledge: General facts (not personal) - "What is true?"
+  context: Current situation, goals, history - "Where am I now?"
+  projects: Actionable plans with deadlines - "What am I doing?"
+  sources: Source material references - "Where did this come from?"
+  logs: Conversation logs and summaries
+  archive: Completed/paused projects (PARA-style)
+
+# Projects (fill in as needed)
+projects: {}

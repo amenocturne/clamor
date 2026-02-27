@@ -10,10 +10,18 @@ Multi-project workspace management via WORKSPACE.yaml.
 
 ## WORKSPACE.yaml
 
-Project index at workspace root:
+Workspace index at root:
 
 ```yaml
 version: 1
+
+# Optional: describe folder structure (for non-code workspaces like Obsidian vaults)
+folders:
+  core: Stable identity facts
+  ideas: Personal theories and frameworks
+  projects: Active work
+
+# Projects (git repos or subprojects)
 projects:
   project-name:
     path: ./path/to/project
@@ -25,6 +33,8 @@ projects:
     lint_cmd: uv run ruff check .
     test_cmd: uv run pytest
 ```
+
+The `folders` section is optional — use it for workspaces without git repos (e.g., knowledge bases) to describe top-level structure.
 
 ## Regenerating
 
