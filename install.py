@@ -127,8 +127,8 @@ def merge_permissions(existing: dict, new: dict):
 def merge_settings(preset: str, target: Path) -> dict:
     """Merge preset settings.json with existing settings."""
     merged = load_existing_settings(target)
-    if "hooks" not in merged:
-        merged["hooks"] = {}
+    # Always start fresh with hooks to avoid stale entries
+    merged["hooks"] = {}
 
     settings_path = PRESETS_DIR / preset / "settings.json"
     if settings_path.exists():

@@ -383,7 +383,9 @@ class TestMergeSettings:
         )
         result = install.merge_settings("p1", target)
         assert result["other_key"] == "keep"
-        assert len(result["hooks"]["Stop"]) == 2
+        # Hooks are reset on each install to avoid stale entries
+        assert len(result["hooks"]["Stop"]) == 1
+        assert result["hooks"]["Stop"][0]["command"] == "new"
 
 
 # ===================================================================
@@ -907,9 +909,8 @@ class TestEdgeCases:
         assert (target / ".claude" / "skills" / "spec").is_symlink()
         assert (target / ".claude" / "hooks" / "notification").is_symlink()
 
-    def test_settings_accumulate_on_reinstall(self, fake_repo, tmp_path):
-        """Hooks from settings.json accumulate across installs because
-        merge_settings reads existing settings and adds preset hooks on top."""
+    def test_hooks_reset_on_reinstall(self, fake_repo, tmp_path):
+        """Hooks are reset on each install to avoid stale entries."""
         target = tmp_path / "project"
         target.mkdir()
         make_preset(
@@ -922,10 +923,10 @@ class TestEdgeCases:
         settings1 = json.loads((target / ".claude" / "settings.json").read_text())
         assert len(settings1["hooks"]["Stop"]) == 1
 
-        # Second install merges on top of existing
+        # Second install resets hooks (no accumulation)
         install.install("p1", target)
         settings2 = json.loads((target / ".claude" / "settings.json").read_text())
-        assert len(settings2["hooks"]["Stop"]) == 2
+        assert len(settings2["hooks"]["Stop"]) == 1
 
     def test_target_doesnt_exist_yet(self, fake_repo, tmp_path):
         """Install creates .claude dir even if target has no .claude yet."""
