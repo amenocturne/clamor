@@ -24,21 +24,6 @@ When user asks to work on an ITAL task (e.g. "work on ITAL-1234", "implement ITA
 2. Create a branch: `git checkout -b feature/ITAL-<number>`
 3. Ask the user any clarifying questions needed before starting
 
-## Working on a Project
-
-When user mentions a project:
-1. Find it in WORKSPACE.yaml
-2. Load `<project>/CLAUDE.md` if exists
-3. Check `{knowledge_base}/projects/` for project notes
-
-Run commands from project directory, not workspace root.
-
-## Knowledge Base
-
-When `knowledge_base` is configured:
-- Check for project notes with context, goals, decisions
-- Update notes when significant decisions are made
-
 ## Git
 
 Format: `ITAL-1234 | app | Message`
