@@ -63,8 +63,9 @@ vault/
 │   │   ├── life.md          # Ongoing, not time-bound
 │   │   ├── YYYY.md          # Year goals
 │   │   └── YYYY-MM.md       # Monthly goals
-│   └── history/
-│       └── YYYY[-MM[-DD]]-event.md  # Life events (date-prefixed)
+│   ├── history/
+│   │   └── YYYY[-MM[-DD]]-event.md  # Life events (date-prefixed)
+│   └── people/              # Contacts — people I know (template: .claude/templates/person.md)
 ├── projects/                # Active actionable plans
 │   ├── software/
 │   ├── goals/
@@ -97,6 +98,7 @@ See `WORKSPACE.yaml` at vault root for folder descriptions. When unsure which fo
 | Specific topic facts                     | `knowledge/*`, `insights/*`                                                             |
 | Active work                              | `projects/*`                                                                            |
 | Past discussions                         | `logs/*`                                                                                |
+| People, contacts, networking             | `context/people/*`, `knowledge/MOC-contacts.md`                                         |
 
 **Rule:** When planning-related topics come up, always load context files first, then respond.
 
