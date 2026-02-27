@@ -125,8 +125,9 @@ def main():
     with open(transcript_path, "r") as f:
         entries = [json.loads(line) for line in f if line.strip()]
 
-    # Use sessionId as filename so re-saves overwrite instead of creating duplicates
-    session_id = entries[0].get("sessionId", timestamp) if entries else timestamp
+    # Use session ID from transcript filename (e.g., "abc-123.jsonl" -> "abc-123")
+    # This ensures re-saves overwrite instead of creating duplicates
+    session_id = Path(transcript_path).stem
     output_path = logs_dir / f"{session_id}.json"
     files_to_commit = [output_path]
 

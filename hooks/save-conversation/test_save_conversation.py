@@ -276,8 +276,8 @@ class TestMainTranscriptSaving:
         # Clean NO_LOG if set
         monkeypatch.delenv("NO_LOG", raising=False)
 
-        # Create a fake transcript JSONL file
-        transcript_file = tmp_path / "transcript.jsonl"
+        # Create a fake transcript JSONL file (filename is the session ID)
+        transcript_file = tmp_path / "test-session-123.jsonl"
         entry = {"leafUuid": "test-session-123", "message": {"content": "hello"}}
         transcript_file.write_text(json.dumps(entry) + "\n")
 
@@ -314,8 +314,8 @@ class TestMainTranscriptSaving:
     ):
         monkeypatch.delenv("NO_LOG", raising=False)
 
-        transcript_file = tmp_path / "transcript.jsonl"
-        entry = {"leafUuid": "sess-abc", "message": {"content": "hi"}}
+        transcript_file = tmp_path / "sess-abc-123.jsonl"
+        entry = {"leafUuid": "sess-abc-123", "message": {"content": "hi"}}
         transcript_file.write_text(json.dumps(entry) + "\n")
 
         project_dir = tmp_path / "project"
@@ -347,5 +347,5 @@ class TestMainTranscriptSaving:
         md_files = list(logs_dir.glob("*.md"))
         assert len(md_files) == 1
         content = md_files[0].read_text()
-        assert "sess-abc" in content
+        assert "sess-abc-123" in content
         assert "{LOG_ID}" not in content
