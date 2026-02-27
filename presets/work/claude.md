@@ -21,12 +21,7 @@ Project conventions and hard-won patterns live in `/Users/a.ragulin/Vault/Work/k
 
 **Add to it** when a non-obvious convention is established or a mistake is corrected.
 
-## Project Index
-
-**WORKSPACE.yaml** contains all projects with paths, tech stacks, and commands. Check it when:
-- User mentions a project name → find path and tech stack
-- Need to run commands → use project-specific commands
-- Starting work → load project context
+{{include:common/workspace.md}}
 
 ## Configuration
 

@@ -6,12 +6,7 @@ Multi-project development workspace. Run Claude from this directory and specify 
 
 **Proactively use skills whenever relevant.** Skills enhance understanding and provide domain-specific patterns. Before starting a task, check if any available skill matches the context — invoke it immediately as your first action. Don't just work on a task when a skill could provide better guidance.
 
-## Project Index
-
-**WORKSPACE.yaml** contains all projects with their paths, tech stacks, and commands. Check it when:
-- User mentions a project name → find path and tech stack
-- Need to run commands → use project-specific commands from the index
-- Starting work → load the project's context
+{{include:common/workspace.md}}
 
 ## Configuration
 
