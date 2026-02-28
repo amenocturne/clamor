@@ -18,6 +18,8 @@ If `knowledge_base` is configured, project ideas and plans live there. When work
 
 {{include:common/commands.md}}
 
+{{include:common/cli-tools.md}}
+
 {{include:common/tmp.md}}
 
 {{include:common/code-style.md}}
