@@ -92,9 +92,18 @@ def expand_lang_with_orig(lang: str) -> str:
     return ",".join(expanded)
 
 
+def get_cookies_args() -> list[str]:
+    """Get cookie arguments for yt-dlp (Zen browser via Firefox profile)."""
+    import os
+    profile_path = os.path.expanduser("~/Library/Application Support/zen/Profiles")
+    if os.path.exists(profile_path):
+        return ["--cookies-from-browser", f"firefox:{profile_path}"]
+    return []
+
+
 def get_video_metadata(url: str) -> tuple[str | None, str | None]:
     """Get video title and channel name using yt-dlp."""
-    cmd = ["yt-dlp", "--skip-download", "--print", "title", "--print", "channel", url]
+    cmd = ["yt-dlp", "--skip-download", "--print", "title", "--print", "channel"] + get_cookies_args() + [url]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         return None, None
@@ -133,8 +142,7 @@ def download_subtitles(
             "--sub-format=vtt",
             "-o",
             output_template,
-            url,
-        ]
+        ] + get_cookies_args() + [url]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
 
