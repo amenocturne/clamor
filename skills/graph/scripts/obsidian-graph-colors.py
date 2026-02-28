@@ -22,25 +22,56 @@ This script:
 """
 
 import json
+import math
 import re
 import sys
 from pathlib import Path
 
 import networkx as nx
 
-# Catppuccin Mocha palette - cohesive colors for dark themes
-COLORS = [
-    {"a": 1, "rgb": 9024762},  # Blue #89B4FA
-    {"a": 1, "rgb": 13346551},  # Mauve #CBA6F7
-    {"a": 1, "rgb": 16429959},  # Peach #FAB387
-    {"a": 1, "rgb": 10937249},  # Green #A6E3A1
-    {"a": 1, "rgb": 9757397},  # Teal #94E2D5
-    {"a": 1, "rgb": 15442092},  # Maroon #EBA0AC
-    {"a": 1, "rgb": 16376495},  # Yellow #F9E2AF
-    {"a": 1, "rgb": 7653356},  # Sapphire #74C7EC
-    {"a": 1, "rgb": 16106215},  # Pink #F5C2E7
-    {"a": 1, "rgb": 11845374},  # Lavender #B4BEFE
-]
+MAX_CLUSTERS = 50
+
+
+def oklch_to_rgb(lightness: float, chroma: float, hue_deg: float) -> tuple[int, int, int]:
+    """Convert OKLCH to sRGB. Returns (r, g, b) as 0-255 ints."""
+    # OKLCH -> OKLAB
+    hue_rad = math.radians(hue_deg)
+    a = chroma * math.cos(hue_rad)
+    b = chroma * math.sin(hue_rad)
+
+    # OKLAB -> linear RGB
+    l_ = lightness + 0.3963377774 * a + 0.2158037573 * b
+    m_ = lightness - 0.1055613458 * a - 0.0638541728 * b
+    s_ = lightness - 0.0894841775 * a - 1.2914855480 * b
+
+    l = l_ ** 3
+    m = m_ ** 3
+    s = s_ ** 3
+
+    r_lin = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+    g_lin = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+    b_lin = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+
+    # Linear RGB -> sRGB (gamma correction)
+    def to_srgb(c: float) -> int:
+        if c <= 0.0031308:
+            c = 12.92 * c
+        else:
+            c = 1.055 * (c ** (1 / 2.4)) - 0.055
+        return max(0, min(255, int(c * 255)))
+
+    return to_srgb(r_lin), to_srgb(g_lin), to_srgb(b_lin)
+
+
+def generate_colors(n: int) -> list[dict]:
+    """Generate n perceptually uniform colors using OKLCH."""
+    colors = []
+    for i in range(n):
+        hue = (i / n) * 360
+        r, g, b = oklch_to_rgb(0.75, 0.12, hue)
+        rgb_int = (r << 16) + (g << 8) + b
+        colors.append({"a": 1, "rgb": rgb_int})
+    return colors
 
 # Match [[target]] or [[target|display]] etc.
 WIKILINK_PATTERN = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]")
@@ -117,36 +148,53 @@ def detect_clusters(G: nx.Graph, min_size: int = 5) -> list[set[str]]:
 
 
 def get_cluster_anchors(
-    G: nx.Graph, cluster: set[str], notes: dict[str, Path], max_anchors: int = 5
+    G: nx.Graph, cluster: set[str], notes: dict[str, Path], max_anchors: int = 15
 ) -> list[str]:
     """
-    Get anchor notes for a cluster - notes that are:
-    1. Well-connected within the cluster
-    2. Not MOCs or index notes
-    3. Representative of the cluster's content
+    Select anchors using greedy set cover to maximize coverage.
+
+    Each anchor "covers" notes that link to it. We greedily pick anchors
+    that cover the most uncovered notes until we hit max_anchors or full coverage.
     """
     subgraph = G.subgraph(cluster)
 
-    # Filter out MOCs and index notes
-    def is_content_note(name: str) -> bool:
-        lower = name.lower()
-        return not (
-            lower.startswith("moc-")
-            or lower.startswith("_")
-            or lower.endswith("-index")
-            or lower == "index"
-        )
+    # All cluster members are candidates - MOCs and index notes often provide best coverage
+    candidates = set(cluster)
 
-    content_nodes = [n for n in cluster if is_content_note(n)]
+    # Build coverage map: for each candidate, which notes link TO it?
+    # (These are the notes that will match `line:("[[anchor]]")`)
+    coverage: dict[str, set[str]] = {}
+    for candidate in candidates:
+        # Notes in cluster that have an edge to this candidate
+        linkers = {n for n in subgraph.neighbors(candidate) if n in cluster}
+        coverage[candidate] = linkers
 
-    if not content_nodes:
-        # Fallback to all nodes if no content nodes
-        content_nodes = list(cluster)
+    # Greedy set cover
+    anchors = []
+    covered: set[str] = set()
 
-    # Sort by degree within cluster (most connected first)
-    sorted_nodes = sorted(content_nodes, key=lambda n: subgraph.degree(n), reverse=True)
+    while len(anchors) < max_anchors and len(covered) < len(cluster):
+        # Find candidate that covers most uncovered notes
+        best_anchor = None
+        best_new_coverage = 0
 
-    return sorted_nodes[:max_anchors]
+        for candidate in candidates:
+            if candidate in anchors:
+                continue
+            new_coverage = len(coverage[candidate] - covered)
+            if new_coverage > best_new_coverage:
+                best_new_coverage = new_coverage
+                best_anchor = candidate
+
+        if best_anchor is None or best_new_coverage == 0:
+            break
+
+        anchors.append(best_anchor)
+        covered.update(coverage[best_anchor])
+        # Also count the anchor itself as covered
+        covered.add(best_anchor)
+
+    return anchors
 
 
 def get_cluster_label(G: nx.Graph, cluster: set[str]) -> str:
@@ -170,29 +218,31 @@ def generate_query(anchors: list[str]) -> str:
     return " OR ".join(parts)
 
 
-def generate_color_groups(
-    vault: Path, min_cluster_size: int = 5, max_clusters: int = 10
-) -> list[dict]:
+def generate_color_groups(vault: Path, min_cluster_size: int = 5) -> list[dict]:
     """Generate Obsidian color groups from detected clusters."""
     G, notes = build_graph(vault)
     clusters = detect_clusters(G, min_cluster_size)
+    clusters = clusters[:MAX_CLUSTERS]
 
+    if not clusters:
+        return []
+
+    colors = generate_colors(len(clusters))
     color_groups = []
 
-    for i, cluster in enumerate(clusters[:max_clusters]):
+    for i, cluster in enumerate(clusters):
         anchors = get_cluster_anchors(G, cluster, notes)
 
         if not anchors:
             continue
 
         query = generate_query(anchors)
-        color = COLORS[i % len(COLORS)]
         label = get_cluster_label(G, cluster)
 
         color_groups.append(
             {
                 "query": query,
-                "color": color,
+                "color": colors[i],
                 "_label": label,  # Not used by Obsidian, but helpful for debugging
                 "_size": len(cluster),
                 "_anchors": anchors,
