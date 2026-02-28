@@ -44,7 +44,10 @@ def extract_modified_files(entries: list[dict], project_dir: Path) -> list[Path]
                 continue
             path = Path(file_path)
             try:
-                path.relative_to(project_dir)
+                rel_path = path.relative_to(project_dir)
+                # Skip .claude/ files - they're symlinked and belong to agentic-kit
+                if rel_path.parts and rel_path.parts[0] == ".claude":
+                    continue
                 if path.exists():
                     modified.add(path)
             except ValueError:
