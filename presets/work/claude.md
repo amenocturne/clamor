@@ -2,6 +2,20 @@
 
 Scala and infrastructure focused workspace.
 
+## sbt
+
+**Always use `sbt --client`** for all sbt commands. This uses thin client mode which connects to an existing sbt server (or spawns one if needed).
+
+Why: Metals runs its own sbt BSP server. Running plain `sbt` spawns a competing instance, causing lock conflicts and resource contention. The thin client shares the same server.
+
+```bash
+sbt --client compile      # instead of: sbt compile
+sbt --client test         # instead of: sbt test
+sbt --client "testOnly *MySpec"
+```
+
+To stop the server: `sbt --client shutdown`
+
 ## Knowledge Base
 
 Project conventions and hard-won patterns live in `/Users/a.ragulin/Vault/Work/knowledge-base/`:
