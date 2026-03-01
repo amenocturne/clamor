@@ -13,6 +13,7 @@ skills:
   - orchestrator
   - frontend-design
   - pinchtab
+  - reflect
 hooks:
   - notification
   - save-conversation
