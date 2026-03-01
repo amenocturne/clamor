@@ -45,6 +45,25 @@ inject-transcript.py <note-path> [--keep]
 - Replaces `{{transcript}}` placeholder with formatted content
 - Deletes tmp file (unless `--keep`)
 
+## Handling Long Transcripts
+
+If the transcript is too long to fit in context or would consume too much of it:
+
+1. **Spawn a subagent** (Task tool with `subagent_type=general-purpose`) to read the full transcript
+2. The subagent should produce a **section summary** with:
+   - Brief description of what's discussed in each section
+   - Line numbers or character offsets for each section
+3. Use this summary to navigate directly to relevant sections when needed
+
+Example subagent prompt:
+```
+Read the transcript at tmp/<video_id>.txt and create a section-by-section summary.
+For each logical section, provide:
+- Line range (e.g., lines 1-50)
+- Brief description of topics discussed
+Return the summary so I can navigate directly to relevant parts.
+```
+
 ## Important
 
 - Do NOT use WebFetch for YouTube URLs
