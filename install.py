@@ -197,7 +197,7 @@ def install(preset: str, target: Path, knowledge_base: Path | None = None):
 
     # Add hook configurations from hooks.json files
     for hook in components["hooks"]:
-        hook_dir = target_claude / "hooks" / hook
+        hook_dir = (target_claude / "hooks" / hook).resolve()
         hook_config = load_hook_config(hook, hook_dir)
         merge_hooks(settings["hooks"], hook_config)
 
