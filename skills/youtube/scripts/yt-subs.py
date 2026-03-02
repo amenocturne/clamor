@@ -103,7 +103,13 @@ def get_cookies_args() -> list[str]:
 
 def get_video_metadata(url: str) -> tuple[str | None, str | None]:
     """Get video title and channel name using yt-dlp."""
-    cmd = ["yt-dlp", "--skip-download", "--print", "title", "--print", "channel"] + get_cookies_args() + [url]
+    cmd = [
+        "yt-dlp",
+        "--skip-download",
+        "--remote-components", "ejs:github",
+        "--print", "title",
+        "--print", "channel",
+    ] + get_cookies_args() + [url]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         return None, None
@@ -135,6 +141,7 @@ def download_subtitles(
         cmd = [
             "yt-dlp",
             "--skip-download",
+            "--remote-components", "ejs:github",
             "--write-auto-sub",
             "--write-sub",
             "--ignore-errors",
