@@ -1,6 +1,6 @@
-# Working with Projects
+## Working with Projects
 
-## When to Create a Project
+### When to Create a Project
 
 Use `projects/` for:
 - Learning plans with exercises and schedules
@@ -8,7 +8,7 @@ Use `projects/` for:
 - Curricula synthesized from research/conversations
 - Actionable plans that are too structured for `knowledge/`
 
-## Project Structure
+### Project Structure
 
 Projects go in category subfolders:
 
@@ -30,20 +30,20 @@ projects/goals/music-theory/
 └── resources-music-theory.md     # Tools, links (optional)
 ```
 
-## Naming Convention
+### Naming Convention
 
 - Index file: `_project-<name>.md` (underscore for Obsidian pinning)
 - Support files: `<type>-<project-name>.md` (e.g., `background-music-theory.md`)
 - Never use generic names like `index.md`, `background.md`, `resources.md` — causes link collisions in graph analysis
 
-## Creating a Project
+### Creating a Project
 
 1. **Identify category** — software, goals, presentations, or content
 2. **Create folder** — `projects/<category>/<name>/`
 3. **Create index file** — use template from `.claude/templates/project.md`
 4. **Split if needed** — large projects get separate files for skills, schedule, resources
 
-## Processing User's Guide/Plan
+### Processing User's Guide/Plan
 
 When user provides a detailed guide to save:
 
@@ -58,14 +58,14 @@ When user provides a detailed guide to save:
 
 3. **Add wiki links** — tag with relevant topics, link to related projects/goals
 
-## Using the Spec Skill
+### Using the Spec Skill
 
 When using the **spec** skill to create project specifications:
 - Save specs in `projects/<category>/<name>/`
 - Name the main spec `_project-<name>.md`
 - Save implementation plan alongside as `implementation-plan.md`
 
-## Capturing Decision Context
+### Capturing Decision Context
 
 When a conversation involves choosing between approaches, create `background-<project-name>.md` in the project folder. Use template from `.claude/templates/background.md`.
 

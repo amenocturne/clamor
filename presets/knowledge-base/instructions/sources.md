@@ -1,15 +1,15 @@
-# Processing Source Materials
+## Processing Source Materials
 
 When the user shares source material (article, video, podcast) with their thoughts/reactions:
 
-## Step 1: Create Source Note
+### Step 1: Create Source Note
 
 Create source note in `sources/<type>/` using the source template (see `.claude/templates/source.md`):
 
 - Include `{{transcript}}` placeholder for content that will be injected later
 - Fill in metadata: URL, title, type
 
-## Step 2: Create Notes Based on User's Reactions
+### Step 2: Create Notes Based on User's Reactions
 
 **Only extract notes for concepts the user commented on or reacted to.**
 
@@ -19,11 +19,11 @@ Do NOT create notes for every idea in the source material. The user shares their
 - `insights/` — if it triggered personal realization
 - `ideas/` — if user developed a new framework from it
 
-## Step 3: Link Source to Notes
+### Step 3: Link Source to Notes
 
 Update the source note's "Key Concepts" section to link to created notes.
 
-## Important
+### Important
 
 - User's reactions guide what to extract — not the source content itself
 - Templates are in `.claude/templates/`

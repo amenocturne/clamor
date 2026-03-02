@@ -1,10 +1,20 @@
-# End-of-Conversation Saving
+## Tracking Save-worthy Items
+
+Use the TodoWrite tool to maintain a running list of things worth saving throughout the conversation. This is a scratchpad — not a structured plan.
+
+**What to track:** Anything that might be worth saving later — insights, decisions, interesting ideas, realizations, new information. Don't worry about categorization or structure yet.
+
+**Update frequency:** After each substantive exchange, review and update the list — add new items, consolidate duplicates, refine descriptions.
+
+**At save time:** Use this list as a reference to ensure nothing is forgotten. The items don't map 1:1 to notes — some may merge into a single concept, others may split into several notes. The structure emerges during save planning.
+
+## End-of-Conversation Saving
 
 **Trigger phrases:** "let's wrap up", "save this", "that's all", "let's finish", "we're done", "done for now", "that's it", "end this"
 
 **Default action:** When ANY end signal is detected, ALWAYS propose a save plan. Don't just summarize or say goodbye — saving is the default, not optional.
 
-## Step 1: Review Todo List
+### Step 1: Review Todo List
 
 The todo list contains save-worthy items accumulated during the conversation. Use it as a reference to ensure nothing is forgotten.
 
@@ -12,14 +22,14 @@ Note: Items don't map 1:1 to notes — some may merge into a single concept, oth
 
 If the todo list is empty or sparse, mentally review the conversation for save-worthy content.
 
-## Step 2: Explore Existing Notes
+### Step 2: Explore Existing Notes
 
 Understand what already exists:
 - Search `knowledge/`, `insights/`, `ideas/`, `core/` for related content
 - Check for notes that already cover discussed concepts
 - Note similar names to avoid collisions
 
-## Step 3: Propose a Save Plan (REQUIRED)
+### Step 3: Propose a Save Plan (REQUIRED)
 
 Present a concise plan for user approval. Use this format:
 
@@ -53,7 +63,7 @@ Proceed?
 - No lengthy explanations — user can ask for details
 - Wait for user confirmation before creating anything
 
-## Step 4: Create Atomic Notes
+### Step 4: Create Atomic Notes
 
 After user approves, create notes:
 
@@ -63,7 +73,7 @@ After user approves, create notes:
 
 Follow atomic note principle: one concept per file.
 
-### Pre-Save Checklist
+#### Pre-Save Checklist
 
 Before writing any note:
 
@@ -71,20 +81,20 @@ Before writing any note:
 2. **Check links before writing.** Verify `[[wikilink]]` targets exist or match what you're creating.
 3. **Calibrate length.** Read an existing note if available. If your draft is 2x+ longer, split it.
 
-## Step 5: Create Conversation Summary
+### Step 5: Create Conversation Summary
 
 Save to `logs/YYYY-MM-DD/_Topic.md` using `.claude/templates/summary.md`.
 
 The summary should **link to the notes created** instead of repeating content.
 
-## Step 6: Update Knowledge Graph
+### Step 6: Update Knowledge Graph
 
 - Add backlinks to existing notes where the new content is relevant
 - Update MOCs if they exist
 
-## Step 7: Consider Context Updates
+### Step 7: Consider Context Updates
 
-Check if conversation affects context files (see `context.md` for details):
+Check if conversation affects context files:
 
 - **history/** — Did a significant life event occur? Create `history/<event>.md`
 - **goals/** — Was a goal achieved, abandoned, or priorities shifted?
@@ -93,7 +103,7 @@ History = life events (so user doesn't have to re-explain). Goals = what user is
 
 If updates needed, include them in the save plan.
 
-## What to Save vs. Skip
+## What to Save vs Skip
 
 **Worth saving:**
 - New insights or realizations
@@ -107,9 +117,3 @@ If updates needed, include them in the save plan.
 - Debugging sessions (unless pattern learned)
 - Repetitive discussions already captured
 - Temporary planning that's now complete
-
-## Naming Conventions
-
-- Kebab-case filenames: `concept-name.md`
-- No subdirectories within knowledge/insights/core folders
-- Links as tags: `[[MOC-topic]]` even if target doesn't exist yet

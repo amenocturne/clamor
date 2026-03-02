@@ -224,18 +224,6 @@ def install(preset: str, target: Path, knowledge_base: Path | None = None):
         target_claude_md.write_text(processed)
         console.print("  [green]✓[/green] .claude/CLAUDE.md (includes processed)")
 
-    # Symlink instructions folder
-    instructions_src = PRESETS_DIR / preset / "instructions"
-    if instructions_src.exists():
-        instructions_dst = target_claude / "instructions"
-        if instructions_dst.exists() or instructions_dst.is_symlink():
-            if instructions_dst.is_symlink():
-                instructions_dst.unlink()
-            else:
-                shutil.rmtree(instructions_dst)
-        instructions_dst.symlink_to(instructions_src)
-        console.print("  [green]✓[/green] .claude/instructions/")
-
     # Symlink templates folder
     templates_src = PRESETS_DIR / preset / "templates"
     if templates_src.exists():

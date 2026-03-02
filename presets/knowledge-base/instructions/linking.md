@@ -1,6 +1,6 @@
-# Linking and MOCs
+## Linking and MOCs
 
-## Meaningful Links
+### Meaningful Links
 
 Links must be meaningful, not just a list of related topics. Each link should have context:
 
@@ -10,12 +10,12 @@ Links must be meaningful, not just a list of related topics. Each link should ha
 
 Links themselves provide the knowledge structure. Don't spam links — each one should earn its place.
 
-## Wiki Link Conventions
+### Wiki Link Conventions
 
 - Use `[[wiki links]]` for all connections — no `#tags`
 - Create links even if the target doesn't exist yet (Obsidian handles this)
 
-## Link Selectivity
+### Link Selectivity
 
 **Only add links that carry meaning.** A link should help someone navigate to something they'd actually want to read next, or tag a topic the note genuinely belongs to.
 
@@ -25,7 +25,7 @@ Links themselves provide the knowledge structure. Don't spam links — each one 
 
 The goal is a useful graph, not a maximally connected one. A link to everything is a link to nothing.
 
-## Linking Responsibilities
+### Linking Responsibilities
 
 When creating or updating notes in `core/`, `ideas/`, `insights/`, or `knowledge/`:
 1. Add relevant wiki link "tags" at the bottom (topics, themes)
@@ -35,7 +35,7 @@ When creating or updating notes in `core/`, `ideas/`, `insights/`, or `knowledge
 
 This maintains a connected knowledge graph where Claude acts as the link manager.
 
-## MOCs (Maps of Content)
+### MOCs (Maps of Content)
 
 MOCs are **jumping points** to explore a topic, not mandatory connections for every note.
 
@@ -44,7 +44,7 @@ MOCs are **jumping points** to explore a topic, not mandatory connections for ev
 - Not every note needs a direct MOC link — the links between notes provide structure
 - Template: `.claude/templates/moc.md`
 
-## Connection Notes
+### Connection Notes
 
 Not every connection needs a new note. Create one when **A + B is bigger than the sum** — when the combination creates something new.
 
@@ -58,7 +58,7 @@ Not every connection needs a new note. Create one when **A + B is bigger than th
 
 **Example:** `demon-identity` + `qualia` might reveal "why AI cannot be a demon" — that's a new insight worth its own note. But `learning-styles` referencing `psychology` doesn't need a connection note.
 
-## Atomicity When Linking
+### Atomicity When Linking
 
 **When connecting two notes creates a new insight, create a new note for it.**
 
@@ -74,7 +74,7 @@ Right approach:
 
 **Preserve conceptual boundaries.** Similar-sounding concepts may have different meanings. When linking, understand what each concept specifically means before claiming equivalence.
 
-## Unique Note Names
+### Unique Note Names
 
 Note names must be unique across all folders. If `insights/focus.md` and `core/focus.md` both exist, `[[focus]]` becomes ambiguous.
 
