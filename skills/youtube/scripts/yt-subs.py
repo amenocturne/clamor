@@ -93,7 +93,7 @@ def expand_lang_with_orig(lang: str) -> str:
 
 
 def get_cookies_args() -> list[str]:
-    """Get cookie arguments for yt-dlp (Zen browser via Firefox profile)."""
+    """Get cookie arguments for yt-dlp (for age-restricted content)."""
     import os
     profile_path = os.path.expanduser("~/Library/Application Support/zen/Profiles")
     if os.path.exists(profile_path):
@@ -103,14 +103,28 @@ def get_cookies_args() -> list[str]:
 
 def get_video_metadata(url: str) -> tuple[str | None, str | None]:
     """Get video title and channel name using yt-dlp."""
+    # Try without cookies first
     cmd = [
         "yt-dlp",
         "--skip-download",
         "--remote-components", "ejs:github",
         "--print", "title",
         "--print", "channel",
-    ] + get_cookies_args() + [url]
+        url
+    ]
     result = subprocess.run(cmd, capture_output=True, text=True)
+
+    # If failed, try with cookies (age-restricted)
+    if result.returncode != 0 and get_cookies_args():
+        cmd = [
+            "yt-dlp",
+            "--skip-download",
+            "--remote-components", "ejs:github",
+            "--print", "title",
+            "--print", "channel",
+        ] + get_cookies_args() + [url]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
     if result.returncode != 0:
         return None, None
 
@@ -118,6 +132,83 @@ def get_video_metadata(url: str) -> tuple[str | None, str | None]:
     title = lines[0] if len(lines) > 0 else None
     channel = lines[1] if len(lines) > 1 else None
     return title, channel
+
+
+def list_available_subtitles(url: str) -> list[str]:
+    """Check what subtitles are available for this video."""
+    cmd = [
+        "yt-dlp",
+        "--list-subs",
+        "--skip-download",
+        url
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    # Parse output to find available languages
+    available = []
+    in_subs_section = False
+    skip_headers = {"Language", "Name", "Formats", ""}
+
+    for line in result.stdout.split("\n"):
+        # Detect section starts
+        if "automatic captions" in line.lower() or (
+            "subtitles" in line.lower() and "automatic" not in line.lower()
+        ):
+            in_subs_section = True
+            continue
+
+        # Skip non-subtitle lines
+        if line.startswith("[") or line.startswith("WARNING"):
+            continue
+
+        if in_subs_section:
+            # Lines look like: "en            English                vtt, srt, ..."
+            parts = line.split()
+            if len(parts) >= 2:
+                lang_code = parts[0]
+                # Skip headers and invalid codes
+                if (lang_code not in skip_headers and
+                    not lang_code.startswith("-") and
+                    len(lang_code) <= 10):  # lang codes are short
+                    available.append(lang_code)
+
+    return available
+
+
+def try_download_subtitles(
+    url: str, expanded_lang: str, use_cookies: bool
+) -> tuple[list[Path], subprocess.CompletedProcess]:
+    """Attempt to download subtitles. Returns (vtt_files, result)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_template = str(Path(tmpdir) / "subs")
+
+        cmd = [
+            "yt-dlp",
+            "--skip-download",
+            "--remote-components", "ejs:github",
+            "--write-auto-sub",
+            "--write-sub",
+            "--ignore-errors",
+            f"--sub-lang={expanded_lang}",
+            "--sub-format=vtt",
+            "-o",
+            output_template,
+        ]
+        if use_cookies:
+            cmd.extend(get_cookies_args())
+        cmd.append(url)
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        tmppath = Path(tmpdir)
+        vtt_files = list(tmppath.glob("*.vtt"))
+
+        # If we found files, read them before temp dir is deleted
+        contents = []
+        for f in vtt_files:
+            contents.append((f.name, f.read_text()))
+
+        return contents, result
 
 
 def download_subtitles(
@@ -135,44 +226,77 @@ def download_subtitles(
     # Expand languages to include -orig variants (auto-generated originals)
     expanded_lang = expand_lang_with_orig(lang)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        output_template = str(Path(tmpdir) / "subs")
+    # Try without cookies first (works for most videos)
+    vtt_contents, result = try_download_subtitles(url, expanded_lang, use_cookies=False)
 
-        cmd = [
-            "yt-dlp",
-            "--skip-download",
-            "--remote-components", "ejs:github",
-            "--write-auto-sub",
-            "--write-sub",
-            "--ignore-errors",
-            f"--sub-lang={expanded_lang}",
-            "--sub-format=vtt",
-            "-o",
-            output_template,
-        ] + get_cookies_args() + [url]
+    # If no subtitles found, try with cookies (for age-restricted content)
+    if not vtt_contents and get_cookies_args():
+        print("No subtitles without cookies, trying with cookies (age-restricted?)...",
+              file=sys.stderr)
+        vtt_contents, result = try_download_subtitles(url, expanded_lang, use_cookies=True)
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+    # Show errors if download failed
+    if result.returncode != 0 and not vtt_contents:
+        # Filter out common warnings
+        if result.stderr.strip():
+            stderr_lines = result.stderr.strip().split("\n")
+            errors = [
+                line for line in stderr_lines
+                if not any(skip in line.upper() for skip in [
+                    "WARNING:",
+                    "DOWNLOADING WEBPAGE",
+                    "DOWNLOADING PLAYER",
+                    "DOWNLOADING TV",
+                    "DOWNLOADING ANDROID",
+                ])
+            ]
+            if errors:
+                print(f"yt-dlp errors:\n{chr(10).join(errors)}", file=sys.stderr)
 
-        if result.returncode != 0:
-            if "Unable to download" not in result.stderr:
-                print(f"Error: {result.stderr}", file=sys.stderr)
-                return None, title, channel
+    if not vtt_contents:
+        # Check if subtitles are actually available
+        available = list_available_subtitles(url)
+        requested_langs = [l.strip() for l in lang.split(",")]
 
-        # Find downloaded subtitle files
-        tmppath = Path(tmpdir)
-        vtt_files = list(tmppath.glob("*.vtt"))
+        if available:
+            matching = [l for l in available if any(
+                l == req or l.startswith(req + "-") or req.startswith(l)
+                for req in requested_langs
+            )]
 
-        if not vtt_files:
-            print("No subtitles found for this video", file=sys.stderr)
-            return None, title, channel
+            print(f"\n{'='*60}", file=sys.stderr)
+            print("SUBTITLE DOWNLOAD FAILED - DEBUG INFO", file=sys.stderr)
+            print(f"{'='*60}", file=sys.stderr)
+            print(f"Requested languages: {lang}", file=sys.stderr)
+            print(f"Expanded to: {expanded_lang}", file=sys.stderr)
+            print(f"Available subtitles: {', '.join(available[:20])}" +
+                  (f"... (+{len(available)-20} more)" if len(available) > 20 else ""),
+                  file=sys.stderr)
 
-        # Read first available subtitle file
-        content = vtt_files[0].read_text()
-
-        if raw:
-            return content, title, channel
+            if matching:
+                print(f"Matching languages found: {', '.join(matching)}", file=sys.stderr)
+                print("\nSubtitles ARE available but download failed!", file=sys.stderr)
+                print("Possible causes:", file=sys.stderr)
+                print("  1. yt-dlp version outdated (try: yt-dlp -U)", file=sys.stderr)
+                print("  2. YouTube API changes", file=sys.stderr)
+                print("  3. Network/rate limiting issues", file=sys.stderr)
+                print(f"\nDebug: try running manually:", file=sys.stderr)
+                print(f"  yt-dlp --skip-download --write-auto-sub --sub-lang={lang} '{url}'", file=sys.stderr)
+            else:
+                print(f"\nNo matching languages. Try one of: {', '.join(available[:10])}", file=sys.stderr)
+            print(f"{'='*60}\n", file=sys.stderr)
         else:
-            return clean_vtt(content), title, channel
+            print("No subtitles available for this video", file=sys.stderr)
+
+        return None, title, channel
+
+    # Use first available subtitle file
+    _, content = vtt_contents[0]
+
+    if raw:
+        return content, title, channel
+    else:
+        return clean_vtt(content), title, channel
 
 
 def main():

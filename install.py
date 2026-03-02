@@ -214,12 +214,13 @@ def install(preset: str, target: Path, knowledge_base: Path | None = None):
     # Process and write .claude/CLAUDE.md (preset instructions with includes resolved)
     # Root CLAUDE.md is left for user's project-specific instructions
     target_claude_md = target_claude / "CLAUDE.md"
-    if target_claude_md.exists() or target_claude_md.is_symlink():
-        target_claude_md.unlink()
     src = PRESETS_DIR / preset / "claude.md"
     if src.exists():
         content = src.read_text()
-        processed = process_includes(content)
+        processed = process_includes(content)  # Process first, may raise
+        # Only delete after successful processing
+        if target_claude_md.exists() or target_claude_md.is_symlink():
+            target_claude_md.unlink()
         target_claude_md.write_text(processed)
         console.print("  [green]✓[/green] .claude/CLAUDE.md (includes processed)")
 
