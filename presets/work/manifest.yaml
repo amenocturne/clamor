@@ -1,6 +1,7 @@
 description: Work workspace focused on Scala and infrastructure configs
 skills:
   - dp-jira
+  - dp-gitlab
   - dev-philosophy
   - spec
   - workspace
