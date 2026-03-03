@@ -1,35 +1,11 @@
 {
-  "PreToolUse": [
-    {
-      "matcher": "Read|Write|Edit",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "{hook_dir}/hook.sh pre-tool-use",
-          "timeout": 10
-        }
-      ]
-    }
-  ],
-  "PostToolUse": [
-    {
-      "matcher": "Edit",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "{hook_dir}/hook.sh post-tool-use",
-          "timeout": 10
-        }
-      ]
-    }
-  ],
-  "Stop": [
+  "SessionStart": [
     {
       "hooks": [
         {
           "type": "command",
-          "command": "{hook_dir}/hook.sh stop",
-          "timeout": 5
+          "command": "{hook_dir}/start-proxy.sh",
+          "timeout": 15
         }
       ]
     }

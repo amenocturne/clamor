@@ -21,9 +21,9 @@ list:
 workspace root="." output="WORKSPACE.yaml":
     uv run pipelines/workspace/generate-workspace.py --root {{ root }} --output {{ output }}
 
-# Run tests (placeholder)
+# Run tests
 test:
-    @echo "No tests yet"
+    cd hooks/link-proxy && uv run pytest tests/ -v
 
 # Format all Python files
 fmt:
