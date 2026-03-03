@@ -621,6 +621,7 @@ from __future__ import annotations
 
 import argparse
 import http.client
+import io
 import json
 import logging
 import os
@@ -631,6 +632,7 @@ import ssl
 import sys
 import threading
 import traceback
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -1267,6 +1269,47 @@ def forward_request(
     return conn.getresponse()
 
 
+def _decompress_reader(
+    resp: http.client.HTTPResponse,
+) -> io.BufferedIOBase | http.client.HTTPResponse:
+    """Wrap *resp* in a streaming decompressor if Content-Encoding is set.
+
+    Returns an object with a .readline() method that yields decompressed
+    lines.  If the response is not compressed, returns *resp* unchanged.
+    """
+    encoding = (resp.getheader("Content-Encoding") or "").lower()
+    if encoding not in ("gzip", "deflate"):
+        return resp
+    # wbits: 16+MAX_WBITS for gzip, MAX_WBITS for deflate
+    wbits = zlib.MAX_WBITS | 16 if encoding == "gzip" else zlib.MAX_WBITS
+    decompressor = zlib.decompressobj(wbits)
+    buf = b""
+
+    class _Reader(io.RawIOBase):
+        """Thin adapter: read compressed chunks, yield decompressed bytes."""
+
+        def readinto(self, b: bytearray | memoryview) -> int:  # type: ignore[override]
+            nonlocal buf
+            while not buf:
+                chunk = resp.read(8192)
+                if not chunk:
+                    # Flush remaining data from the decompressor.
+                    buf = decompressor.flush()
+                    if not buf:
+                        return 0
+                    break
+                buf = decompressor.decompress(chunk)
+            n = min(len(b), len(buf))
+            b[:n] = buf[:n]
+            buf = buf[n:]
+            return n
+
+        def readable(self) -> bool:
+            return True
+
+    return io.BufferedReader(_Reader(), buffer_size=16384)
+
+
 # ---------------------------------------------------------------------------
 # HTTP handler
 # ---------------------------------------------------------------------------
@@ -1287,6 +1330,11 @@ HOP_BY_HOP = frozenset(
 
 class ProxyHandler(BaseHTTPRequestHandler):
     """HTTP request handler for the proxy."""
+
+    # HTTP/1.1 is required for SSE: clients need proper framing to detect
+    # when the response body ends.  Without it (HTTP/1.0), SSE streams
+    # stall because the client cannot determine body length.
+    protocol_version = "HTTP/1.1"
 
     # Silence default access log
     def log_message(self, format: str, *args: Any) -> None:
@@ -1497,7 +1545,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         resp: http.client.HTTPResponse,
     ) -> None:
         """Handle a non-streaming (buffered) response."""
-        resp_body = resp.read()
+        resp_body = _decompress_reader(resp).read()
         mappings = self.server_state.get_mappings()
 
         if resp_body and mappings:
@@ -1531,13 +1579,16 @@ class ProxyHandler(BaseHTTPRequestHandler):
         resp: http.client.HTTPResponse,
     ) -> None:
         """Handle SSE streaming response with buffering."""
+        reader = _decompress_reader(resp)
         mappings = self.server_state.get_mappings()
         block_buffers: dict[int, StreamBuffer] = {}
 
         self.send_response(resp.status)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
+        # Close connection after streaming so the client detects end-of-body.
+        self.send_header("Connection", "close")
+        self.close_connection = True
         self.end_headers()
 
         current_event_type: str | None = None
@@ -1591,7 +1642,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
         try:
             while True:
-                raw_line = resp.readline()
+                raw_line = reader.readline()
                 if not raw_line:
                     break
 
