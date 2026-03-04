@@ -83,9 +83,27 @@ Before writing any note:
 
 ### Step 5: Create Conversation Summary
 
-Save to `logs/YYYY-MM-DD/_Topic.md` using `.claude/templates/summary.md`.
+Save to `logs/YYYY-MM-DD/_Topic.md`.
 
-The summary should **link to the notes created** instead of repeating content.
+Summaries track what was done **and** preserve the human texture of the conversation. Before writing, propose a brief summary plan: which sections you'll include and why. Only include sections that have substance.
+
+**Structured sections** (include what applies):
+
+- **Key Points** — what was discussed, decided, learned
+- **Notes Created / Updated** — link to notes instead of repeating content
+- **Open Questions** — unresolved threads
+- **Related** — links to relevant existing notes
+
+**Freeform section** (when the conversation had personal content):
+
+A **Journal** section — open space for the human side of the conversation. No fixed format. Could be:
+- A brief mood/energy note ("walk energy, ideas connecting fast")
+- Direct quotes from the user when they captured something precisely
+- Curated excerpts from the conversation — e.g. a back-and-forth about why current work feels pointless, a realization expressed in the moment, a reflection that won't fit in any atomic note
+- Soundtrack
+- Nothing, if the conversation was purely technical
+
+These summaries are Mirror's equivalent of daily notes. Most will be short and factual. Some will be rich with personal content. Let the conversation guide which kind it is — don't force depth, but don't strip it out either.
 
 ### Step 6: Update Knowledge Graph
 
