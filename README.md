@@ -64,7 +64,7 @@ uv run install.py --list
 | `dev-philosophy` | Core development principles across languages |
 | `documentation` | Project documentation guidelines |
 | `dp-jira` | Fetch Jira issue details via dp CLI |
-| `frontend-design` | Frontend dev with TypeScript, Snabbdom, Elm Architecture |
+| `frontend` | Frontend dev — stack, architecture, design, production readiness |
 | `graph` | Obsidian vault graph analysis |
 | `idea-roaster` | Rigorous critical evaluation of ideas |
 | `lyrics` | Fetch song lyrics from Genius |

@@ -1,6 +1,6 @@
 ---
-name: frontend-design
-description: Frontend development with TypeScript, Snabbdom, and Elm Architecture. Use when building web UI, designing pages, discussing website design, planning UI/UX, or working on frontend code. Triggers on "frontend", "website design", "UI design", "page layout", "web app design", "design the frontend".
+name: frontend
+description: Frontend development — stack, architecture, design, and production readiness. Use when building web UI, designing pages, planning UI/UX, working on frontend code, or preparing for launch. Triggers on "frontend", "website design", "UI design", "page layout", "web app design", "design the frontend", "pre-launch", "ship it".
 author: amenocturne
 ---
 
@@ -196,6 +196,124 @@ describe('update', () => {
 ```
 
 Test pure functions (update, helpers). UI requires manual testing.
+
+## Pre-Launch Checklist
+
+Apply before shipping to production. Priority: **High** = must fix, **Medium** = strongly recommended, **Low** = nice to have.
+
+### HTML Head
+
+**High:**
+- `<!doctype html>` at top
+- `<meta charset="utf-8">` first in `<head>`
+- `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`
+- `<title>` on every page (under 55 characters)
+- `<meta name="description">` unique per page (under 150 characters)
+- CSS loaded before JS in `<head>`
+
+**Medium:**
+- Favicon as `.png` or `.svg` (not just `.ico`)
+- `<link rel="canonical">` to prevent duplicate content
+- Critical CSS inlined in `<style>` for above-the-fold content
+
+**Low:**
+- `<link rel="apple-touch-icon">` (200x200px minimum)
+- RSS feed if content-driven
+
+### Social Meta
+
+```html
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://example.com/page">
+<meta property="og:title" content="Page Title">
+<meta property="og:description" content="Description">
+<meta property="og:image" content="https://example.com/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Page Title">
+<meta name="twitter:description" content="Description">
+<meta name="twitter:image" content="https://example.com/og.jpg">
+```
+
+OG images: minimum 600x315, recommended 1200x630.
+
+### Semantic HTML & Accessibility
+
+**High:**
+- `<html lang="en">` (correct language)
+- HTML5 semantic elements (`<header>`, `<main>`, `<nav>`, `<section>`, `<footer>`)
+- Single `<h1>` per page, heading hierarchy H1-H6 in order
+- Every `<img>` has meaningful `alt` text
+- Every form input has a `<label>` (or `aria-label`)
+- Keyboard navigation works for all interactive elements
+- Focus styles visible (never `outline: none` without replacement)
+- Error 404 and 5xx pages exist (with CSS inlined, no external deps)
+
+**Medium:**
+- Color contrast passes WCAG AA (4.5:1 for text, 3:1 for large text)
+- `<html dir="rtl">` if RTL languages supported
+- Screen reader tested (VoiceOver on Mac)
+- HTML5 input types used (`email`, `tel`, `url`, `number`)
+- `rel="noopener noreferrer"` on `target="_blank"` links
+
+### Security
+
+**High:**
+- HTTPS on all pages and external resources
+- CSRF protection on server-side requests
+- No XSS vectors (sanitize user input, escape output)
+
+**Medium:**
+- `Strict-Transport-Security` header (HSTS)
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY` (or `SAMEORIGIN`)
+- `Content-Security-Policy` header defined
+
+### Performance
+
+**High:**
+- All assets minified (Bun bundler handles this)
+- Images optimized (WebP for photos, SVG for icons)
+- `width` and `height` on `<img>` to prevent layout shift
+
+**Medium:**
+- First Meaningful Paint under 1 second
+- Time To Interactive under 5 seconds on slow 3G
+- Critical bundle under 170KB gzipped
+- Images lazy loaded (`loading="lazy"`)
+- `<link rel="preload">` for critical resources
+- `<link rel="dns-prefetch">` for third-party domains
+- Cookie size under 4KB per cookie, under 20 cookies per domain
+
+### SEO
+
+**High:**
+- `robots.txt` exists and doesn't block pages
+- `sitemap.xml` exists and submitted to Search Console
+- Structured data (JSON-LD) for relevant content types
+
+**Medium:**
+- Heading hierarchy reflects content structure
+- HTML sitemap linked from footer
+
+### Images
+
+**High:**
+- All images optimized (use ImageOptim, TinyPNG, or SVGO)
+- `alt` text on every `<img>`
+- `width` and `height` attributes set
+
+**Medium:**
+- `<picture>` / `srcset` for responsive images
+- SVG sprite for icon sets
+- Lazy loading with `loading="lazy"`
+
+**Low:**
+- 2x/3x variants for retina displays
 
 ## Anti-patterns
 
