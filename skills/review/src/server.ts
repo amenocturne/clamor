@@ -1,4 +1,5 @@
-import { resolve, join } from "node:path";
+import { resolve, join, basename } from "node:path";
+import { homedir } from "node:os";
 import { mkdir } from "node:fs/promises";
 import { parseDiff } from "./parser.ts";
 import { formatReview } from "./formatter.ts";
@@ -60,7 +61,7 @@ const parseArgs = (argv: readonly string[]): CliArgs => {
 		repo: resolve(repo),
 		range,
 		message,
-		saveDir: saveDir ? resolve(saveDir) : join(resolve(repo), ".reviews"),
+		saveDir: saveDir ? resolve(saveDir) : join(homedir(), ".claude", "reviews", basename(resolve(repo))),
 		port,
 	};
 };
