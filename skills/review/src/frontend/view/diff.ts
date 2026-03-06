@@ -8,11 +8,87 @@ import { savedCommentView, commentBoxView } from "./comment.ts";
 let globalListenerInstalled = false;
 let dispatchRef: ((msg: Msg) => void) | null = null;
 
+// Auto-scroll state for drag selection
+let dragAnimationId: number | null = null;
+let lastMouseX = 0;
+let lastMouseY = 0;
+let dragMouseMoveHandler: ((e: MouseEvent) => void) | null = null;
+let activeDragFile: string | null = null;
+
+const SCROLL_EDGE = 60;
+const MAX_SCROLL_SPEED = 20;
+
+const stopAutoScroll = (): void => {
+	if (dragMouseMoveHandler) {
+		window.removeEventListener("mousemove", dragMouseMoveHandler);
+		dragMouseMoveHandler = null;
+	}
+	if (dragAnimationId !== null) {
+		cancelAnimationFrame(dragAnimationId);
+		dragAnimationId = null;
+	}
+	activeDragFile = null;
+};
+
+const startAutoScroll = (dispatch: (msg: Msg) => void, filePath: string, initialX: number, initialY: number): void => {
+	stopAutoScroll();
+	activeDragFile = filePath;
+	lastMouseX = initialX;
+	lastMouseY = initialY;
+
+	dragMouseMoveHandler = (e: MouseEvent) => {
+		lastMouseX = e.clientX;
+		lastMouseY = e.clientY;
+	};
+	window.addEventListener("mousemove", dragMouseMoveHandler);
+
+	const tick = (): void => {
+		const scrollContainer = document.querySelector(".diff-area") as HTMLElement | null;
+		if (!scrollContainer) {
+			dragAnimationId = requestAnimationFrame(tick);
+			return;
+		}
+
+		const rect = scrollContainer.getBoundingClientRect();
+		let speed = 0;
+
+		if (lastMouseY < rect.top) {
+			speed = -MAX_SCROLL_SPEED;
+		} else if (lastMouseY < rect.top + SCROLL_EDGE) {
+			speed = -MAX_SCROLL_SPEED * ((rect.top + SCROLL_EDGE - lastMouseY) / SCROLL_EDGE);
+		} else if (lastMouseY > rect.bottom) {
+			speed = MAX_SCROLL_SPEED;
+		} else if (lastMouseY > rect.bottom - SCROLL_EDGE) {
+			speed = MAX_SCROLL_SPEED * ((lastMouseY - (rect.bottom - SCROLL_EDGE)) / SCROLL_EDGE);
+		}
+
+		if (speed !== 0) {
+			scrollContainer.scrollBy(0, speed);
+			const probeY = Math.max(rect.top + 10, Math.min(rect.bottom - 10, lastMouseY));
+			const el = document.elementFromPoint(lastMouseX, probeY);
+			if (el) {
+				const row = el.closest("tr[data-line]") as HTMLElement | null;
+				if (row && row.dataset.file === activeDragFile) {
+					const num = parseInt(row.dataset.line!, 10);
+					if (!isNaN(num)) {
+						dispatch({ type: "updateDrag", endLine: num });
+					}
+				}
+			}
+		}
+
+		dragAnimationId = requestAnimationFrame(tick);
+	};
+
+	dragAnimationId = requestAnimationFrame(tick);
+};
+
 const installGlobalListener = (dispatch: (msg: Msg) => void): void => {
 	dispatchRef = dispatch;
 	if (globalListenerInstalled) return;
 	globalListenerInstalled = true;
 	window.addEventListener("mouseup", () => {
+		stopAutoScroll();
 		if (dispatchRef) dispatchRef({ type: "endDrag" });
 	});
 };
@@ -160,6 +236,7 @@ const lineView = (
 	if (hasNewNum) {
 		rowHandlers.mousedown = (e: Event) => {
 			e.preventDefault();
+			startAutoScroll(dispatch, file.path, (e as MouseEvent).clientX, (e as MouseEvent).clientY);
 			dispatch({ type: "startDrag", file: file.path, startLine: lineNum });
 		};
 
@@ -176,6 +253,7 @@ const lineView = (
 			"line-selected": selected,
 			"line-selecting": dragging,
 		},
+		attrs: hasNewNum ? { "data-file": file.path, "data-line": String(lineNum) } : {},
 		on: rowHandlers,
 	}, [
 		h("td.gutter", {
