@@ -1,3 +1,10 @@
+---
+requires:
+  skills:
+    - todo
+    - review
+---
+
 ## Resuming Projects
 
 When the user says "continue working on X", "pick up X", or similar:

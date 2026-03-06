@@ -32,6 +32,23 @@ PIPELINES_DIR = REPO_ROOT / "pipelines"
 COMMON_DIR = REPO_ROOT / "common"
 
 INCLUDE_PATTERN = r"\{\{include:([^}]+)\}\}"
+FRONTMATTER_PATTERN = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
+
+
+def parse_frontmatter(content: str) -> tuple[dict, str]:
+    """Parse YAML frontmatter from markdown content. Returns (metadata, body)."""
+    match = FRONTMATTER_PATTERN.match(content)
+    if match:
+        metadata = yaml.safe_load(match.group(1)) or {}
+        body = content[match.end() :]
+        return metadata, body
+    return {}, content
+
+
+def strip_frontmatter(content: str) -> str:
+    """Remove YAML frontmatter from content."""
+    _, body = parse_frontmatter(content)
+    return body
 
 
 def process_includes(content: str) -> str:
@@ -39,14 +56,47 @@ def process_includes(content: str) -> str:
 
     def replace_include(match):
         include_path = match.group(1)
-        # Resolve path relative to repo root
         full_path = REPO_ROOT / include_path
         if full_path.exists():
-            return full_path.read_text().strip()
+            return strip_frontmatter(full_path.read_text()).strip()
         else:
             raise FileNotFoundError(f"Include not found: {include_path}")
 
     return re.sub(INCLUDE_PATTERN, replace_include, content)
+
+
+def validate_common_dependencies(
+    common_names: list[str], available_skills: set[str]
+) -> list[str]:
+    """Check that common files' required skills are present in the preset.
+
+    Returns a list of error messages. Empty list means all dependencies are satisfied.
+    """
+    errors = []
+    for name in common_names:
+        path = COMMON_DIR / f"{name}.md"
+        if not path.exists():
+            errors.append(f"Common file not found: {name}.md")
+            continue
+        metadata, _ = parse_frontmatter(path.read_text())
+        requires = metadata.get("requires") or {}
+        required = set(requires.get("skills") or [])
+        missing = required - available_skills
+        if missing:
+            errors.append(
+                f"{name}.md requires missing skills: {', '.join(sorted(missing))}"
+            )
+    return errors
+
+
+def extract_common_names_from_template(content: str) -> list[str]:
+    """Extract common file names from {{include:common/...}} directives."""
+    names = []
+    for match in re.finditer(INCLUDE_PATTERN, content):
+        path = match.group(1)
+        if path.startswith("common/"):
+            names.append(path.removeprefix("common/").removesuffix(".md"))
+    return names
 
 
 def load_manifest(preset: str) -> dict:
@@ -143,13 +193,15 @@ def merge_settings(preset: str, target: Path) -> dict:
 
 
 def collect_components(preset: str) -> dict:
-    """Collect all skills, hooks, pipelines from manifest."""
+    """Collect all skills, hooks, pipelines, instructions, and common includes."""
     manifest = load_manifest(preset)
     return {
         "skills": set(manifest.get("skills", [])),
         "hooks": set(manifest.get("hooks", [])),
         "pipelines": set(manifest.get("pipelines", [])),
         "external": set(manifest.get("external", [])),
+        "instructions": list(manifest.get("instructions", [])),
+        "common": list(manifest.get("common", [])),
     }
 
 
@@ -217,7 +269,49 @@ def install(preset: str, target: Path, knowledge_base: Path | None = None):
     src = PRESETS_DIR / preset / "claude.md"
     if src.exists():
         content = src.read_text()
+
+        # Validate common file dependencies (from both template includes and manifest)
+        template_commons = extract_common_names_from_template(content)
+        all_commons = list(dict.fromkeys(template_commons + components["common"]))
+        dep_errors = validate_common_dependencies(all_commons, components["skills"])
+        if dep_errors:
+            for e in dep_errors:
+                console.print(f"  [red]✗[/red] {e}")
+            console.print(
+                "[red]Installation failed: common file dependencies not satisfied[/red]"
+            )
+            raise SystemExit(1)
+
         processed = process_includes(content)  # Process first, may raise
+
+        # Append preset-specific instructions from manifest
+        if components["instructions"]:
+            instructions_dir = PRESETS_DIR / preset / "instructions"
+            sections = []
+            for name in components["instructions"]:
+                path = instructions_dir / f"{name}.md"
+                if path.exists():
+                    sections.append(strip_frontmatter(path.read_text()).strip())
+                else:
+                    raise FileNotFoundError(
+                        f"Instruction not found: {preset}/instructions/{name}.md"
+                    )
+            if sections:
+                processed = processed.rstrip() + "\n\n" + "\n\n".join(sections) + "\n"
+
+        # Append common sections from manifest
+        if components["common"]:
+            sections = []
+            for name in components["common"]:
+                path = COMMON_DIR / f"{name}.md"
+                if path.exists():
+                    _, body = parse_frontmatter(path.read_text())
+                    sections.append(body.strip())
+                else:
+                    raise FileNotFoundError(f"Common file not found: {name}.md")
+            if sections:
+                processed = processed.rstrip() + "\n\n" + "\n\n".join(sections) + "\n"
+
         # Only delete after successful processing
         if target_claude_md.exists() or target_claude_md.is_symlink():
             target_claude_md.unlink()

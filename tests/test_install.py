@@ -127,6 +127,24 @@ def make_pipeline(pipelines_dir: Path, name: str):
     (d / "pipeline.py").write_text(f"# Pipeline: {name}")
 
 
+def make_common(common_dir: Path, name: str, content: str, requires: dict | None = None):
+    """Create a common file with optional frontmatter.
+
+    Uses JSON in the frontmatter block so the mock yaml parser can handle it.
+    """
+    if requires:
+        frontmatter_data = json.dumps({"requires": requires})
+        content = f"---\n{frontmatter_data}\n---\n\n{content}"
+    (common_dir / f"{name}.md").write_text(content)
+
+
+def make_instruction(presets_dir: Path, preset: str, name: str, content: str):
+    """Create a preset instruction file."""
+    d = presets_dir / preset / "instructions"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{name}.md").write_text(content)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -139,10 +157,12 @@ def fake_repo(tmp_path):
     skills_dir = tmp_path / "skills"
     hooks_dir = tmp_path / "hooks"
     pipelines_dir = tmp_path / "pipelines"
+    common_dir = tmp_path / "common"
     presets_dir.mkdir()
     skills_dir.mkdir()
     hooks_dir.mkdir()
     pipelines_dir.mkdir()
+    common_dir.mkdir()
 
     with (
         patch.object(install, "REPO_ROOT", tmp_path),
@@ -150,6 +170,7 @@ def fake_repo(tmp_path):
         patch.object(install, "SKILLS_DIR", skills_dir),
         patch.object(install, "HOOKS_DIR", hooks_dir),
         patch.object(install, "PIPELINES_DIR", pipelines_dir),
+        patch.object(install, "COMMON_DIR", common_dir),
     ):
         yield {
             "root": tmp_path,
@@ -157,6 +178,7 @@ def fake_repo(tmp_path):
             "skills": skills_dir,
             "hooks": hooks_dir,
             "pipelines": pipelines_dir,
+            "common": common_dir,
         }
 
 
@@ -941,3 +963,285 @@ class TestEdgeCases:
         install.install("p1", target)
         assert (target / ".claude").is_dir()
         assert (target / ".claude" / "settings.json").exists()
+
+
+# ===================================================================
+# Frontmatter parsing
+# ===================================================================
+
+
+class TestFrontmatter:
+    """Test YAML frontmatter parsing and stripping."""
+
+    def test_parse_with_frontmatter(self):
+        content = "---\nrequires:\n  skills:\n    - orchestrator\n---\n\n## Title\nBody"
+        # Use real yaml since our mock handles JSON; test via parse_frontmatter
+        # with manually constructed content that _mock_safe_load can parse
+        metadata, body = install.parse_frontmatter(
+            '---\n{"requires": {"skills": ["orchestrator"]}}\n---\n\n## Title\nBody'
+        )
+        assert metadata["requires"]["skills"] == ["orchestrator"]
+        assert "## Title" in body
+        assert "---" not in body
+
+    def test_parse_without_frontmatter(self):
+        content = "## Title\nBody text"
+        metadata, body = install.parse_frontmatter(content)
+        assert metadata == {}
+        assert body == content
+
+    def test_strip_frontmatter(self):
+        content = '---\n{"key": "value"}\n---\n\nBody'
+        result = install.strip_frontmatter(content)
+        assert "---" not in result
+        assert "Body" in result
+
+    def test_strip_no_frontmatter(self):
+        content = "Just plain text"
+        assert install.strip_frontmatter(content) == content
+
+
+# ===================================================================
+# Dependency validation
+# ===================================================================
+
+
+class TestValidateCommonDependencies:
+    """Test common file skill dependency validation."""
+
+    def test_missing_skill_returns_error(self, fake_repo):
+        make_common(
+            fake_repo["common"],
+            "orchestration",
+            "## Orchestration",
+            requires={"skills": ["orchestrator"]},
+        )
+        errors = install.validate_common_dependencies(
+            ["orchestration"], {"todo", "review"}
+        )
+        assert len(errors) == 1
+        assert "orchestrator" in errors[0]
+
+    def test_satisfied_deps_returns_empty(self, fake_repo):
+        make_common(
+            fake_repo["common"],
+            "orchestration",
+            "## Orchestration",
+            requires={"skills": ["orchestrator"]},
+        )
+        errors = install.validate_common_dependencies(
+            ["orchestration"], {"orchestrator"}
+        )
+        assert errors == []
+
+    def test_no_frontmatter_no_errors(self, fake_repo):
+        make_common(fake_repo["common"], "skills", "## Skills")
+        errors = install.validate_common_dependencies(["skills"], set())
+        assert errors == []
+
+    def test_missing_file_returns_error(self, fake_repo):
+        errors = install.validate_common_dependencies(["nonexistent"], set())
+        assert len(errors) == 1
+        assert "not found" in errors[0]
+
+    def test_multiple_missing_skills(self, fake_repo):
+        make_common(
+            fake_repo["common"],
+            "multi",
+            "## Multi",
+            requires={"skills": ["a", "b", "c"]},
+        )
+        errors = install.validate_common_dependencies(["multi"], {"b"})
+        assert len(errors) == 1
+        assert "a" in errors[0]
+        assert "c" in errors[0]
+
+
+# ===================================================================
+# Template include extraction
+# ===================================================================
+
+
+class TestExtractCommonNames:
+    """Test extracting common file names from template include directives."""
+
+    def test_extracts_common_includes(self):
+        content = "# Title\n{{include:common/skills.md}}\n{{include:common/git.md}}"
+        names = install.extract_common_names_from_template(content)
+        assert names == ["skills", "git"]
+
+    def test_ignores_non_common_includes(self):
+        content = "{{include:presets/kb/instructions/saving.md}}\n{{include:common/skills.md}}"
+        names = install.extract_common_names_from_template(content)
+        assert names == ["skills"]
+
+    def test_empty_content(self):
+        assert install.extract_common_names_from_template("") == []
+
+
+# ===================================================================
+# Manifest common and instructions
+# ===================================================================
+
+
+class TestManifestCommonAndInstructions:
+    """Integration tests for common and instructions manifest keys."""
+
+    def test_common_sections_appended(self, fake_repo, tmp_path):
+        target = tmp_path / "project"
+        target.mkdir()
+        make_common(fake_repo["common"], "skills", "## Skills\nUse skills.")
+        make_common(fake_repo["common"], "git", "## Git\nCommit rules.")
+        make_preset(
+            fake_repo["presets"],
+            "p1",
+            manifest={
+                "skills": [],
+                "hooks": [],
+                "pipelines": [],
+                "external": [],
+                "common": ["skills", "git"],
+            },
+            settings={"hooks": {}},
+            claude_md="# My Preset",
+        )
+        install.install("p1", target)
+        content = (target / ".claude" / "CLAUDE.md").read_text()
+        assert content.startswith("# My Preset")
+        assert "## Skills" in content
+        assert "## Git" in content
+
+    def test_instructions_appended_before_common(self, fake_repo, tmp_path):
+        target = tmp_path / "project"
+        target.mkdir()
+        make_common(fake_repo["common"], "git", "## Git\nCommit rules.")
+        make_instruction(
+            fake_repo["presets"], "p1", "saving", "## Saving\nSave notes."
+        )
+        make_preset(
+            fake_repo["presets"],
+            "p1",
+            manifest={
+                "skills": [],
+                "hooks": [],
+                "pipelines": [],
+                "external": [],
+                "instructions": ["saving"],
+                "common": ["git"],
+            },
+            settings={"hooks": {}},
+            claude_md="# KB Mode",
+        )
+        install.install("p1", target)
+        content = (target / ".claude" / "CLAUDE.md").read_text()
+        saving_pos = content.index("## Saving")
+        git_pos = content.index("## Git")
+        assert saving_pos < git_pos
+
+    def test_frontmatter_stripped_from_common(self, fake_repo, tmp_path):
+        target = tmp_path / "project"
+        target.mkdir()
+        make_common(
+            fake_repo["common"],
+            "orchestration",
+            "## Orchestration\nDelegate work.",
+            requires={"skills": ["orchestrator"]},
+        )
+        make_preset(
+            fake_repo["presets"],
+            "p1",
+            manifest={
+                "skills": ["orchestrator"],
+                "hooks": [],
+                "pipelines": [],
+                "external": [],
+                "common": ["orchestration"],
+            },
+            settings={"hooks": {}},
+            claude_md="# Dev",
+        )
+        install.install("p1", target)
+        content = (target / ".claude" / "CLAUDE.md").read_text()
+        assert "---" not in content
+        assert "requires" not in content
+        assert "## Orchestration" in content
+
+    def test_missing_skill_dep_fails_install(self, fake_repo, tmp_path):
+        target = tmp_path / "project"
+        target.mkdir()
+        make_common(
+            fake_repo["common"],
+            "orchestration",
+            "## Orchestration",
+            requires={"skills": ["orchestrator"]},
+        )
+        make_preset(
+            fake_repo["presets"],
+            "p1",
+            manifest={
+                "skills": ["todo"],
+                "hooks": [],
+                "pipelines": [],
+                "external": [],
+                "common": ["orchestration"],
+            },
+            settings={"hooks": {}},
+            claude_md="# Dev",
+        )
+        with pytest.raises(SystemExit):
+            install.install("p1", target)
+
+    def test_missing_instruction_file_raises(self, fake_repo, tmp_path):
+        target = tmp_path / "project"
+        target.mkdir()
+        make_preset(
+            fake_repo["presets"],
+            "p1",
+            manifest={
+                "skills": [],
+                "hooks": [],
+                "pipelines": [],
+                "external": [],
+                "instructions": ["nonexistent"],
+            },
+            settings={"hooks": {}},
+            claude_md="# Dev",
+        )
+        with pytest.raises(FileNotFoundError):
+            install.install("p1", target)
+
+    def test_missing_common_file_fails_install(self, fake_repo, tmp_path):
+        target = tmp_path / "project"
+        target.mkdir()
+        make_preset(
+            fake_repo["presets"],
+            "p1",
+            manifest={
+                "skills": [],
+                "hooks": [],
+                "pipelines": [],
+                "external": [],
+                "common": ["nonexistent"],
+            },
+            settings={"hooks": {}},
+            claude_md="# Dev",
+        )
+        with pytest.raises(SystemExit):
+            install.install("p1", target)
+
+    def test_collect_components_includes_common_and_instructions(self, fake_repo):
+        make_preset(
+            fake_repo["presets"],
+            "p1",
+            manifest={
+                "skills": ["spec"],
+                "hooks": [],
+                "pipelines": [],
+                "external": [],
+                "instructions": ["saving", "linking"],
+                "common": ["skills", "git"],
+            },
+        )
+        result = install.collect_components("p1")
+        assert result["instructions"] == ["saving", "linking"]
+        assert result["common"] == ["skills", "git"]

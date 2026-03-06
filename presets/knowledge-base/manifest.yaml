@@ -14,6 +14,21 @@ skills:
   - frontend
   - pinchtab
   - reflect
+instructions:
+  - quick-rules
+  - saving
+  - vault-structure
+  - context
+  - zettelkasten
+  - linking
+  - sources
+  - projects
+common:
+  - skills
+  - agentic-kit
+  - commands
+  - git
+  - communication-style
 hooks:
   - notification
   - save-conversation

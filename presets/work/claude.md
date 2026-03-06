@@ -65,26 +65,3 @@ placeholders. It starts automatically on session start.
   Check: `curl http://127.0.0.1:18923/health`
   Start: `uv run hooks/link-proxy/proxy.py`
 
----
-
-{{include:common/skills.md}}
-
-{{include:common/dev-resuming-projects.md}}
-
-{{include:common/workspace.md}}
-
-{{include:common/agentic-kit.md}}
-
-{{include:common/commands.md}}
-
-{{include:common/tmp.md}}
-
-{{include:common/code-style.md}}
-
-{{include:common/comments.md}}
-
-{{include:common/quality.md}}
-
-{{include:common/communication-style.md}}
-
-{{include:common/bug-reports.md}}

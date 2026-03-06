@@ -15,6 +15,22 @@ skills:
   - config
   - project-setup
   - todo
+common:
+  - skills
+  - orchestration
+  - dev-resuming-projects
+  - workspace
+  - agentic-kit
+  - commands
+  - cli-tools
+  - tmp
+  - code-style
+  - comments
+  - quality
+  - git
+  - documentation
+  - communication-style
+  - bug-reports
 hooks:
   - notification
 pipelines: []

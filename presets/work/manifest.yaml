@@ -13,6 +13,19 @@ skills:
   - pinchtab
   - review
   - todo
+common:
+  - skills
+  - orchestration
+  - dev-resuming-projects
+  - workspace
+  - agentic-kit
+  - commands
+  - tmp
+  - code-style
+  - comments
+  - quality
+  - communication-style
+  - bug-reports
 hooks:
   - notification
   - link-proxy
