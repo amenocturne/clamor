@@ -11,4 +11,6 @@ export const initialModel: Model = {
 	dragSelection: null,
 	submitted: false,
 	error: null,
+	pastReviews: [],
+	viewingPastReview: null,
 };

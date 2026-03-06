@@ -132,6 +132,33 @@ const commentsSection = (model: Model): VNode | null => {
 	]);
 };
 
+const pastReviewsSection = (model: Model, dispatch: (msg: Msg) => void): VNode | null => {
+	if (model.pastReviews.length === 0) return null;
+
+	return h("div.sidebar-section", [
+		h("div.sidebar-label", "Past Reviews"),
+		...model.pastReviews.map((review) => {
+			const name = review.filename.replace(/\.md$/, "");
+			return h("div.past-review-item", [
+				h("span.past-review-name", {
+					on: { click: () => dispatch({ type: "fetchPastReview", filename: review.filename }) },
+				}, name),
+				h("button.btn-delete-review", {
+					attrs: { "aria-label": `Delete review ${name}` },
+					on: {
+						click: (e: Event) => {
+							e.stopPropagation();
+							if (confirm("Delete this review?")) {
+								dispatch({ type: "deletePastReview", filename: review.filename });
+							}
+						},
+					},
+				}, "\u00D7"),
+			]);
+		}),
+	]);
+};
+
 export const sidebarView = (model: Model, dispatch: (msg: Msg) => void): VNode => {
 	const sections: (VNode | null)[] = [
 		commitsSection(model, dispatch),
@@ -139,6 +166,7 @@ export const sidebarView = (model: Model, dispatch: (msg: Msg) => void): VNode =
 		descriptionSection(model),
 		summarySection(model, dispatch),
 		commentsSection(model),
+		pastReviewsSection(model, dispatch),
 	];
 
 	return h("div.sidebar", {

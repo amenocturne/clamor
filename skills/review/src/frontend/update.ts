@@ -72,5 +72,17 @@ export const update = (model: Model, msg: Msg): Model => {
 			return { ...model, submitted: true };
 		case "submitted":
 			return { ...model, submitted: true };
+		case "pastReviewsLoaded":
+			return { ...model, pastReviews: msg.reviews };
+		case "fetchPastReview":
+			return model;
+		case "deletePastReview":
+			return model;
+		case "viewPastReview":
+			return { ...model, viewingPastReview: msg.content };
+		case "closePastReview":
+			return { ...model, viewingPastReview: null };
+		case "reviewDeleted":
+			return { ...model, pastReviews: model.pastReviews.filter((r) => r.filename !== msg.filename) };
 	}
 };

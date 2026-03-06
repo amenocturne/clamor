@@ -1,4 +1,4 @@
-import type { ApiData } from "../types.ts";
+import type { ApiData, PastReviewMeta } from "../types.ts";
 import { dispatch, startApp } from "./app.ts";
 
 const fetchData = async (): Promise<void> => {
@@ -10,6 +10,12 @@ const fetchData = async (): Promise<void> => {
 	} catch (e) {
 		dispatch({ type: "dataError", error: String(e) });
 	}
+
+	try {
+		const res = await fetch("/api/reviews");
+		const reviews: PastReviewMeta[] = await res.json();
+		dispatch({ type: "pastReviewsLoaded", reviews });
+	} catch {}
 };
 
 startApp(fetchData);

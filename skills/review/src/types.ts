@@ -65,6 +65,10 @@ export type ReviewSubmission = {
 	readonly comments: readonly ReviewComment[];
 };
 
+export type PastReviewMeta = {
+	readonly filename: string;
+};
+
 // === Frontend State Types ===
 
 export type CommentDraft = {
@@ -99,6 +103,8 @@ export type Model = {
 	readonly dragSelection: DragSelection | null;
 	readonly submitted: boolean;
 	readonly error: string | null;
+	readonly pastReviews: readonly PastReviewMeta[];
+	readonly viewingPastReview: string | null;
 };
 
 // === Frontend Message Types ===
@@ -124,4 +130,10 @@ export type Msg =
 	| { readonly type: "setSummary"; readonly summary: string }
 	| { readonly type: "toggleSidebar" }
 	| { readonly type: "submit"; readonly verdict: ReviewVerdict }
-	| { readonly type: "submitted" };
+	| { readonly type: "submitted" }
+	| { readonly type: "pastReviewsLoaded"; readonly reviews: readonly PastReviewMeta[] }
+	| { readonly type: "fetchPastReview"; readonly filename: string }
+	| { readonly type: "viewPastReview"; readonly content: string }
+	| { readonly type: "closePastReview" }
+	| { readonly type: "deletePastReview"; readonly filename: string }
+	| { readonly type: "reviewDeleted"; readonly filename: string };

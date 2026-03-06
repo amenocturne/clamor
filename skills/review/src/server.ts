@@ -1,6 +1,6 @@
 import { resolve, join, basename } from "node:path";
 import { homedir } from "node:os";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir, unlink } from "node:fs/promises";
 import { parseDiff } from "./parser.ts";
 import { formatReview } from "./formatter.ts";
 import type { ApiData, Commit, DiffData } from "./types.ts";
@@ -212,17 +212,22 @@ const startServer = (
 
 			if (req.method === "POST" && url.pathname === "/api/submit") {
 				const submission = await req.json();
+				const commits = [...apiData.commits];
+				const resolvedRange = commits.length > 0
+					? `${commits[0]!.hash.slice(0, 7)}..${commits[commits.length - 1]!.hash.slice(0, 7)}`
+					: args.range;
 				const formatted = formatReview(
 					submission,
-					[...apiData.commits],
-					args.range,
+					commits,
+					resolvedRange,
 				);
 
 				await mkdir(args.saveDir, { recursive: true });
 
 				const now = new Date();
 				const pad = (n: number) => String(n).padStart(2, "0");
-				const filename = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.md`;
+				const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+				const filename = args.project ? `${timestamp}-${args.project}.md` : `${timestamp}.md`;
 				const savePath = join(args.saveDir, filename);
 
 				await Bun.write(savePath, formatted);
@@ -230,6 +235,40 @@ const startServer = (
 
 				setTimeout(() => process.exit(0), 500);
 				return Response.json({ ok: true });
+			}
+
+			if (req.method === "GET" && url.pathname === "/api/reviews") {
+				try {
+					const files = await readdir(args.saveDir);
+					const reviews = files
+						.filter((f) => f.endsWith(".md"))
+						.sort()
+						.reverse()
+						.map((f) => ({ filename: f }));
+					return Response.json(reviews);
+				} catch {
+					return Response.json([]);
+				}
+			}
+
+			if (req.method === "GET" && url.pathname.startsWith("/api/reviews/")) {
+				const filename = decodeURIComponent(url.pathname.slice("/api/reviews/".length));
+				try {
+					const content = await Bun.file(join(args.saveDir, filename)).text();
+					return Response.json({ content });
+				} catch {
+					return new Response("Not Found", { status: 404 });
+				}
+			}
+
+			if (req.method === "DELETE" && url.pathname.startsWith("/api/reviews/")) {
+				const filename = decodeURIComponent(url.pathname.slice("/api/reviews/".length));
+				try {
+					await unlink(join(args.saveDir, filename));
+					return Response.json({ ok: true });
+				} catch {
+					return new Response("Not Found", { status: 404 });
+				}
 			}
 
 			return new Response("Not Found", { status: 404 });

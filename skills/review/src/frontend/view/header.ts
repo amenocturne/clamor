@@ -11,14 +11,16 @@ export const headerView = (model: Model, dispatch: (msg: Msg) => void): VNode =>
 			}, "☰"),
 			h("span.header-title", model.data?.project ? `Review: ${model.data.project}` : "Agent Review"),
 		]),
-		h("div.header-actions", [
-			h("button.btn.btn-secondary", {
-				on: { click: () => dispatch({ type: "submit", verdict: "approved" }) },
-				attrs: { disabled: model.submitted, "aria-label": "Approve changes" },
-			}, "Approve"),
-			h("button.btn.btn-primary", {
-				on: { click: () => dispatch({ type: "submit", verdict: "changes-requested" }) },
-				attrs: { disabled: model.submitted, "aria-label": "Submit review with comments" },
-			}, "Submit ▶"),
-		]),
+		model.viewingPastReview
+			? h("div.header-actions")
+			: h("div.header-actions", [
+				h("button.btn.btn-secondary", {
+					on: { click: () => dispatch({ type: "submit", verdict: "approved" }) },
+					attrs: { disabled: model.submitted, "aria-label": "Approve changes" },
+				}, "Approve"),
+				h("button.btn.btn-primary", {
+					on: { click: () => dispatch({ type: "submit", verdict: "changes-requested" }) },
+					attrs: { disabled: model.submitted, "aria-label": "Submit review with comments" },
+				}, "Submit ▶"),
+			]),
 	]);

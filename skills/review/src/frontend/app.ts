@@ -14,6 +14,17 @@ const dispatch = (msg: Msg): void => {
 	const prev = model;
 	model = update(model, msg);
 
+	if (msg.type === "fetchPastReview") {
+		fetch(`/api/reviews/${encodeURIComponent(msg.filename)}`)
+			.then((r) => r.json())
+			.then((data: { content: string }) => dispatch({ type: "viewPastReview", content: data.content }));
+	}
+
+	if (msg.type === "deletePastReview") {
+		fetch(`/api/reviews/${encodeURIComponent(msg.filename)}`, { method: "DELETE" })
+			.then(() => dispatch({ type: "reviewDeleted", filename: msg.filename }));
+	}
+
 	if (msg.type === "submit" && !prev.submitted) {
 		const submission: ReviewSubmission = {
 			verdict: msg.verdict,
