@@ -376,7 +376,6 @@
       padding: 0 8px;
       vertical-align: top;
       white-space: pre;
-      overflow: hidden;
     }
 
     /* Line number gutter */
@@ -396,8 +395,9 @@
     }
 
     /* Line content */
-    .line-content {
-      overflow-x: auto;
+    .diff-table td.line-content {
+      white-space: pre-wrap;
+      word-break: break-all;
       padding-left: 12px !important;
     }
 
@@ -407,7 +407,7 @@
     }
 
     .line-add .gutter {
-      background: var(--diff-add-gutter);
+      background: var(--bg-primary);
     }
 
     .line-del {
@@ -415,7 +415,7 @@
     }
 
     .line-del .gutter {
-      background: var(--diff-del-gutter);
+      background: var(--bg-primary);
     }
 
     .line-context .line-content {
