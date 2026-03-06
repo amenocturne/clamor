@@ -33,3 +33,5 @@ If `knowledge_base` is configured, project ideas and plans live there. When work
 {{include:common/documentation.md}}
 
 {{include:common/communication-style.md}}
+
+{{include:common/bug-reports.md}}

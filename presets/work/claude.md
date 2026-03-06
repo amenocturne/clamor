@@ -84,3 +84,5 @@ placeholders. It starts automatically on session start.
 {{include:common/quality.md}}
 
 {{include:common/communication-style.md}}
+
+{{include:common/bug-reports.md}}
