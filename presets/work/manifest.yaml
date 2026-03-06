@@ -11,6 +11,7 @@ skills:
   - config
   - confluence
   - pinchtab
+  - review
 hooks:
   - notification
   - link-proxy
