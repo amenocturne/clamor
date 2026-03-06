@@ -98,19 +98,6 @@ document.addEventListener("keydown", (e) => {
 	const target = e.target as HTMLElement;
 	const isInput = target.tagName === "TEXTAREA" || target.tagName === "INPUT";
 
-	// Cmd/Ctrl+Enter: Submit review (skip if comment box is open — it handles its own Cmd+Enter)
-	if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-		if (model.commentDraft) {
-			// Let the comment box textarea handler deal with it
-			return;
-		}
-		if (!model.submitted) {
-			e.preventDefault();
-			dispatch({ type: "submit", verdict: "changes-requested" });
-		}
-		return;
-	}
-
 	// Escape: Close comment box
 	if (e.key === "Escape" && model.commentDraft) {
 		e.preventDefault();
