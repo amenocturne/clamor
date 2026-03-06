@@ -13,4 +13,6 @@ When the user says "continue working on X", "pick up X", or similar:
 
 ## Code Review
 
-After committing significant changes, offer to run the `review` skill so the user can review diffs in a browser UI before proceeding.
+**After committing, always run the `review` skill before moving on.** This is a mandatory workflow step, not optional. The user reviews diffs in a browser UI and may request changes — those must be addressed before continuing.
+
+The only exceptions: trivial one-line fixes, config changes, or when the user explicitly skips review.
