@@ -4,7 +4,11 @@ When the user reports a bug, **do not start fixing immediately**. Follow this pr
 
 ### 1. Clarify First
 
-If anything in the report is ambiguous, ask targeted questions about what's unclear. Don't use a template — extract what you can from the user's description first, then ask only about gaps.
+If anything in the report is ambiguous, ask targeted questions about what's unclear. Extract what you can from the user's description first, then ask only about gaps. Example questions for reference (don't use as a rigid template):
+- **What do you see?** (the actual visual/behavioral result)
+- **What did you expect?** (the correct behavior)
+- **When does it happen?** (steps to reproduce, which states trigger it)
+- **Where exactly?** (specific element, file, line, area of the screen)
 
 ### 2. Restate the Bug
 

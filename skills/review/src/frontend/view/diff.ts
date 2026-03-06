@@ -231,17 +231,17 @@ const hunkView = (
 		const hl = highlightedLines[lineOffset + i] ?? "";
 		rows.push(lineView(line, hl, file, fileIdx, model, dispatch));
 
-		// Render saved comments after the matching line
-		const lineNum = line.newNum ?? line.oldNum;
-		if (lineNum != null) {
+		// Render saved comments and draft box only on lines with newNum (selection target)
+		const newNum = line.newNum;
+		if (newNum != null) {
 			for (const comment of fileComments) {
-				if (comment.endLine === lineNum) {
+				if (comment.endLine === newNum) {
 					rows.push(savedCommentView(comment, dispatch));
 				}
 			}
 
 			// Insert comment draft box after the last selected line
-			if (!commentBoxInserted && draft && draft.file === file.path && lineNum === draftEndLine) {
+			if (!commentBoxInserted && draft && draft.file === file.path && newNum === draftEndLine) {
 				const box = commentBoxView(model, dispatch);
 				if (box) {
 					rows.push(box);

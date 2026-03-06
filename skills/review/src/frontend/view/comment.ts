@@ -201,6 +201,15 @@ export const savedCommentView = (comment: StoredComment, dispatch: (msg: Msg) =>
 				h("div.saved-comment-header", [
 					h(`span.saved-comment-severity.${comment.type}`, comment.type.toUpperCase()),
 					h("span.saved-comment-location", `${comment.file}:${comment.startLine}`),
+					h("button.btn-delete-comment", {
+						attrs: { "aria-label": "Delete comment" },
+						on: {
+							click: (e: Event) => {
+								e.stopPropagation();
+								dispatch({ type: "deleteComment", id: comment.id });
+							},
+						},
+					}, "\u00D7"),
 				]),
 				h("div", comment.text),
 			]),
