@@ -14,7 +14,6 @@ skills:
   - frontend
   - pinchtab
   - reflect
-  - todo
 hooks:
   - notification
   - save-conversation
