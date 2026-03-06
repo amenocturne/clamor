@@ -12,6 +12,7 @@ skills:
   - confluence
   - pinchtab
   - review
+  - checkpoint
   - todo
 common:
   - dev-workflow
@@ -22,5 +23,6 @@ common:
 hooks:
   - notification
   - link-proxy
+  - workflow-check
 pipelines: []
 external: []

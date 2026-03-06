@@ -69,8 +69,6 @@ if __name__ == "__main__":
 
     if total > 0:
         print(
-            f"\u26a0\ufe0f WORKFLOW CHECK: You have uncommitted changes ({total} files modified). "
-            "Before responding to the user, follow The Loop: "
-            "verify (just test && just lint) \u2192 commit \u2192 review.\n"
-            "Do NOT report completion without committing first."
+            f"WORKFLOW CHECK: {total} files with uncommitted changes. "
+            "Run checkpoint skill: verify -> commit -> review."
         )
