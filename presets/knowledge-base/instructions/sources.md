@@ -6,7 +6,7 @@ When the user shares source material (article, video, podcast) with their though
 
 Create source note in `sources/<type>/` using the source template (see `.claude/templates/source.md`):
 
-- Include `{{transcript}}` placeholder for content that will be injected later
+- Include `{{transcript}}` placeholder where lyrics or transcript text belongs — a script resolves this placeholder later. **Never paste lyrics or transcripts inline.** Only use the placeholder.
 - Fill in metadata: URL, title, type
 
 ### Step 2: Create Notes Based on User's Reactions
