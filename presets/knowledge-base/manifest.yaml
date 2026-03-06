@@ -24,7 +24,6 @@ instructions:
   - sources
   - projects
 common:
-  - skills
   - agentic-kit
   - commands
   - git
