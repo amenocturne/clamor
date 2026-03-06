@@ -11,6 +11,7 @@ type CliArgs = {
 	readonly repo: string;
 	readonly range: string;
 	readonly message: string | null;
+	readonly project: string | null;
 	readonly saveDir: string;
 	readonly port: number;
 };
@@ -22,6 +23,7 @@ const parseArgs = (argv: readonly string[]): CliArgs => {
 	let repo: string | null = null;
 	let range: string | null = null;
 	let message: string | null = null;
+	let project: string | null = null;
 	let saveDir: string | null = null;
 	let port = 0;
 
@@ -39,6 +41,10 @@ const parseArgs = (argv: readonly string[]): CliArgs => {
 				break;
 			case "--message":
 				message = next ?? null;
+				i++;
+				break;
+			case "--project":
+				project = next ?? null;
 				i++;
 				break;
 			case "--save-dir":
@@ -61,6 +67,7 @@ const parseArgs = (argv: readonly string[]): CliArgs => {
 		repo: resolve(repo),
 		range,
 		message,
+		project,
 		saveDir: saveDir ? resolve(saveDir) : join(homedir(), ".claude", "reviews", basename(resolve(repo))),
 		port,
 	};
@@ -258,6 +265,7 @@ const main = async () => {
 		diffs,
 		message: args.message,
 		repo: args.repo,
+		project: args.project,
 	};
 
 	const bundledJs = await buildBundle();

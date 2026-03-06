@@ -25,6 +25,7 @@ Run with `&` so the server lives independently with no timeout. The user may be 
 | `--repo`     | yes      | —                   | Repository path          |
 | `--range`    | yes      | —                   | Git revision range       |
 | `--message`  | no       | —                   | Description of changes   |
+| `--project`  | no       | —                   | Project name (shown in header) |
 | `--save-dir` | no       | `~/.claude/reviews/<repo>/` | Where to save reviews    |
 | `--port`     | no       | `0` (auto)          | Port (0 = auto-select)  |
 

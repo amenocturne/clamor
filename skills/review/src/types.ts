@@ -41,6 +41,7 @@ export type ApiData = {
 	readonly diffs: Readonly<Record<string, DiffData>>; // "combined" | commit hash
 	readonly message: string | null;
 	readonly repo: string;
+	readonly project: string | null;
 };
 
 // === Review Types ===

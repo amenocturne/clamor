@@ -9,7 +9,7 @@ export const headerView = (model: Model, dispatch: (msg: Msg) => void): VNode =>
 				on: { click: () => dispatch({ type: "toggleSidebar" }) },
 				attrs: { "aria-label": "Toggle sidebar" },
 			}, "☰"),
-			h("span.header-title", "Agent Review"),
+			h("span.header-title", model.data?.project ? `Review: ${model.data.project}` : "Agent Review"),
 		]),
 		h("div.header-actions", [
 			h("button.btn.btn-secondary", {
