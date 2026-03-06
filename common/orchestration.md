@@ -1,7 +1,6 @@
 ---
-requires:
-  skills:
-    - orchestrator
+required_skills:
+  - orchestrator
 ---
 
 ## Orchestration-First Approach

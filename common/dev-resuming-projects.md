@@ -1,8 +1,7 @@
 ---
-requires:
-  skills:
-    - todo
-    - review
+required_skills:
+  - todo
+  - review
 ---
 
 ## Resuming Projects

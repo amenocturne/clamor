@@ -79,8 +79,7 @@ def validate_common_dependencies(
             errors.append(f"Common file not found: {name}.md")
             continue
         metadata, _ = parse_frontmatter(path.read_text())
-        requires = metadata.get("requires") or {}
-        required = set(requires.get("skills") or [])
+        required = set(metadata.get("required_skills") or [])
         missing = required - available_skills
         if missing:
             errors.append(

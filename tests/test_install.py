@@ -133,7 +133,7 @@ def make_common(common_dir: Path, name: str, content: str, requires: dict | None
     Uses JSON in the frontmatter block so the mock yaml parser can handle it.
     """
     if requires:
-        frontmatter_data = json.dumps({"requires": requires})
+        frontmatter_data = json.dumps({"required_skills": requires.get("skills", [])})
         content = f"---\n{frontmatter_data}\n---\n\n{content}"
     (common_dir / f"{name}.md").write_text(content)
 
@@ -974,13 +974,10 @@ class TestFrontmatter:
     """Test YAML frontmatter parsing and stripping."""
 
     def test_parse_with_frontmatter(self):
-        content = "---\nrequires:\n  skills:\n    - orchestrator\n---\n\n## Title\nBody"
-        # Use real yaml since our mock handles JSON; test via parse_frontmatter
-        # with manually constructed content that _mock_safe_load can parse
         metadata, body = install.parse_frontmatter(
-            '---\n{"requires": {"skills": ["orchestrator"]}}\n---\n\n## Title\nBody'
+            '---\n{"required_skills": ["orchestrator"]}\n---\n\n## Title\nBody'
         )
-        assert metadata["requires"]["skills"] == ["orchestrator"]
+        assert metadata["required_skills"] == ["orchestrator"]
         assert "## Title" in body
         assert "---" not in body
 
