@@ -55,35 +55,53 @@ const highlightFile = (file: FileDiff, viewKey: string): readonly string[] => {
 	return lines;
 };
 
-// Compute visible line indices for a hunk based on context expansion
-const computeVisibleRange = (
+// Compute visible segments for a hunk — folds long context gaps between change clusters
+type Segment = { readonly start: number; readonly end: number };
+
+const DEFAULT_CONTEXT = 3;
+const GAP_THRESHOLD = 2 * DEFAULT_CONTEXT + 1;
+
+const computeVisibleSegments = (
 	lines: readonly DiffLine[],
-	expansion: ContextExpansion,
-): { startVisible: number; endVisible: number } => {
-	// Find first and last change line indices
-	let firstChange = -1;
-	let lastChange = -1;
+	hunkKey: string,
+	expansions: Readonly<Record<string, ContextExpansion>>,
+): readonly Segment[] => {
+	const changes: number[] = [];
 	for (let i = 0; i < lines.length; i++) {
-		if (lines[i]!.type !== "context") {
-			if (firstChange === -1) firstChange = i;
-			lastChange = i;
+		if (lines[i]!.type !== "context") changes.push(i);
+	}
+
+	if (changes.length === 0) {
+		return [{ start: 0, end: lines.length }];
+	}
+
+	// Group changes into clusters (merge if gap between them is small)
+	const clusters: { first: number; last: number }[] = [];
+	let cFirst = changes[0]!;
+	let cLast = changes[0]!;
+
+	for (let i = 1; i < changes.length; i++) {
+		if (changes[i]! - cLast > GAP_THRESHOLD) {
+			clusters.push({ first: cFirst, last: cLast });
+			cFirst = changes[i]!;
 		}
+		cLast = changes[i]!;
 	}
+	clusters.push({ first: cFirst, last: cLast });
 
-	// No changes in hunk — show all (pure context hunk)
-	if (firstChange === -1) {
-		return { startVisible: 0, endVisible: lines.length };
-	}
+	const outer = expansions[hunkKey] ?? { above: DEFAULT_CONTEXT, below: DEFAULT_CONTEXT };
 
-	// Count leading context lines
-	const leadingContext = firstChange;
-	// Count trailing context lines
-	const trailingContext = lines.length - 1 - lastChange;
+	return clusters.map((cluster, i) => {
+		const start = i === 0
+			? Math.max(0, cluster.first - outer.above)
+			: Math.max(0, cluster.first - DEFAULT_CONTEXT - (expansions[`${hunkKey}-gap-${i - 1}`]?.above ?? 0));
 
-	const startVisible = Math.max(0, leadingContext - expansion.above);
-	const endVisible = Math.min(lines.length, lines.length - trailingContext + expansion.below);
+		const end = i === clusters.length - 1
+			? Math.min(lines.length, cluster.last + 1 + outer.below)
+			: Math.min(lines.length, cluster.last + 1 + DEFAULT_CONTEXT + (expansions[`${hunkKey}-gap-${i}`]?.above ?? 0));
 
-	return { startVisible, endVisible };
+		return { start, end };
+	});
 };
 
 // Check if a line is within the finalized comment draft range
@@ -195,6 +213,27 @@ const expandArrow = (key: string, direction: "above" | "below", dispatch: (msg: 
 		h("td", { attrs: { colspan: 2 } }, direction === "above" ? "\u25B2 Show more" : "\u25BC Show more"),
 	]);
 
+const foldArrow = (key: string, hiddenCount: number, dispatch: (msg: Msg) => void): VNode =>
+	h("tr.fold-row", {
+		key: `fold-${key}`,
+		attrs: {
+			role: "button",
+			tabindex: "0",
+			"aria-label": `Show ${hiddenCount} hidden lines`,
+		},
+		on: {
+			click: () => dispatch({ type: "expandContext", key, direction: "above" }),
+			keydown: (e: KeyboardEvent) => {
+				if (e.key === "Enter" || e.key === " ") {
+					e.preventDefault();
+					dispatch({ type: "expandContext", key, direction: "above" });
+				}
+			},
+		},
+	}, [
+		h("td", { attrs: { colspan: 2 } }, `\u22EF ${hiddenCount} lines \u22EF`),
+	]);
+
 // --- Hunk View ---
 
 const hunkView = (
@@ -207,52 +246,64 @@ const hunkView = (
 	model: Model,
 	dispatch: (msg: Msg) => void,
 ): VNode[] => {
-	const key = `${fileIdx}-${hunkIdx}`;
-	const expansion: ContextExpansion = model.contextExpansion[key] ?? { above: 3, below: 3 };
-	const { startVisible, endVisible } = computeVisibleRange(hunk.lines, expansion);
-
-	const hiddenAbove = startVisible > 0;
-	const hiddenBelow = endVisible < hunk.lines.length;
+	const hunkKey = `${fileIdx}-${hunkIdx}`;
+	const segments = computeVisibleSegments(hunk.lines, hunkKey, model.contextExpansion);
 
 	const rows: VNode[] = [];
 
-	if (hiddenAbove) {
-		rows.push(expandArrow(key, "above", dispatch));
+	// Outer expand above
+	if (segments[0]!.start > 0) {
+		rows.push(expandArrow(hunkKey, "above", dispatch));
 	}
 
-	// Find comments for this file
 	const fileComments = model.comments.filter((c) => c.file === file.path);
 	const draft = model.commentDraft;
 	const draftEndLine = draft ? Math.max(draft.startLine, draft.endLine) : -1;
 	let commentBoxInserted = false;
 
-	for (let i = startVisible; i < endVisible; i++) {
-		const line = hunk.lines[i]!;
-		const hl = highlightedLines[lineOffset + i] ?? "";
-		rows.push(lineView(line, hl, file, fileIdx, model, dispatch));
+	let prevEnd = segments[0]!.start;
 
-		// Render saved comments and draft box only on lines with newNum (selection target)
-		const newNum = line.newNum;
-		if (newNum != null) {
-			for (const comment of fileComments) {
-				if (comment.endLine === newNum) {
-					rows.push(savedCommentView(comment, dispatch));
+	for (let segIdx = 0; segIdx < segments.length; segIdx++) {
+		const seg = segments[segIdx]!;
+		const actualStart = Math.max(seg.start, prevEnd);
+
+		if (actualStart >= seg.end) continue;
+
+		// Fold arrow between segments when there's a gap
+		if (segIdx > 0 && actualStart > prevEnd) {
+			const gapKey = `${hunkKey}-gap-${segIdx - 1}`;
+			rows.push(foldArrow(gapKey, actualStart - prevEnd, dispatch));
+		}
+
+		for (let i = actualStart; i < seg.end; i++) {
+			const line = hunk.lines[i]!;
+			const hl = highlightedLines[lineOffset + i] ?? "";
+			rows.push(lineView(line, hl, file, fileIdx, model, dispatch));
+
+			const newNum = line.newNum;
+			if (newNum != null) {
+				for (const comment of fileComments) {
+					if (comment.endLine === newNum) {
+						rows.push(savedCommentView(comment, dispatch));
+					}
 				}
-			}
 
-			// Insert comment draft box after the last selected line
-			if (!commentBoxInserted && draft && draft.file === file.path && newNum === draftEndLine) {
-				const box = commentBoxView(model, dispatch);
-				if (box) {
-					rows.push(box);
-					commentBoxInserted = true;
+				if (!commentBoxInserted && draft && draft.file === file.path && newNum === draftEndLine) {
+					const box = commentBoxView(model, dispatch);
+					if (box) {
+						rows.push(box);
+						commentBoxInserted = true;
+					}
 				}
 			}
 		}
+
+		prevEnd = Math.max(prevEnd, seg.end);
 	}
 
-	if (hiddenBelow) {
-		rows.push(expandArrow(key, "below", dispatch));
+	// Outer expand below
+	if (prevEnd < hunk.lines.length) {
+		rows.push(expandArrow(hunkKey, "below", dispatch));
 	}
 
 	return rows;

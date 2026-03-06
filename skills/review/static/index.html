@@ -395,8 +395,7 @@
     }
 
     .gutter-del {
-      color: var(--diff-del-text);
-      opacity: 0.4;
+      color: var(--text-dim);
       cursor: default;
     }
 
@@ -466,6 +465,22 @@
     }
 
     .expand-row:hover td {
+      background: var(--bg-hover);
+      color: var(--text-secondary);
+    }
+
+    .fold-row td {
+      text-align: center;
+      padding: 2px 0;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 12px;
+      user-select: none;
+      border-top: 1px dashed var(--border);
+      border-bottom: 1px dashed var(--border);
+    }
+
+    .fold-row:hover td {
       background: var(--bg-hover);
       color: var(--text-secondary);
     }

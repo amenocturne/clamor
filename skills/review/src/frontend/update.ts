@@ -11,7 +11,8 @@ export const update = (model: Model, msg: Msg): Model => {
 		case "setActiveView":
 			return { ...model, activeView: msg.view, contextExpansion: {} };
 		case "expandContext": {
-			const current: ContextExpansion = model.contextExpansion[msg.key] ?? { above: 3, below: 3 };
+			const isGap = msg.key.includes("-gap-");
+			const current: ContextExpansion = model.contextExpansion[msg.key] ?? (isGap ? { above: 0, below: 0 } : { above: 3, below: 3 });
 			const updated: ContextExpansion =
 				msg.direction === "above"
 					? { ...current, above: current.above + 20 }
