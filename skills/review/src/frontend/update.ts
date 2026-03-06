@@ -32,7 +32,7 @@ export const update = (model: Model, msg: Msg): Model => {
 				endLine: model.commentDraft.endLine,
 				type: msg.severity,
 				text: msg.text,
-				code: "",
+				code: msg.code,
 			};
 			return {
 				...model,

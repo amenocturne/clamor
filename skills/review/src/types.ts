@@ -106,6 +106,7 @@ export type Msg =
 			readonly type: "saveComment";
 			readonly severity: CommentSeverity;
 			readonly text: string;
+			readonly code: string;
 	  }
 	| { readonly type: "editComment"; readonly id: string }
 	| { readonly type: "deleteComment"; readonly id: string }

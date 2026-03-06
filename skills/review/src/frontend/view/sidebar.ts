@@ -103,24 +103,32 @@ const summarySection = (model: Model, dispatch: (msg: Msg) => void): VNode =>
 const commentsSection = (model: Model): VNode | null => {
 	if (model.comments.length === 0) return null;
 
+	const diffData = model.data?.diffs[model.activeView];
+	const visibleFiles = new Set(diffData?.files.map((f) => f.path) ?? []);
+
 	return h("div.sidebar-section", [
 		h("div.sidebar-label", `Comments (${model.comments.length})`),
-		...model.comments.map((comment) =>
-			h("div.comment-list-item", {
+		...model.comments.map((comment) => {
+			const isVisible = visibleFiles.has(comment.file);
+			const location = comment.startLine === comment.endLine
+				? `${comment.file.split("/").pop()}:${comment.startLine}`
+				: `${comment.file.split("/").pop()}:${comment.startLine}-${comment.endLine}`;
+
+			return h("div.comment-list-item", {
+				class: { dimmed: !isVisible },
 				on: {
 					click: () => {
-						const diffArea = document.querySelector(".diff-area");
 						const commentEl = document.querySelector(`[data-comment-id="${comment.id}"]`);
-						if (commentEl && diffArea) {
+						if (commentEl) {
 							commentEl.scrollIntoView({ behavior: "smooth", block: "center" });
 						}
 					},
 				},
 			}, [
 				h(`span.severity-dot.${comment.type}`),
-				h("span", `${comment.file.split("/").pop()}:${comment.startLine}`),
-			]),
-		),
+				h("span", location),
+			]);
+		}),
 	]);
 };
 

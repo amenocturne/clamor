@@ -1,8 +1,23 @@
 import { h } from "snabbdom";
 import type { VNode } from "snabbdom";
 import hljs from "highlight.js";
-import type { Model, Msg, FileDiff, Hunk, DiffLine, ContextExpansion, StoredComment } from "../../types.ts";
-import { savedCommentView } from "./comment.ts";
+import type { Model, Msg, FileDiff, Hunk, DiffLine, ContextExpansion } from "../../types.ts";
+import { savedCommentView, commentBoxView } from "./comment.ts";
+
+// --- Drag state for click-drag line selection ---
+
+let dragState: { file: string; startLine: number } | null = null;
+
+// Install global mouseup listener once
+let globalListenerInstalled = false;
+
+const installGlobalListener = (): void => {
+	if (globalListenerInstalled) return;
+	globalListenerInstalled = true;
+	window.addEventListener("mouseup", () => {
+		dragState = null;
+	});
+};
 
 // --- Helpers ---
 
@@ -64,6 +79,21 @@ const computeVisibleRange = (
 	return { startVisible, endVisible };
 };
 
+// Check if a line is within the comment draft selection range
+const isLineSelected = (lineNum: number, model: Model, filePath: string): boolean => {
+	const draft = model.commentDraft;
+	if (!draft || draft.file !== filePath) return false;
+	const lo = Math.min(draft.startLine, draft.endLine);
+	const hi = Math.max(draft.startLine, draft.endLine);
+	return lineNum >= lo && lineNum <= hi;
+};
+
+const isLineDragging = (lineNum: number, filePath: string): boolean => {
+	if (!dragState || dragState.file !== filePath) return false;
+	// During drag, visual feedback is provided via line-selecting class
+	return true;
+};
+
 // --- Line View ---
 
 const lineContentCell = (highlighted: string): VNode =>
@@ -83,26 +113,53 @@ const lineView = (
 	highlighted: string,
 	file: FileDiff,
 	fileIdx: number,
+	model: Model,
 	dispatch: (msg: Msg) => void,
 ): VNode => {
+	installGlobalListener();
+
 	const lineClass =
 		line.type === "add" ? "line-add" : line.type === "delete" ? "line-del" : "line-context";
 
-	return h(`tr.${lineClass}`, [
+	const lineNum = line.newNum;
+	const hasNewNum = lineNum != null;
+
+	// Determine selection CSS classes
+	const selected = hasNewNum && isLineSelected(lineNum, model, file.path);
+	const selecting = hasNewNum && dragState !== null && isLineDragging(lineNum, file.path) && selected;
+
+	const gutterNewHandlers: Record<string, (e: Event) => void> = {};
+
+	if (hasNewNum) {
+		gutterNewHandlers.mousedown = (e: Event) => {
+			e.preventDefault();
+			dragState = { file: file.path, startLine: lineNum };
+			dispatch({
+				type: "startComment",
+				draft: { file: file.path, startLine: lineNum, endLine: lineNum },
+			});
+		};
+
+		gutterNewHandlers.mouseenter = () => {
+			if (dragState && dragState.file === file.path) {
+				dispatch({
+					type: "startComment",
+					draft: { file: file.path, startLine: dragState.startLine, endLine: lineNum },
+				});
+			}
+		};
+	}
+
+	return h(`tr.${lineClass}`, {
+		class: {
+			"line-selected": selected,
+			"line-selecting": selecting,
+		},
+	}, [
 		h("td.gutter", line.oldNum != null ? String(line.oldNum) : ""),
 		h("td.gutter.gutter-new", {
-			on: {
-				mousedown: () => {
-					const lineNum = line.newNum ?? line.oldNum;
-					if (lineNum != null) {
-						dispatch({
-							type: "startComment",
-							draft: { file: file.path, startLine: lineNum, endLine: lineNum },
-						});
-					}
-				},
-			},
-		}, line.newNum != null ? String(line.newNum) : ""),
+			on: gutterNewHandlers,
+		}, hasNewNum ? String(lineNum) : ""),
 		lineContentCell(highlighted),
 	]);
 };
@@ -113,7 +170,7 @@ const expandArrow = (key: string, direction: "above" | "below", dispatch: (msg: 
 	h("tr.expand-row", {
 		on: { click: () => dispatch({ type: "expandContext", key, direction }) },
 	}, [
-		h("td", { attrs: { colspan: 3 } }, direction === "above" ? "▲ Show more" : "▼ Show more"),
+		h("td", { attrs: { colspan: 3 } }, direction === "above" ? "\u25B2 Show more" : "\u25BC Show more"),
 	]);
 
 // --- Hunk View ---
@@ -143,11 +200,14 @@ const hunkView = (
 
 	// Find comments for this file
 	const fileComments = model.comments.filter((c) => c.file === file.path);
+	const draft = model.commentDraft;
+	const draftEndLine = draft ? Math.max(draft.startLine, draft.endLine) : -1;
+	let commentBoxInserted = false;
 
 	for (let i = startVisible; i < endVisible; i++) {
 		const line = hunk.lines[i]!;
 		const hl = highlightedLines[lineOffset + i] ?? "";
-		rows.push(lineView(line, hl, file, fileIdx, dispatch));
+		rows.push(lineView(line, hl, file, fileIdx, model, dispatch));
 
 		// Render saved comments after the matching line
 		const lineNum = line.newNum ?? line.oldNum;
@@ -155,6 +215,15 @@ const hunkView = (
 			for (const comment of fileComments) {
 				if (comment.endLine === lineNum) {
 					rows.push(savedCommentView(comment, dispatch));
+				}
+			}
+
+			// Insert comment draft box after the last selected line
+			if (!commentBoxInserted && draft && draft.file === file.path && lineNum === draftEndLine) {
+				const box = commentBoxView(model, dispatch);
+				if (box) {
+					rows.push(box);
+					commentBoxInserted = true;
 				}
 			}
 		}
@@ -175,7 +244,7 @@ const fileHeaderView = (file: FileDiff, fileIdx: number): VNode => {
 
 	if (file.oldPath && file.oldPath !== file.path) {
 		pathParts.push(h("span.file-path-old", file.oldPath));
-		pathParts.push(h("span.file-rename-arrow", " → "));
+		pathParts.push(h("span.file-rename-arrow", " \u2192 "));
 	}
 	pathParts.push(h("span.file-path", file.path));
 
