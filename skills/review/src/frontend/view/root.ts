@@ -6,14 +6,6 @@ import { sidebarView } from "./sidebar.ts";
 import { diffAreaView } from "./diff.ts";
 
 export const rootView = (model: Model, dispatch: (msg: Msg) => void): VNode => {
-	if (model.submitted) {
-		return h("div.app", [
-			h("div.submitted-overlay", [
-				h("div.submitted-message", "Review submitted"),
-			]),
-		]);
-	}
-
 	if (model.error) {
 		return h("div.app", [
 			h("div.empty-state", `Error: ${model.error}`),

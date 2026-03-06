@@ -220,7 +220,7 @@ const startServer = (
 				await Bun.write(savePath, formatted);
 				console.log(formatted);
 
-				setTimeout(() => process.exit(0), 200);
+				setTimeout(() => process.exit(0), 500);
 				return Response.json({ ok: true });
 			}
 

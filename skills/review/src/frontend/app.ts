@@ -24,7 +24,7 @@ const dispatch = (msg: Msg): void => {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(submission),
-		});
+		}).then(() => window.close());
 	}
 
 	render();
