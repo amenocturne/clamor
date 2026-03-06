@@ -10,11 +10,7 @@ Coordinate complex tasks by delegating to specialized subagents instead of doing
 
 ## When to Use
 
-Orchestrator mode is activated by:
-- Explicit request: "orchestrate this", "delegate to subagents", "run as one-shot session"
-- If a task seems like it would benefit from orchestration, **ask first**: "This looks like a multi-step task. Want me to orchestrate it with subagents?"
-
-Never auto-switch to orchestrator mode without user consent.
+When to activate is controlled by workspace instructions (e.g., `common/orchestration.md`). This skill defines *how* to orchestrate, not *when*.
 
 ## Session Kickoff
 
@@ -232,7 +228,6 @@ Use when: Large scope, clear task breakdown.
 
 ## Anti-Patterns
 
-- **Don't**: Auto-switch to orchestrator mode
 - **Don't**: Skip the plan confirmation step
 - **Don't**: Batch all commits to the end
 - **Don't**: Let subagent failures cascade without review
