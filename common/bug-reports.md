@@ -4,11 +4,7 @@ When the user reports a bug, **do not start fixing immediately**. Follow this pr
 
 ### 1. Clarify First
 
-If the report is ambiguous, ask targeted questions before touching code:
-- **What do you see?** (the actual visual/behavioral result)
-- **What did you expect?** (the correct behavior)
-- **When does it happen?** (steps to reproduce, which states trigger it)
-- **Where exactly?** (specific element, file, line, area of the screen)
+If anything in the report is ambiguous, ask targeted questions about what's unclear. Don't use a template — extract what you can from the user's description first, then ask only about gaps.
 
 ### 2. Restate the Bug
 
@@ -23,9 +19,4 @@ Only proceed after confirmation. Getting this wrong wastes significant time — 
 - Verify it with evidence (read code, check data, use tools)
 - If the hypothesis doesn't hold, form a new one — don't cargo-cult fixes
 - For visual bugs: use Playwright or browser tools to see exactly what the user sees
-
-### Common Pitfalls
-
-- **"Line numbers duplicated"** could mean: actual number duplication, content duplication, layout issues, extra columns, wrong spacing — always clarify
-- **Assuming the obvious interpretation**: Technical terms mean different things in different contexts. What sounds clear often isn't.
-- **Fixing symptoms**: If a fix doesn't work, re-examine the understanding of the bug itself, not just the code
+- If a fix doesn't work, re-examine the understanding of the bug itself, not just the code
