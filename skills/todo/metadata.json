@@ -1,0 +1,15 @@
+{
+  "name": "todo",
+  "version": "1.0.0",
+  "description": "Cross-session task tracking via gitignored .claude/tasks/ directory",
+  "abstract": "Tracks progress on multi-session work using markdown task files. Agent creates task files for specs, features, and refactors, and picks up where it left off in future sessions.",
+  "author": "amenocturne",
+  "repository": "https://github.com/amenocturne/agent-kit",
+  "keywords": [
+    "tasks",
+    "tracking",
+    "progress",
+    "sessions",
+    "continuity"
+  ]
+}

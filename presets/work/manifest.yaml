@@ -12,6 +12,7 @@ skills:
   - confluence
   - pinchtab
   - review
+  - todo
 hooks:
   - notification
   - link-proxy
