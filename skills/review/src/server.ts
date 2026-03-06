@@ -97,11 +97,16 @@ const validateRange = async (
 	repo: string,
 	range: string,
 ): Promise<void> => {
-	try {
-		await git(repo, ["rev-parse", "--verify", range]);
-	} catch (e) {
-		console.error(`Error: range '${range}' does not resolve`);
-		process.exit(1);
+	// rev-parse --verify works on single refs, not ranges like A..B
+	// Validate each side of the range separately
+	const parts = range.includes("..") ? range.split("..").filter(Boolean) : [range];
+	for (const part of parts) {
+		try {
+			await git(repo, ["rev-parse", "--verify", part!]);
+		} catch {
+			console.error(`Error: ref '${part}' in range '${range}' does not resolve`);
+			process.exit(1);
+		}
 	}
 };
 
@@ -230,6 +235,11 @@ const main = async () => {
 
 	const commits = await getCommits(args.repo, args.range);
 	const combinedDiff = await getDiff(args.repo, args.range);
+
+	if (combinedDiff.files.length === 0 && commits.length === 0) {
+		console.error("No changes in the specified range");
+		process.exit(0);
+	}
 
 	const diffs: Record<string, DiffData> = { combined: combinedDiff };
 	for (const commit of commits) {

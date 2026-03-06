@@ -158,6 +158,11 @@ const lineView = (
 	}, [
 		h("td.gutter", line.oldNum != null ? String(line.oldNum) : ""),
 		h("td.gutter.gutter-new", {
+			attrs: hasNewNum ? {
+				role: "button",
+				tabindex: "0",
+				"aria-label": `Select line ${lineNum} for comment`,
+			} : {},
 			on: gutterNewHandlers,
 		}, hasNewNum ? String(lineNum) : ""),
 		lineContentCell(highlighted),
@@ -168,7 +173,20 @@ const lineView = (
 
 const expandArrow = (key: string, direction: "above" | "below", dispatch: (msg: Msg) => void): VNode =>
 	h("tr.expand-row", {
-		on: { click: () => dispatch({ type: "expandContext", key, direction }) },
+		attrs: {
+			role: "button",
+			tabindex: "0",
+			"aria-label": direction === "above" ? "Show 20 more lines above" : "Show 20 more lines below",
+		},
+		on: {
+			click: () => dispatch({ type: "expandContext", key, direction }),
+			keydown: (e: KeyboardEvent) => {
+				if (e.key === "Enter" || e.key === " ") {
+					e.preventDefault();
+					dispatch({ type: "expandContext", key, direction });
+				}
+			},
+		},
 	}, [
 		h("td", { attrs: { colspan: 3 } }, direction === "above" ? "\u25B2 Show more" : "\u25BC Show more"),
 	]);

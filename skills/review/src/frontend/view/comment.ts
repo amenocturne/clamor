@@ -10,6 +10,23 @@ let draftText = "";
 // Reset ephemeral state when a new draft opens
 let lastDraftKey: string | null = null;
 
+// Track which element had focus before the comment box opened, for focus restoration
+let previousFocusElement: HTMLElement | null = null;
+
+const captureFocus = (): void => {
+	const active = document.activeElement as HTMLElement | null;
+	if (active && active !== document.body) {
+		previousFocusElement = active;
+	}
+};
+
+const restoreFocus = (): void => {
+	if (previousFocusElement) {
+		previousFocusElement.focus();
+		previousFocusElement = null;
+	}
+};
+
 const draftKey = (model: Model): string | null => {
 	if (!model.commentDraft) return null;
 	return `${model.commentDraft.file}:${model.commentDraft.startLine}-${model.commentDraft.endLine}`;
@@ -33,28 +50,51 @@ const extractCode = (model: Model): string => {
 	return codeLines.join("\n");
 };
 
+// --- Focus trap for the comment box ---
+
+const handleCommentBoxKeydown = (e: KeyboardEvent): void => {
+	if (e.key !== "Tab") return;
+
+	const container = (e.currentTarget as HTMLElement);
+	const focusable = Array.from(
+		container.querySelectorAll<HTMLElement>("button, textarea"),
+	);
+	if (focusable.length === 0) return;
+
+	const first = focusable[0]!;
+	const last = focusable[focusable.length - 1]!;
+
+	if (e.shiftKey) {
+		if (document.activeElement === first) {
+			e.preventDefault();
+			last.focus();
+		}
+	} else {
+		if (document.activeElement === last) {
+			e.preventDefault();
+			first.focus();
+		}
+	}
+};
+
 // --- Severity Pill ---
 
 const severityPill = (severity: CommentSeverity): VNode =>
 	h("button.severity-pill", {
 		class: { active: activeSeverity === severity, [severity]: true },
+		attrs: { "aria-label": `Set severity to ${severity}`, "aria-pressed": String(activeSeverity === severity) },
 		on: {
 			click: (e: Event) => {
 				e.preventDefault();
 				activeSeverity = severity;
-				// Force re-render by triggering a no-op DOM update isn't needed;
-				// Snabbdom will pick up class changes on next patch via the closure.
-				// We need to trigger a re-render somehow. The simplest way: update the
-				// textarea's internal state. But since severity is ephemeral, we just
-				// update the module var and let the next render pick it up.
-				// Actually, clicking the pill won't trigger a dispatch, so no re-render.
-				// We need to manually update the DOM classes.
 				const bar = (e.target as HTMLElement).parentElement;
 				if (bar) {
 					for (const child of Array.from(bar.children)) {
 						child.classList.remove("active");
+						child.setAttribute("aria-pressed", "false");
 					}
 					(e.target as HTMLElement).classList.add("active");
+					(e.target as HTMLElement).setAttribute("aria-pressed", "true");
 				}
 			},
 		},
@@ -67,7 +107,8 @@ export const commentBoxView = (model: Model, dispatch: (msg: Msg) => void): VNod
 
 	const key = draftKey(model);
 	if (key !== lastDraftKey) {
-		// New draft opened — reset ephemeral state
+		// New draft opened — reset ephemeral state and capture focus for restoration
+		captureFocus();
 		activeSeverity = "suggestion";
 		draftText = "";
 		lastDraftKey = key;
@@ -75,14 +116,18 @@ export const commentBoxView = (model: Model, dispatch: (msg: Msg) => void): VNod
 
 	return h("tr.comment-box-row", [
 		h("td", { attrs: { colspan: 3 } }, [
-			h("div.comment-box", [
-				h("div.comment-severity-bar", [
+			h("div.comment-box", {
+				attrs: { role: "dialog", "aria-label": "Add comment" },
+				on: { keydown: handleCommentBoxKeydown },
+			}, [
+				h("div.comment-severity-bar", { attrs: { role: "group", "aria-label": "Comment severity" } }, [
 					severityPill("fix"),
 					severityPill("suggestion"),
 					severityPill("question"),
 				]),
 				h("textarea.comment-textarea", {
 					props: { value: draftText, placeholder: "Add your comment..." },
+					attrs: { "aria-label": "Comment text" },
 					hook: {
 						insert: (vnode) => {
 							const el = vnode.elm as HTMLTextAreaElement;
@@ -100,33 +145,39 @@ export const commentBoxView = (model: Model, dispatch: (msg: Msg) => void): VNod
 								dispatch({ type: "saveComment", severity: activeSeverity, text: draftText, code });
 								draftText = "";
 								lastDraftKey = null;
+								restoreFocus();
 							}
 							if (e.key === "Escape") {
 								e.preventDefault();
 								dispatch({ type: "cancelComment" });
 								draftText = "";
 								lastDraftKey = null;
+								restoreFocus();
 							}
 						},
 					},
 				}),
 				h("div.comment-actions", [
 					h("button.btn.btn-ghost", {
+						attrs: { "aria-label": "Cancel comment" },
 						on: {
 							click: () => {
 								dispatch({ type: "cancelComment" });
 								draftText = "";
 								lastDraftKey = null;
+								restoreFocus();
 							},
 						},
 					}, "Cancel"),
 					h("button.btn.btn-primary", {
+						attrs: { "aria-label": "Save comment" },
 						on: {
 							click: () => {
 								const code = extractCode(model);
 								dispatch({ type: "saveComment", severity: activeSeverity, text: draftText, code });
 								draftText = "";
 								lastDraftKey = null;
+								restoreFocus();
 							},
 						},
 					}, "Save"),
