@@ -84,9 +84,7 @@
       --diff-del-text: #f38ba8;
       --diff-del-gutter: rgba(243, 139, 168, 0.3);
 
-      --accent-fix: #f38ba8;
-      --accent-suggestion: #f9e2af;
-      --accent-question: #89b4fa;
+      --accent-danger: #f38ba8;
       --accent-primary: #cba6f7;
       --accent-primary-hover: #b48ef0;
 
@@ -283,16 +281,13 @@
       opacity: 0.4;
     }
 
-    .severity-dot {
-      width: 8px;
-      height: 8px;
+    .comment-dot {
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       flex-shrink: 0;
+      background: var(--text-dim);
     }
-
-    .severity-dot.fix { background: var(--accent-fix); }
-    .severity-dot.suggestion { background: var(--accent-suggestion); }
-    .severity-dot.question { background: var(--accent-question); }
 
     /* === Description === */
     .description-text {
@@ -512,44 +507,6 @@
       transition: max-height 150ms ease;
     }
 
-    .comment-severity-bar {
-      display: flex;
-      gap: 4px;
-      padding: 8px 12px 4px;
-    }
-
-    .severity-pill {
-      padding: 2px 10px;
-      border-radius: 12px;
-      font-size: var(--font-xs);
-      font-weight: 500;
-      cursor: pointer;
-      border: 1px solid transparent;
-      background: var(--bg-hover);
-      color: var(--text-secondary);
-      transition: all 100ms ease;
-    }
-
-    .severity-pill:focus {
-      outline: 2px solid var(--accent-primary);
-      outline-offset: 1px;
-    }
-
-    .severity-pill.active.fix {
-      background: var(--accent-fix);
-      color: var(--bg-primary);
-    }
-
-    .severity-pill.active.suggestion {
-      background: var(--accent-suggestion);
-      color: var(--bg-primary);
-    }
-
-    .severity-pill.active.question {
-      background: var(--accent-question);
-      color: var(--bg-primary);
-    }
-
     .comment-textarea {
       width: calc(100% - 24px);
       margin: 8px 12px;
@@ -589,18 +546,6 @@
       line-height: 1.4;
     }
 
-    .saved-comment.fix {
-      border-left: 3px solid var(--accent-fix);
-    }
-
-    .saved-comment.suggestion {
-      border-left: 3px solid var(--accent-suggestion);
-    }
-
-    .saved-comment.question {
-      border-left: 3px solid var(--accent-question);
-    }
-
     .saved-comment:hover {
       background: var(--bg-hover);
     }
@@ -617,7 +562,7 @@
     }
 
     .btn-delete-comment:hover {
-      color: var(--accent-fix);
+      color: var(--accent-danger);
     }
 
     .saved-comment-header {
@@ -626,16 +571,6 @@
       gap: 6px;
       margin-bottom: 4px;
     }
-
-    .saved-comment-severity {
-      font-size: var(--font-xs);
-      font-weight: 600;
-      text-transform: uppercase;
-    }
-
-    .saved-comment-severity.fix { color: var(--accent-fix); }
-    .saved-comment-severity.suggestion { color: var(--accent-suggestion); }
-    .saved-comment-severity.question { color: var(--accent-question); }
 
     .saved-comment-location {
       font-family: var(--font-code);
@@ -699,7 +634,7 @@
 
     .btn-danger {
       background: transparent;
-      color: var(--accent-fix);
+      color: var(--accent-danger);
       border: none;
       padding: 4px 8px;
     }

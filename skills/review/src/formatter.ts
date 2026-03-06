@@ -21,7 +21,7 @@ const formatCodeBlock = (code: string): string =>
 		.join("\n");
 
 const formatComment = (comment: ReviewComment): string => {
-	const heading = `### ${formatLineRange(comment)} [${comment.type}]`;
+	const heading = `### ${formatLineRange(comment)}`;
 	const code = formatCodeBlock(comment.code);
 	return `${heading}\n\n${code}\n\n${comment.text}`;
 };
@@ -55,7 +55,7 @@ export const formatReview = (
 	lines.push(`**Commits:** ${formatCommitList(commits)}`);
 	lines.push(`**Reviewed:** ${timestamp}`);
 
-	if (submission.verdict === "approved") {
+	if (submission.comments.length === 0 && submission.summary.length === 0) {
 		lines.push("");
 		lines.push("No comments. Changes approved.");
 		return lines.join("\n") + "\n";

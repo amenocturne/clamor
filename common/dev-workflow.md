@@ -27,7 +27,7 @@ Every non-trivial task follows this cycle:
 **BEFORE writing code:** Am I orchestrating? If task is multi-step or multi-file, delegate to subagents.
 **BEFORE committing:** Did `just test && just lint` pass? If not, fix first. Never commit broken code.
 **AFTER committing:** Run the `review` skill. This is mandatory, not optional. Wait for feedback.
-**AFTER review feedback:** `[fix]` = must fix. `[suggestion]` = consider. `[question]` = clarify. Then re-verify and commit.
+**AFTER review feedback:** Address all comments. Then re-verify and commit.
 
 Skip orchestration only for: single-file edits, quick lookups, single commands, small configs.
 Skip review only for: trivial one-line fixes, config changes, or when user explicitly skips.

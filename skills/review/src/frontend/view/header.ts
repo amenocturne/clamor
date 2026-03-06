@@ -13,17 +13,15 @@ export const headerView = (model: Model, dispatch: (msg: Msg) => void): VNode =>
 		]),
 		model.viewingPastReview
 			? h("div.header-actions")
-			: (() => {
-				const hasFixes = model.comments.some((c) => c.type === "fix");
-				return h("div.header-actions", [
-					h(`button.btn.${hasFixes ? "btn-secondary" : "btn-primary"}`, {
-						on: { click: () => dispatch({ type: "submit", verdict: "approved" }) },
-						attrs: { disabled: model.submitted, "aria-label": "Approve changes" },
-					}, "Approve"),
-					h(`button.btn.${hasFixes ? "btn-primary" : "btn-secondary"}`, {
-						on: { click: () => dispatch({ type: "submit", verdict: "changes-requested" }) },
-						attrs: { disabled: model.submitted, "aria-label": "Request changes" },
-					}, "Request Changes"),
-				]);
-			})(),
+			: h("div.header-actions", [
+				h("button.btn.btn-primary", {
+					on: {
+						click: () => dispatch({
+							type: "submit",
+							verdict: model.comments.length > 0 ? "changes-requested" : "approved",
+						}),
+					},
+					attrs: { disabled: model.submitted, "aria-label": "Submit review" },
+				}, "Submit"),
+			]),
 	]);

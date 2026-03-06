@@ -43,7 +43,6 @@ export const update = (model: Model, msg: Msg): Model => {
 				file: model.commentDraft.file,
 				startLine: model.commentDraft.startLine,
 				endLine: model.commentDraft.endLine,
-				type: msg.severity,
 				text: msg.text,
 				code: msg.code,
 			};

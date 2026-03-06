@@ -125,7 +125,7 @@ const commentsSection = (model: Model): VNode | null => {
 					},
 				},
 			}, [
-				h(`span.severity-dot.${comment.type}`),
+				h("span.comment-dot"),
 				h("span", location),
 			]);
 		}),

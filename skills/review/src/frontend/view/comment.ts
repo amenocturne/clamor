@@ -1,10 +1,9 @@
 import { h } from "snabbdom";
 import type { VNode } from "snabbdom";
-import type { Model, Msg, StoredComment, CommentSeverity } from "../../types.ts";
+import type { Model, Msg, StoredComment } from "../../types.ts";
 
 // --- Ephemeral UI state for the comment draft box ---
 
-let activeSeverity: CommentSeverity = "suggestion";
 let draftText = "";
 
 // Reset ephemeral state when a new draft opens
@@ -77,29 +76,6 @@ const handleCommentBoxKeydown = (e: KeyboardEvent): void => {
 	}
 };
 
-// --- Severity Pill ---
-
-const severityPill = (severity: CommentSeverity): VNode =>
-	h("button.severity-pill", {
-		class: { active: activeSeverity === severity, [severity]: true },
-		attrs: { "aria-label": `Set severity to ${severity}`, "aria-pressed": String(activeSeverity === severity) },
-		on: {
-			click: (e: Event) => {
-				e.preventDefault();
-				activeSeverity = severity;
-				const bar = (e.target as HTMLElement).parentElement;
-				if (bar) {
-					for (const child of Array.from(bar.children)) {
-						child.classList.remove("active");
-						child.setAttribute("aria-pressed", "false");
-					}
-					(e.target as HTMLElement).classList.add("active");
-					(e.target as HTMLElement).setAttribute("aria-pressed", "true");
-				}
-			},
-		},
-	}, severity);
-
 // --- Comment Draft Box ---
 
 export const commentBoxView = (model: Model, dispatch: (msg: Msg) => void): VNode | null => {
@@ -109,7 +85,6 @@ export const commentBoxView = (model: Model, dispatch: (msg: Msg) => void): VNod
 	if (key !== lastDraftKey) {
 		// New draft opened — reset ephemeral state and capture focus for restoration
 		captureFocus();
-		activeSeverity = "suggestion";
 		draftText = "";
 		lastDraftKey = key;
 	}
@@ -120,11 +95,6 @@ export const commentBoxView = (model: Model, dispatch: (msg: Msg) => void): VNod
 				attrs: { role: "dialog", "aria-label": "Add comment" },
 				on: { keydown: handleCommentBoxKeydown },
 			}, [
-				h("div.comment-severity-bar", { attrs: { role: "group", "aria-label": "Comment severity" } }, [
-					severityPill("fix"),
-					severityPill("suggestion"),
-					severityPill("question"),
-				]),
 				h("textarea.comment-textarea", {
 					props: { value: draftText, placeholder: "Add your comment..." },
 					attrs: { "aria-label": "Comment text" },
@@ -142,7 +112,7 @@ export const commentBoxView = (model: Model, dispatch: (msg: Msg) => void): VNod
 							if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
 								e.preventDefault();
 								const code = extractCode(model);
-								dispatch({ type: "saveComment", severity: activeSeverity, text: draftText, code });
+								dispatch({ type: "saveComment", text: draftText, code });
 								draftText = "";
 								lastDraftKey = null;
 								restoreFocus();
@@ -174,7 +144,7 @@ export const commentBoxView = (model: Model, dispatch: (msg: Msg) => void): VNod
 						on: {
 							click: () => {
 								const code = extractCode(model);
-								dispatch({ type: "saveComment", severity: activeSeverity, text: draftText, code });
+								dispatch({ type: "saveComment", text: draftText, code });
 								draftText = "";
 								lastDraftKey = null;
 								restoreFocus();
@@ -195,11 +165,10 @@ export const savedCommentView = (comment: StoredComment, dispatch: (msg: Msg) =>
 		attrs: { "data-comment-id": comment.id },
 	}, [
 		h("td", { attrs: { colspan: 2 } }, [
-			h(`div.saved-comment.${comment.type}`, {
+			h("div.saved-comment", {
 				on: { click: () => dispatch({ type: "editComment", id: comment.id }) },
 			}, [
 				h("div.saved-comment-header", [
-					h(`span.saved-comment-severity.${comment.type}`, comment.type.toUpperCase()),
 					h("span.saved-comment-location", `${comment.file}:${comment.startLine}`),
 					h("button.btn-delete-comment", {
 						attrs: { "aria-label": "Delete comment" },

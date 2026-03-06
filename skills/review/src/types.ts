@@ -46,15 +46,12 @@ export type ApiData = {
 
 // === Review Types ===
 
-export type CommentSeverity = "fix" | "suggestion" | "question";
-
 export type ReviewVerdict = "approved" | "changes-requested";
 
 export type ReviewComment = {
 	readonly file: string;
 	readonly startLine: number;
 	readonly endLine: number;
-	readonly type: CommentSeverity;
 	readonly text: string;
 	readonly code: string;
 };
@@ -121,7 +118,6 @@ export type Msg =
 	| { readonly type: "cancelComment" }
 	| {
 			readonly type: "saveComment";
-			readonly severity: CommentSeverity;
 			readonly text: string;
 			readonly code: string;
 	  }
