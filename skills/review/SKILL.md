@@ -22,7 +22,7 @@ Always commit changes first, then invoke:
 bun run <skill-path>/src/server.ts -- --repo "$(pwd)" --range HEAD~N..HEAD --message "Brief description of changes" &
 ```
 
-Run with `&` so the server lives independently with no timeout. The user may be away when you start the review — the server must survive until they return and submit.
+**CRITICAL: Use `run_in_background` parameter** when launching the server. This lets you receive a task notification when the user finishes reviewing.
 
 ### Flags
 
@@ -35,15 +35,14 @@ Run with `&` so the server lives independently with no timeout. The user may be 
 | `--save-dir` | no       | `~/.claude/reviews/<repo>/` | Where to save reviews    |
 | `--port`     | no       | `0` (auto)          | Port (0 = auto-select)  |
 
-## After Submission
+## After Launching
 
-The server exits after the reviewer submits. When you see the process terminate:
-
-1. Read the latest file from the `--save-dir` (default: `~/.claude/reviews/<repo>/`)
-2. Act on the review feedback:
-   - `[fix]` — must fix before proceeding
-   - `[suggestion]` — consider and apply if reasonable
-   - `[question]` — respond or clarify in the code
+1. Read the server output to get the URL (wait a moment for startup)
+2. Tell the user the review URL
+3. **STOP. Do not read the review file yet.** The user has not submitted.
+4. Wait for the background task notification — it means the server exited because the user submitted.
+5. THEN read the latest `.md` file from `--save-dir` (default: `~/.claude/reviews/<repo>/`)
+6. Act on the review comments
 
 ## Important
 
@@ -51,3 +50,4 @@ The server exits after the reviewer submits. When you see the process terminate:
 - The server exits after submit — one review per invocation
 - The browser tab auto-closes on submit
 - Reviews saved to `~/.claude/reviews/<repo>/` (outside the repo)
+- **Do NOT try to find/read the review file before the task notification arrives**
