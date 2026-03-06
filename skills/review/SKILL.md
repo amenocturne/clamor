@@ -1,3 +1,9 @@
+---
+name: review
+description: Browser-based code review UI for committed changes. Use after significant commits to get human feedback before proceeding. Triggers on "review this", "let me review", "/review", "show me what changed".
+author: amenocturne
+---
+
 # Code Review
 
 Launch a local browser-based review UI for committed git changes. The browser tab auto-closes on submit.
