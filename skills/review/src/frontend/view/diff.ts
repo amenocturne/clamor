@@ -161,12 +161,13 @@ const lineView = (
 		on: rowHandlers,
 	}, [
 		h("td.gutter", {
+			class: { "gutter-del": line.type === "delete" },
 			attrs: hasNewNum ? {
 				role: "button",
 				tabindex: "0",
 				"aria-label": `Select line ${lineNum} for comment`,
 			} : {},
-		}, hasNewNum ? String(lineNum) : ""),
+		}, hasNewNum ? String(lineNum) : line.oldNum != null ? String(line.oldNum) : ""),
 		lineContentCell(highlighted),
 	]);
 };
