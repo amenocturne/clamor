@@ -185,10 +185,16 @@ const startServer = (
 				const html = await Bun.file(htmlPath).text();
 				const injected = html.replace(
 					"<!-- BUNDLE -->",
-					`<script>${bundledJs}</script>`,
+					'<script src="/bundle.js"></script>',
 				);
 				return new Response(injected, {
 					headers: { "Content-Type": "text/html" },
+				});
+			}
+
+			if (req.method === "GET" && url.pathname === "/bundle.js") {
+				return new Response(bundledJs, {
+					headers: { "Content-Type": "application/javascript" },
 				});
 			}
 

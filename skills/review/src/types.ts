@@ -81,6 +81,12 @@ export type StoredComment = ReviewComment & {
 	readonly id: string;
 };
 
+export type DragSelection = {
+	readonly file: string;
+	readonly startLine: number;
+	readonly endLine: number;
+};
+
 export type Model = {
 	readonly data: ApiData | null;
 	readonly activeView: string; // "combined" | commit hash
@@ -89,6 +95,7 @@ export type Model = {
 	readonly summary: string;
 	readonly sidebarOpen: boolean;
 	readonly commentDraft: CommentDraft | null;
+	readonly dragSelection: DragSelection | null;
 	readonly submitted: boolean;
 	readonly error: string | null;
 };
@@ -100,6 +107,9 @@ export type Msg =
 	| { readonly type: "dataError"; readonly error: string }
 	| { readonly type: "setActiveView"; readonly view: string }
 	| { readonly type: "expandContext"; readonly key: string; readonly direction: "above" | "below" }
+	| { readonly type: "startDrag"; readonly file: string; readonly startLine: number }
+	| { readonly type: "updateDrag"; readonly endLine: number }
+	| { readonly type: "endDrag" }
 	| { readonly type: "startComment"; readonly draft: CommentDraft }
 	| { readonly type: "cancelComment" }
 	| {

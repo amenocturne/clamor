@@ -4,18 +4,16 @@ import hljs from "highlight.js";
 import type { Model, Msg, FileDiff, Hunk, DiffLine, ContextExpansion } from "../../types.ts";
 import { savedCommentView, commentBoxView } from "./comment.ts";
 
-// --- Drag state for click-drag line selection ---
-
-let dragState: { file: string; startLine: number } | null = null;
-
-// Install global mouseup listener once
+// Track whether we installed the global mouseup listener
 let globalListenerInstalled = false;
+let dispatchRef: ((msg: Msg) => void) | null = null;
 
-const installGlobalListener = (): void => {
+const installGlobalListener = (dispatch: (msg: Msg) => void): void => {
+	dispatchRef = dispatch;
 	if (globalListenerInstalled) return;
 	globalListenerInstalled = true;
 	window.addEventListener("mouseup", () => {
-		dragState = null;
+		if (dispatchRef) dispatchRef({ type: "endDrag" });
 	});
 };
 
@@ -33,7 +31,14 @@ const fileChangeStats = (file: FileDiff): { added: number; deleted: number } => 
 	return { added, deleted };
 };
 
-const highlightFile = (file: FileDiff): readonly string[] => {
+// Cache highlighted results — diff data never changes during a session
+const highlightCache = new Map<string, readonly string[]>();
+
+const highlightFile = (file: FileDiff, viewKey: string): readonly string[] => {
+	const cacheKey = `${viewKey}:${file.path}`;
+	const cached = highlightCache.get(cacheKey);
+	if (cached) return cached;
+
 	const allContent = file.hunks.flatMap((hunk) => hunk.lines.map((l) => l.content));
 	const joined = allContent.join("\n");
 
@@ -45,7 +50,9 @@ const highlightFile = (file: FileDiff): readonly string[] => {
 		highlighted = joined.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 	}
 
-	return highlighted.split("\n");
+	const lines = highlighted.split("\n");
+	highlightCache.set(cacheKey, lines);
+	return lines;
 };
 
 // Compute visible line indices for a hunk based on context expansion
@@ -79,19 +86,20 @@ const computeVisibleRange = (
 	return { startVisible, endVisible };
 };
 
-// Check if a line is within the comment draft selection range
+// Check if a line is within the finalized comment draft range
 const isLineSelected = (lineNum: number, model: Model, filePath: string): boolean => {
 	const draft = model.commentDraft;
 	if (!draft || draft.file !== filePath) return false;
-	const lo = Math.min(draft.startLine, draft.endLine);
-	const hi = Math.max(draft.startLine, draft.endLine);
-	return lineNum >= lo && lineNum <= hi;
+	return lineNum >= draft.startLine && lineNum <= draft.endLine;
 };
 
-const isLineDragging = (lineNum: number, filePath: string): boolean => {
-	if (!dragState || dragState.file !== filePath) return false;
-	// During drag, visual feedback is provided via line-selecting class
-	return true;
+// Check if a line is within the active drag range (visual feedback only)
+const isLineDragging = (lineNum: number, model: Model, filePath: string): boolean => {
+	const drag = model.dragSelection;
+	if (!drag || drag.file !== filePath) return false;
+	const lo = Math.min(drag.startLine, drag.endLine);
+	const hi = Math.max(drag.startLine, drag.endLine);
+	return lineNum >= lo && lineNum <= hi;
 };
 
 // --- Line View ---
@@ -116,7 +124,7 @@ const lineView = (
 	model: Model,
 	dispatch: (msg: Msg) => void,
 ): VNode => {
-	installGlobalListener();
+	installGlobalListener(dispatch);
 
 	const lineClass =
 		line.type === "add" ? "line-add" : line.type === "delete" ? "line-del" : "line-context";
@@ -126,44 +134,38 @@ const lineView = (
 
 	// Determine selection CSS classes
 	const selected = hasNewNum && isLineSelected(lineNum, model, file.path);
-	const selecting = hasNewNum && dragState !== null && isLineDragging(lineNum, file.path) && selected;
+	const dragging = hasNewNum && isLineDragging(lineNum, model, file.path);
 
-	const gutterNewHandlers: Record<string, (e: Event) => void> = {};
+	// Row-level handlers — entire row is clickable for selection
+	const rowHandlers: Record<string, (e: Event) => void> = {};
 
 	if (hasNewNum) {
-		gutterNewHandlers.mousedown = (e: Event) => {
+		rowHandlers.mousedown = (e: Event) => {
 			e.preventDefault();
-			dragState = { file: file.path, startLine: lineNum };
-			dispatch({
-				type: "startComment",
-				draft: { file: file.path, startLine: lineNum, endLine: lineNum },
-			});
+			dispatch({ type: "startDrag", file: file.path, startLine: lineNum });
 		};
 
-		gutterNewHandlers.mouseenter = () => {
-			if (dragState && dragState.file === file.path) {
-				dispatch({
-					type: "startComment",
-					draft: { file: file.path, startLine: dragState.startLine, endLine: lineNum },
-				});
+		rowHandlers.mouseenter = () => {
+			if (model.dragSelection && model.dragSelection.file === file.path) {
+				dispatch({ type: "updateDrag", endLine: lineNum });
 			}
 		};
 	}
 
 	return h(`tr.${lineClass}`, {
+		key: `${file.path}:${line.oldNum}:${line.newNum}`,
 		class: {
 			"line-selected": selected,
-			"line-selecting": selecting,
+			"line-selecting": dragging,
 		},
+		on: rowHandlers,
 	}, [
-		h("td.gutter", line.oldNum != null ? String(line.oldNum) : ""),
-		h("td.gutter.gutter-new", {
+		h("td.gutter", {
 			attrs: hasNewNum ? {
 				role: "button",
 				tabindex: "0",
 				"aria-label": `Select line ${lineNum} for comment`,
 			} : {},
-			on: gutterNewHandlers,
 		}, hasNewNum ? String(lineNum) : ""),
 		lineContentCell(highlighted),
 	]);
@@ -173,6 +175,7 @@ const lineView = (
 
 const expandArrow = (key: string, direction: "above" | "below", dispatch: (msg: Msg) => void): VNode =>
 	h("tr.expand-row", {
+		key: `expand-${key}-${direction}`,
 		attrs: {
 			role: "button",
 			tabindex: "0",
@@ -188,7 +191,7 @@ const expandArrow = (key: string, direction: "above" | "below", dispatch: (msg: 
 			},
 		},
 	}, [
-		h("td", { attrs: { colspan: 3 } }, direction === "above" ? "\u25B2 Show more" : "\u25BC Show more"),
+		h("td", { attrs: { colspan: 2 } }, direction === "above" ? "\u25B2 Show more" : "\u25BC Show more"),
 	]);
 
 // --- Hunk View ---
@@ -289,11 +292,11 @@ const fileView = (
 
 	if (file.binary) {
 		children.push(h("div.binary-notice", "Binary file not shown."));
-		return h("div.file-section", { key: `file-${fileIdx}` }, children);
+		return h("div.file-section", { key: `${model.activeView}:${file.path}` }, children);
 	}
 
-	// Highlight all lines in the file at once
-	const highlightedLines = highlightFile(file);
+	// Highlight all lines in the file at once (keyed by view to avoid stale cache across commits)
+	const highlightedLines = highlightFile(file, model.activeView);
 
 	const tableRows: VNode[] = [];
 	let lineOffset = 0;
@@ -302,7 +305,7 @@ const fileView = (
 		// Hunk separator between hunks
 		if (hunkIdx > 0) {
 			tableRows.push(
-				h("tr.hunk-separator", [h("td", { attrs: { colspan: 3 } })]),
+				h("tr.hunk-separator", { key: `sep-${fileIdx}-${hunkIdx}` }, [h("td", { attrs: { colspan: 2 } })]),
 			);
 		}
 
@@ -312,13 +315,19 @@ const fileView = (
 		lineOffset += hunk.lines.length;
 	}
 
-	children.push(h("table.diff-table", [h("tbody", tableRows)]));
+	children.push(h("table.diff-table", [
+		h("colgroup", [
+			h("col", { style: { width: "55px" } }),
+			h("col"),
+		]),
+		h("tbody", tableRows),
+	]));
 
 	if (file.truncated) {
 		children.push(h("div.truncated-notice", "File truncated for display."));
 	}
 
-	return h("div.file-section", { key: `file-${fileIdx}` }, children);
+	return h("div.file-section", { key: `${model.activeView}:${file.path}` }, children);
 };
 
 // --- Diff Area ---

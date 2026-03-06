@@ -11,6 +11,61 @@
     /* === Reset === */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* === Syntax Highlighting (Catppuccin Mocha) === */
+    .hljs-keyword,
+    .hljs-selector-tag,
+    .hljs-built_in,
+    .hljs-name { color: #cba6f7; }           /* mauve */
+
+    .hljs-string,
+    .hljs-attr,
+    .hljs-symbol,
+    .hljs-template-tag,
+    .hljs-template-variable,
+    .hljs-addition { color: #a6e3a1; }       /* green */
+
+    .hljs-comment,
+    .hljs-quote { color: #6c7086; font-style: italic; }  /* overlay0 */
+
+    .hljs-number,
+    .hljs-literal,
+    .hljs-variable.constant_ { color: #fab387; }  /* peach */
+
+    .hljs-type,
+    .hljs-class .hljs-title,
+    .hljs-title.class_,
+    .hljs-title.function_ { color: #89dceb; }  /* sky */
+
+    .hljs-params { color: #f2cdcd; }          /* flamingo */
+
+    .hljs-regexp { color: #f5c2e7; }          /* pink */
+
+    .hljs-title { color: #89b4fa; }           /* blue */
+
+    .hljs-tag { color: #cba6f7; }             /* mauve */
+    .hljs-tag .hljs-attr { color: #89dceb; }  /* sky */
+    .hljs-tag .hljs-string { color: #a6e3a1; } /* green */
+
+    .hljs-meta,
+    .hljs-meta .hljs-keyword { color: #fab387; }  /* peach */
+
+    .hljs-deletion { color: #f38ba8; }        /* red */
+
+    .hljs-section { color: #89b4fa; font-weight: 600; }  /* blue */
+
+    .hljs-selector-class,
+    .hljs-selector-id { color: #f9e2af; }     /* yellow */
+
+    .hljs-attribute { color: #f9e2af; }        /* yellow */
+
+    .hljs-punctuation,
+    .hljs-operator { color: #94e2d5; }         /* teal */
+
+    .hljs-property { color: #89b4fa; }         /* blue */
+
+    .hljs-emphasis { font-style: italic; }
+    .hljs-strong { font-weight: bold; }
+
     /* === Catppuccin Mocha Palette === */
     :root {
       --bg-primary: #1e1e2e;
@@ -22,12 +77,12 @@
       --text-secondary: #a6adc8;
       --text-dim: #6c7086;
 
-      --diff-add-bg: rgba(166, 227, 161, 0.12);
+      --diff-add-bg: rgba(166, 227, 161, 0.15);
       --diff-add-text: #a6e3a1;
-      --diff-add-gutter: rgba(166, 227, 161, 0.25);
-      --diff-del-bg: rgba(243, 139, 168, 0.12);
+      --diff-add-gutter: rgba(166, 227, 161, 0.3);
+      --diff-del-bg: rgba(243, 139, 168, 0.15);
       --diff-del-text: #f38ba8;
-      --diff-del-gutter: rgba(243, 139, 168, 0.25);
+      --diff-del-gutter: rgba(243, 139, 168, 0.3);
 
       --accent-fix: #f38ba8;
       --accent-suggestion: #f9e2af;
@@ -324,25 +379,20 @@
       overflow: hidden;
     }
 
-    /* Line number gutters */
+    /* Line number gutter */
     .gutter {
-      width: 50px;
-      min-width: 50px;
+      width: 55px;
+      min-width: 55px;
       text-align: right;
       color: var(--text-dim);
       user-select: none;
       cursor: pointer;
-      padding-right: 8px !important;
+      padding-right: 12px !important;
       border-right: 1px solid var(--border-subtle);
     }
 
     .gutter:hover {
       color: var(--text-secondary);
-    }
-
-    .gutter-new {
-      border-right: none;
-      padding-right: 12px !important;
     }
 
     /* Line content */
@@ -360,10 +410,6 @@
       background: var(--diff-add-gutter);
     }
 
-    .line-add .line-content {
-      color: var(--diff-add-text);
-    }
-
     .line-del {
       background: var(--diff-del-bg);
     }
@@ -372,21 +418,35 @@
       background: var(--diff-del-gutter);
     }
 
-    .line-del .line-content {
-      color: var(--diff-del-text);
-    }
-
     .line-context .line-content {
       color: var(--text-secondary);
     }
 
-    /* Selected lines */
-    .line-selected .gutter-new {
-      background: var(--selection-bg);
+    /* Selectable rows */
+    .diff-table tr {
+      cursor: pointer;
     }
 
-    .line-selecting .gutter-new {
-      background: var(--selection-bg);
+    .diff-table tr:hover .gutter {
+      color: var(--text-secondary);
+    }
+
+    /* Selected lines (finalized, comment box shown) */
+    .line-selected {
+      background: var(--selection-bg) !important;
+    }
+
+    .line-selected .gutter {
+      background: rgba(137, 180, 250, 0.2) !important;
+    }
+
+    /* Selecting lines (during drag, no comment box yet) */
+    .line-selecting {
+      background: var(--selection-bg) !important;
+    }
+
+    .line-selecting .gutter {
+      background: rgba(137, 180, 250, 0.2) !important;
     }
 
     /* === Expand Arrows === */
@@ -417,7 +477,7 @@
     }
 
     .comment-box {
-      margin: 4px 16px 4px 108px;
+      margin: 4px 16px 4px 67px;
       background: var(--bg-surface);
       border: 1px solid var(--border);
       border-radius: 6px;
@@ -492,7 +552,7 @@
 
     /* === Saved Comment Banner === */
     .saved-comment {
-      margin: 4px 16px 4px 108px;
+      margin: 4px 16px 4px 67px;
       padding: 8px 12px;
       background: var(--bg-surface);
       border-radius: 4px;

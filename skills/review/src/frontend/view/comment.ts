@@ -114,8 +114,8 @@ export const commentBoxView = (model: Model, dispatch: (msg: Msg) => void): VNod
 		lastDraftKey = key;
 	}
 
-	return h("tr.comment-box-row", [
-		h("td", { attrs: { colspan: 3 } }, [
+	return h("tr.comment-box-row", { key: `draft-${model.commentDraft.file}:${model.commentDraft.startLine}` }, [
+		h("td", { attrs: { colspan: 2 } }, [
 			h("div.comment-box", {
 				attrs: { role: "dialog", "aria-label": "Add comment" },
 				on: { keydown: handleCommentBoxKeydown },
@@ -191,9 +191,10 @@ export const commentBoxView = (model: Model, dispatch: (msg: Msg) => void): VNod
 
 export const savedCommentView = (comment: StoredComment, dispatch: (msg: Msg) => void): VNode =>
 	h("tr.comment-box-row", {
+		key: `comment-${comment.id}`,
 		attrs: { "data-comment-id": comment.id },
 	}, [
-		h("td", { attrs: { colspan: 3 } }, [
+		h("td", { attrs: { colspan: 2 } }, [
 			h(`div.saved-comment.${comment.type}`, {
 				on: { click: () => dispatch({ type: "editComment", id: comment.id }) },
 			}, [

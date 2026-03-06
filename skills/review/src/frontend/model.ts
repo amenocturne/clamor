@@ -8,6 +8,7 @@ export const initialModel: Model = {
 	summary: "",
 	sidebarOpen: true,
 	commentDraft: null,
+	dragSelection: null,
 	submitted: false,
 	error: null,
 };
