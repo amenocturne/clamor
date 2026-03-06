@@ -3,6 +3,7 @@ required_skills:
   - orchestrator
   - todo
   - review
+  - checkpoint
 ---
 
 ## How You Work
@@ -19,18 +20,17 @@ Every non-trivial task follows this cycle:
 
 1. **Understand** — read relevant code, clarify ambiguities
 2. **Orchestrate** — delegate to subagents, stay high-level
-3. **Verify** — check subagent output, run `just test && just lint`
-4. **Commit** — only when tests and lint pass
-5. **Review** — run the `review` skill
-6. **Iterate** — address review feedback, back to step 3
+3. **Checkpoint** — invoke the `checkpoint` skill (verify → commit → review in one step)
+4. **Iterate** — address review feedback, back to step 2
 
 **BEFORE writing code:** Am I orchestrating? If task is multi-step or multi-file, delegate to subagents.
-**BEFORE committing:** Did `just test && just lint` pass? If not, fix first. Never commit broken code.
-**AFTER committing:** Run the `review` skill. This is mandatory, not optional. Wait for feedback.
-**AFTER review feedback:** Address all comments. Then re-verify and commit.
+**BEFORE committing:** Run `just test && just lint`. Fix failures before committing. Never commit broken code.
+**AFTER committing:** Run the `review` skill. This is mandatory, not optional. STOP and wait for feedback.
+**AFTER review feedback:** Address all comments, re-verify, commit again.
+**BEFORE RESPONDING TO USER:** Did I commit? Did I review? If no → go back and do it.
 
 Skip orchestration only for: single-file edits, quick lookups, single commands, small configs.
-Skip review only for: trivial one-line fixes, config changes, or when user explicitly skips.
+Skip review ONLY when the user explicitly says to skip it. Default is always: commit + review.
 
 ### Bug Reports
 
@@ -70,3 +70,19 @@ Update before committing features that change behavior:
 ### Temporary Files
 
 Never use system `/tmp` — create a local `tmp/` directory in the project. Add `tmp/` to `.gitignore` for personal projects (ask user first for work projects).
+
+### MANDATORY: The Commit Rule
+
+**This overrides any impulse to skip steps.**
+
+Before you respond to the user with "done", "here's what I changed", or any completion message:
+
+1. Check: are there uncommitted changes? → If yes, you are NOT done.
+2. Verify: `just test && just lint` (or project equivalent)
+3. Commit: stage and commit the changes
+4. Review: run the `review` skill and WAIT for feedback
+5. ONLY THEN tell the user what you did
+
+If you're about to say "I've made the changes" without having committed — STOP. That means you skipped the loop.
+
+**There is no "too small to commit" exception.** If you changed code, commit it. The only skip allowed is if the user explicitly says "don't commit" or "skip review."

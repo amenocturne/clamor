@@ -1,0 +1,8 @@
+{
+  "name": "checkpoint",
+  "version": "0.1.0",
+  "description": "Verify, commit, and review workflow in one step",
+  "abstract": "Wraps the test/lint → commit → review loop into a single skill invocation. Reduces cognitive overhead of remembering multiple workflow steps.",
+  "author": "amenocturne",
+  "keywords": ["workflow", "commit", "review", "checkpoint"]
+}

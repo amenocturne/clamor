@@ -11,6 +11,7 @@ skills:
   - frontend
   - playwright
   - review
+  - checkpoint
   - pinchtab
   - config
   - project-setup
@@ -24,6 +25,7 @@ common:
   - communication-style
 hooks:
   - notification
+  - workflow-check
 pipelines: []
 external:
   - github.com/anthropics/skills/skill-creator
