@@ -218,7 +218,7 @@ const startServer = (
 				const savePath = join(args.saveDir, filename);
 
 				await Bun.write(savePath, formatted);
-				console.log(formatted);
+				console.error(`Review saved to ${savePath}`);
 
 				setTimeout(() => process.exit(0), 500);
 				return Response.json({ ok: true });
