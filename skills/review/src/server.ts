@@ -108,7 +108,7 @@ const parseArgs = (argv: readonly string[]): CliArgs => {
 // === Git Helpers ===
 
 const git = async (repo: string, args: readonly string[]): Promise<string> => {
-	const proc = Bun.spawn(["git", "-C", repo, ...args], {
+	const proc = Bun.spawn(["git", "-C", repo, "-c", "core.quotePath=false", ...args], {
 		stdout: "pipe",
 		stderr: "pipe",
 	});
