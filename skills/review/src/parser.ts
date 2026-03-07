@@ -50,17 +50,13 @@ const extractPath = (line: string, prefix: string): string | null => {
 	return rest.replace(/^[ab]\//, "");
 };
 
-const parseHunkHeader = (
-	line: string,
-): { oldStart: number; newStart: number } | null => {
+const parseHunkHeader = (line: string): { oldStart: number; newStart: number } | null => {
 	const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
 	if (!match) return null;
 	return { oldStart: Number(match[1]), newStart: Number(match[2]) };
 };
 
-const classifyLine = (
-	raw: string,
-): { type: DiffLineType; content: string } | null => {
+const classifyLine = (raw: string): { type: DiffLineType; content: string } | null => {
 	if (raw.startsWith("\\ No newline")) return null;
 	if (raw.startsWith("+")) return { type: "add", content: raw.slice(1) };
 	if (raw.startsWith("-")) return { type: "delete", content: raw.slice(1) };
@@ -152,9 +148,7 @@ const truncateHunks = (hunks: readonly Hunk[]): readonly Hunk[] => {
 	return result;
 };
 
-const parseGitHeaderPaths = (
-	headerLine: string,
-): { gitOld: string; gitNew: string } | null => {
+const parseGitHeaderPaths = (headerLine: string): { gitOld: string; gitNew: string } | null => {
 	// Header line is the remainder after "diff --git ", e.g. "a/foo.ts b/foo.ts"
 	// Handle paths with spaces by finding the " b/" separator
 	const sepIdx = headerLine.indexOf(" b/");

@@ -1,8 +1,8 @@
-import { resolve, join, basename, extname } from "node:path";
-import { homedir } from "node:os";
 import { mkdir, readdir, unlink } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, extname, join, resolve } from "node:path";
+import { formatAnnotation, formatReview } from "./formatter.ts";
 import { parseDiff, textToFileDiff } from "./parser.ts";
-import { formatReview, formatAnnotation } from "./formatter.ts";
 import type { ApiData, Commit, DiffData } from "./types.ts";
 
 // === CLI Parsing ===
@@ -85,13 +85,13 @@ const parseArgs = (argv: readonly string[]): CliArgs => {
 	}
 
 	const resolvedFile = file ? resolve(file) : null;
-	const defaultProject = mode === "text" && resolvedFile
-		? basename(resolvedFile, extname(resolvedFile))
-		: null;
+	const defaultProject =
+		mode === "text" && resolvedFile ? basename(resolvedFile, extname(resolvedFile)) : null;
 
-	const defaultSaveDir = mode === "text"
-		? join(homedir(), ".claude", "annotations")
-		: join(homedir(), ".claude", "reviews", basename(resolve(repo!)));
+	const defaultSaveDir =
+		mode === "text"
+			? join(homedir(), ".claude", "annotations")
+			: join(homedir(), ".claude", "reviews", basename(resolve(repo!)));
 
 	return {
 		mode,
@@ -107,10 +107,7 @@ const parseArgs = (argv: readonly string[]): CliArgs => {
 
 // === Git Helpers ===
 
-const git = async (
-	repo: string,
-	args: readonly string[],
-): Promise<string> => {
+const git = async (repo: string, args: readonly string[]): Promise<string> => {
 	const proc = Bun.spawn(["git", "-C", repo, ...args], {
 		stdout: "pipe",
 		stderr: "pipe",
@@ -133,10 +130,7 @@ const validateRepo = async (repo: string): Promise<void> => {
 	}
 };
 
-const validateRange = async (
-	repo: string,
-	range: string,
-): Promise<void> => {
+const validateRange = async (repo: string, range: string): Promise<void> => {
 	// rev-parse --verify works on single refs, not ranges like A..B
 	// Validate each side of the range separately
 	const parts = range.includes("..") ? range.split("..").filter(Boolean) : [range];
@@ -150,16 +144,8 @@ const validateRange = async (
 	}
 };
 
-const getCommits = async (
-	repo: string,
-	range: string,
-): Promise<readonly Commit[]> => {
-	const raw = await git(repo, [
-		"log",
-		"--format=%H%n%s%n%ai",
-		"--reverse",
-		range,
-	]);
+const getCommits = async (repo: string, range: string): Promise<readonly Commit[]> => {
+	const raw = await git(repo, ["log", "--format=%H%n%s%n%ai", "--reverse", range]);
 	if (!raw) return [];
 	const lines = raw.split("\n");
 	const commits: Commit[] = [];
@@ -173,24 +159,13 @@ const getCommits = async (
 	return commits;
 };
 
-const getDiff = async (
-	repo: string,
-	range: string,
-): Promise<DiffData> => {
+const getDiff = async (repo: string, range: string): Promise<DiffData> => {
 	const raw = await git(repo, ["diff", "-U99999", "-M", range]);
 	return { files: parseDiff(raw) };
 };
 
-const getCommitDiff = async (
-	repo: string,
-	hash: string,
-): Promise<DiffData> => {
-	const raw = await git(repo, [
-		"diff",
-		"-U99999",
-		"-M",
-		`${hash}^..${hash}`,
-	]);
+const getCommitDiff = async (repo: string, hash: string): Promise<DiffData> => {
+	const raw = await git(repo, ["diff", "-U99999", "-M", `${hash}^..${hash}`]);
 	return { files: parseDiff(raw) };
 };
 
@@ -202,18 +177,12 @@ const buildBundle = async (): Promise<string> => {
 		minify: true,
 	});
 	if (!result.success) {
-		throw new Error(
-			`Build failed: ${result.logs.map((l) => l.message).join("\n")}`,
-		);
+		throw new Error(`Build failed: ${result.logs.map((l) => l.message).join("\n")}`);
 	}
 	return await result.outputs[0]!.text();
 };
 
-const startServer = (
-	apiData: ApiData,
-	args: CliArgs,
-	bundledJs: string,
-) => {
+const startServer = (apiData: ApiData, args: CliArgs, bundledJs: string) => {
 	const htmlPath = join(import.meta.dir, "../static/index.html");
 
 	const server = Bun.serve({
@@ -223,10 +192,7 @@ const startServer = (
 
 			if (req.method === "GET" && url.pathname === "/") {
 				const html = await Bun.file(htmlPath).text();
-				const injected = html.replace(
-					"<!-- BUNDLE -->",
-					'<script src="/bundle.js"></script>',
-				);
+				const injected = html.replace("<!-- BUNDLE -->", '<script src="/bundle.js"></script>');
 				return new Response(injected, {
 					headers: { "Content-Type": "text/html" },
 				});
@@ -244,15 +210,17 @@ const startServer = (
 
 			if (req.method === "POST" && url.pathname === "/api/submit") {
 				const submission = await req.json();
-				const formatted = apiData.mode === "annotate"
-					? formatAnnotation(submission, args.file ?? "unknown")
-					: (() => {
-						const commits = [...apiData.commits];
-						const resolvedRange = commits.length > 0
-							? `${commits[0]!.hash.slice(0, 7)}..${commits[commits.length - 1]!.hash.slice(0, 7)}`
-							: args.range ?? "";
-						return formatReview(submission, commits, resolvedRange);
-					})();
+				const formatted =
+					apiData.mode === "annotate"
+						? formatAnnotation(submission, args.file ?? "unknown")
+						: (() => {
+								const commits = [...apiData.commits];
+								const resolvedRange =
+									commits.length > 0
+										? `${commits[0]!.hash.slice(0, 7)}..${commits[commits.length - 1]!.hash.slice(0, 7)}`
+										: (args.range ?? "");
+								return formatReview(submission, commits, resolvedRange);
+							})();
 
 				await mkdir(args.saveDir, { recursive: true });
 
@@ -360,9 +328,8 @@ const buildAnnotateData = async (args: CliArgs): Promise<ApiData> => {
 const main = async () => {
 	const args = parseArgs(Bun.argv);
 
-	const apiData = args.mode === "text"
-		? await buildAnnotateData(args)
-		: await buildReviewData(args);
+	const apiData =
+		args.mode === "text" ? await buildAnnotateData(args) : await buildReviewData(args);
 
 	const bundledJs = await buildBundle();
 

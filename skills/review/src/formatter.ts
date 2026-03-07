@@ -59,7 +59,7 @@ export const formatReview = (
 	if (submission.comments.length === 0 && submission.summary.length === 0) {
 		lines.push("");
 		lines.push("No comments. Changes approved.");
-		return lines.join("\n") + "\n";
+		return `${lines.join("\n")}\n`;
 	}
 
 	if (submission.summary.length > 0) {
@@ -77,13 +77,10 @@ export const formatReview = (
 		lines.push(fileComments.map(formatComment).join("\n\n"));
 	}
 
-	return lines.join("\n") + "\n";
+	return `${lines.join("\n")}\n`;
 };
 
-export const formatAnnotation = (
-	submission: ReviewSubmission,
-	filePath: string,
-): string => {
+export const formatAnnotation = (submission: ReviewSubmission, filePath: string): string => {
 	const lines: string[] = [];
 	const timestamp = formatTimestamp();
 	const filename = basename(filePath);
@@ -112,5 +109,5 @@ export const formatAnnotation = (
 		}
 	}
 
-	return lines.join("\n") + "\n";
+	return `${lines.join("\n")}\n`;
 };
