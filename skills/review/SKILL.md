@@ -1,6 +1,6 @@
 ---
 name: review
-description: Browser-based code review UI for committed changes, and text annotation UI for any file. Triggers on "review this", "let me review", "/review", "show me what changed", "annotate this".
+description: Browser-based review and annotation UI. Review mode shows committed git changes for code review. Annotation mode opens any text file (lyrics, notes, prose, configs) for line-level commenting — use when the user wants to comment on, mark up, highlight, or react to specific lines in a file. Triggers on "review this", "let me review", "/review", "show me what changed", "annotate this", "comment on these lyrics", "let me mark up this file".
 author: amenocturne
 ---
 
