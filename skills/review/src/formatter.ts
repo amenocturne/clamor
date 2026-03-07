@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import type { Commit, ReviewComment, ReviewSubmission } from "./types.ts";
 
 const formatTimestamp = (): string => {
@@ -74,6 +75,41 @@ export const formatReview = (
 		lines.push(`## ${file}`);
 		lines.push("");
 		lines.push(fileComments.map(formatComment).join("\n\n"));
+	}
+
+	return lines.join("\n") + "\n";
+};
+
+export const formatAnnotation = (
+	submission: ReviewSubmission,
+	filePath: string,
+): string => {
+	const lines: string[] = [];
+	const timestamp = formatTimestamp();
+	const filename = basename(filePath);
+
+	lines.push(`# Annotations: ${filename}`);
+	lines.push(`**Annotated:** ${timestamp}`);
+
+	if (submission.summary.length > 0) {
+		lines.push("");
+		lines.push("## Summary");
+		lines.push("");
+		lines.push(submission.summary);
+	}
+
+	if (submission.comments.length > 0) {
+		lines.push("");
+		lines.push("## Annotations");
+
+		for (const comment of submission.comments) {
+			lines.push("");
+			lines.push(`### ${formatLineRange(comment)}`);
+			lines.push("");
+			lines.push(formatCodeBlock(comment.code));
+			lines.push("");
+			lines.push(comment.text);
+		}
 	}
 
 	return lines.join("\n") + "\n";

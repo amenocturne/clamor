@@ -34,9 +34,14 @@ export type Commit = {
 	readonly date: string;
 };
 
+// === Mode Types ===
+
+export type AppMode = "review" | "annotate";
+
 // === API Types ===
 
 export type ApiData = {
+	readonly mode: AppMode;
 	readonly commits: readonly Commit[];
 	readonly diffs: Readonly<Record<string, DiffData>>; // "combined" | commit hash
 	readonly message: string | null;
@@ -47,6 +52,8 @@ export type ApiData = {
 // === Review Types ===
 
 export type ReviewVerdict = "approved" | "changes-requested";
+export type AnnotateAction = "save";
+export type SubmitAction = ReviewVerdict | AnnotateAction;
 
 export type ReviewComment = {
 	readonly file: string;
@@ -57,7 +64,7 @@ export type ReviewComment = {
 };
 
 export type ReviewSubmission = {
-	readonly verdict: ReviewVerdict;
+	readonly verdict: SubmitAction;
 	readonly summary: string;
 	readonly comments: readonly ReviewComment[];
 };
@@ -125,7 +132,7 @@ export type Msg =
 	| { readonly type: "deleteComment"; readonly id: string }
 	| { readonly type: "setSummary"; readonly summary: string }
 	| { readonly type: "toggleSidebar" }
-	| { readonly type: "submit"; readonly verdict: ReviewVerdict }
+	| { readonly type: "submit"; readonly verdict: SubmitAction }
 	| { readonly type: "submitted" }
 	| { readonly type: "pastReviewsLoaded"; readonly reviews: readonly PastReviewMeta[] }
 	| { readonly type: "fetchPastReview"; readonly filename: string }

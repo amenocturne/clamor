@@ -1,27 +1,35 @@
-import { resolve, join, basename } from "node:path";
+import { resolve, join, basename, extname } from "node:path";
 import { homedir } from "node:os";
 import { mkdir, readdir, unlink } from "node:fs/promises";
-import { parseDiff } from "./parser.ts";
-import { formatReview } from "./formatter.ts";
+import { parseDiff, textToFileDiff } from "./parser.ts";
+import { formatReview, formatAnnotation } from "./formatter.ts";
 import type { ApiData, Commit, DiffData } from "./types.ts";
 
 // === CLI Parsing ===
 
 type CliArgs = {
-	readonly repo: string;
-	readonly range: string;
+	readonly mode: "review" | "text";
+	readonly repo: string | null;
+	readonly range: string | null;
+	readonly file: string | null;
 	readonly message: string | null;
 	readonly project: string | null;
 	readonly saveDir: string;
 	readonly port: number;
 };
 
-const USAGE = `Usage: bun run src/server.ts --repo <path> --range <range> [--message <text>] [--save-dir <path>] [--port <number>]`;
+const USAGE = `Usage:
+  Review mode: bun run src/server.ts --repo <path> --range <range> [options]
+  Text mode:   bun run src/server.ts --mode text --file <path> [options]
+
+Options: [--message <text>] [--project <name>] [--save-dir <path>] [--port <number>]`;
 
 const parseArgs = (argv: readonly string[]): CliArgs => {
 	const args = argv.slice(2);
+	let mode: "review" | "text" = "review";
 	let repo: string | null = null;
 	let range: string | null = null;
+	let file: string | null = null;
 	let message: string | null = null;
 	let project: string | null = null;
 	let saveDir: string | null = null;
@@ -31,12 +39,20 @@ const parseArgs = (argv: readonly string[]): CliArgs => {
 		const flag = args[i];
 		const next = args[i + 1];
 		switch (flag) {
+			case "--mode":
+				if (next === "text" || next === "review") mode = next;
+				i++;
+				break;
 			case "--repo":
 				repo = next ?? null;
 				i++;
 				break;
 			case "--range":
 				range = next ?? null;
+				i++;
+				break;
+			case "--file":
+				file = next ?? null;
 				i++;
 				break;
 			case "--message":
@@ -58,17 +74,33 @@ const parseArgs = (argv: readonly string[]): CliArgs => {
 		}
 	}
 
-	if (!repo || !range) {
+	if (mode === "review" && (!repo || !range)) {
 		console.error(USAGE);
 		process.exit(1);
 	}
 
+	if (mode === "text" && !file) {
+		console.error(USAGE);
+		process.exit(1);
+	}
+
+	const resolvedFile = file ? resolve(file) : null;
+	const defaultProject = mode === "text" && resolvedFile
+		? basename(resolvedFile, extname(resolvedFile))
+		: null;
+
+	const defaultSaveDir = mode === "text"
+		? join(homedir(), ".claude", "annotations")
+		: join(homedir(), ".claude", "reviews", basename(resolve(repo!)));
+
 	return {
-		repo: resolve(repo),
+		mode,
+		repo: repo ? resolve(repo) : null,
 		range,
+		file: resolvedFile,
 		message,
-		project,
-		saveDir: saveDir ? resolve(saveDir) : join(homedir(), ".claude", "reviews", basename(resolve(repo))),
+		project: project ?? defaultProject,
+		saveDir: saveDir ? resolve(saveDir) : defaultSaveDir,
 		port,
 	};
 };
@@ -212,15 +244,15 @@ const startServer = (
 
 			if (req.method === "POST" && url.pathname === "/api/submit") {
 				const submission = await req.json();
-				const commits = [...apiData.commits];
-				const resolvedRange = commits.length > 0
-					? `${commits[0]!.hash.slice(0, 7)}..${commits[commits.length - 1]!.hash.slice(0, 7)}`
-					: args.range;
-				const formatted = formatReview(
-					submission,
-					commits,
-					resolvedRange,
-				);
+				const formatted = apiData.mode === "annotate"
+					? formatAnnotation(submission, args.file ?? "unknown")
+					: (() => {
+						const commits = [...apiData.commits];
+						const resolvedRange = commits.length > 0
+							? `${commits[0]!.hash.slice(0, 7)}..${commits[commits.length - 1]!.hash.slice(0, 7)}`
+							: args.range ?? "";
+						return formatReview(submission, commits, resolvedRange);
+					})();
 
 				await mkdir(args.saveDir, { recursive: true });
 
@@ -231,7 +263,8 @@ const startServer = (
 				const savePath = join(args.saveDir, filename);
 
 				await Bun.write(savePath, formatted);
-				console.error(`Review saved to ${savePath}`);
+				const saveLabel = apiData.mode === "annotate" ? "Annotation" : "Review";
+				console.error(`${saveLabel} saved to ${savePath}`);
 
 				setTimeout(() => process.exit(0), 500);
 				return Response.json({ ok: true });
@@ -280,14 +313,12 @@ const startServer = (
 
 // === Main ===
 
-const main = async () => {
-	const args = parseArgs(Bun.argv);
+const buildReviewData = async (args: CliArgs): Promise<ApiData> => {
+	await validateRepo(args.repo!);
+	await validateRange(args.repo!, args.range!);
 
-	await validateRepo(args.repo);
-	await validateRange(args.repo, args.range);
-
-	const commits = await getCommits(args.repo, args.range);
-	const combinedDiff = await getDiff(args.repo, args.range);
+	const commits = await getCommits(args.repo!, args.range!);
+	const combinedDiff = await getDiff(args.repo!, args.range!);
 
 	if (combinedDiff.files.length === 0 && commits.length === 0) {
 		console.error("No changes in the specified range");
@@ -296,23 +327,50 @@ const main = async () => {
 
 	const diffs: Record<string, DiffData> = { combined: combinedDiff };
 	for (const commit of commits) {
-		diffs[commit.hash] = await getCommitDiff(args.repo, commit.hash);
+		diffs[commit.hash] = await getCommitDiff(args.repo!, commit.hash);
 	}
 
-	const apiData: ApiData = {
+	return {
+		mode: "review",
 		commits,
 		diffs,
 		message: args.message,
-		repo: args.repo,
+		repo: args.repo!,
 		project: args.project,
 	};
+};
+
+const buildAnnotateData = async (args: CliArgs): Promise<ApiData> => {
+	const content = await Bun.file(args.file!).text();
+	const fileDiff = textToFileDiff(content, basename(args.file!));
+	const diffs: Record<string, DiffData> = {
+		combined: { files: [fileDiff] },
+	};
+
+	return {
+		mode: "annotate",
+		commits: [],
+		diffs,
+		message: args.message,
+		repo: args.file!,
+		project: args.project,
+	};
+};
+
+const main = async () => {
+	const args = parseArgs(Bun.argv);
+
+	const apiData = args.mode === "text"
+		? await buildAnnotateData(args)
+		: await buildReviewData(args);
 
 	const bundledJs = await buildBundle();
 
 	const server = startServer(apiData, args, bundledJs);
 	const port = server.port;
 
-	console.error(`Review server running at http://localhost:${port}`);
+	const label = args.mode === "text" ? "Annotation" : "Review";
+	console.error(`${label} server running at http://localhost:${port}`);
 	Bun.spawn(["open", `http://localhost:${port}`]);
 };
 

@@ -240,6 +240,25 @@ const parseFileSection = (section: string): FileDiff | null => {
 	};
 };
 
+export const textToFileDiff = (content: string, filePath: string): FileDiff => {
+	const rawLines = content.split("\n");
+	// Drop trailing empty line from split (matches how text editors show line count)
+	const lines: readonly DiffLine[] = rawLines.map((line, i) => ({
+		type: "context" as const,
+		oldNum: i + 1,
+		newNum: i + 1,
+		content: line,
+	}));
+	const hunk: Hunk = { oldStart: 1, newStart: 1, lines };
+	return {
+		path: filePath,
+		language: detectLanguage(filePath),
+		binary: false,
+		truncated: false,
+		hunks: [hunk],
+	};
+};
+
 export const parseDiff = (rawDiff: string): FileDiff[] => {
 	if (!rawDiff.trim()) return [];
 
