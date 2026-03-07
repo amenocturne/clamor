@@ -428,13 +428,36 @@
       color: var(--text-secondary);
     }
 
-    /* Selectable rows */
+    /* Selectable rows — gutter is pointer, content is text */
     .diff-table tr {
+      cursor: text;
+    }
+
+    .diff-table tr .gutter {
       cursor: pointer;
     }
 
     .diff-table tr:hover .gutter {
       color: var(--text-secondary);
+    }
+
+    /* Floating comment button for text selection */
+    .text-select-comment-btn {
+      position: fixed;
+      z-index: 1000;
+      padding: 4px 12px;
+      background: var(--accent-primary);
+      color: var(--bg-primary);
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      user-select: none;
+    }
+    .text-select-comment-btn:hover {
+      filter: brightness(1.2);
     }
 
     /* Selected lines (finalized, comment box shown) */
@@ -504,6 +527,7 @@
       border: 1px solid var(--border);
       border-radius: 6px;
       overflow: hidden;
+      max-width: 100%;
       transition: max-height 150ms ease;
     }
 
@@ -520,6 +544,8 @@
       font-size: var(--font-xs);
       line-height: 1.4;
       resize: vertical;
+      overflow-wrap: break-word;
+      word-wrap: break-word;
     }
 
     .comment-textarea:focus {
@@ -544,6 +570,8 @@
       font-size: var(--font-xs);
       color: var(--text-secondary);
       line-height: 1.4;
+      overflow-wrap: break-word;
+      word-wrap: break-word;
     }
 
     .saved-comment:hover {

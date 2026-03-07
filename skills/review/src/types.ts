@@ -61,6 +61,7 @@ export type ReviewComment = {
 	readonly endLine: number;
 	readonly text: string;
 	readonly code: string;
+	readonly selectedText?: string;
 };
 
 export type ReviewSubmission = {
@@ -79,6 +80,8 @@ export type CommentDraft = {
 	readonly file: string;
 	readonly startLine: number;
 	readonly endLine: number;
+	readonly initialText?: string;
+	readonly selectedText?: string;
 };
 
 export type ContextExpansion = {
@@ -94,6 +97,7 @@ export type DragSelection = {
 	readonly file: string;
 	readonly startLine: number;
 	readonly endLine: number;
+	readonly selectedText?: string;
 };
 
 export type Model = {
@@ -139,4 +143,11 @@ export type Msg =
 	| { readonly type: "viewPastReview"; readonly content: string }
 	| { readonly type: "closePastReview" }
 	| { readonly type: "deletePastReview"; readonly filename: string }
-	| { readonly type: "reviewDeleted"; readonly filename: string };
+	| { readonly type: "reviewDeleted"; readonly filename: string }
+	| {
+			readonly type: "textSelected";
+			readonly file: string;
+			readonly startLine: number;
+			readonly endLine: number;
+			readonly selectedText: string;
+	  };

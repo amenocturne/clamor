@@ -1,4 +1,4 @@
-import type { Model, Msg, StoredComment, ContextExpansion } from "../types.ts";
+import type { ContextExpansion, Model, Msg, StoredComment } from "../types.ts";
 
 let commentIdCounter = 0;
 
@@ -12,7 +12,9 @@ export const update = (model: Model, msg: Msg): Model => {
 			return { ...model, activeView: msg.view, contextExpansion: {} };
 		case "expandContext": {
 			const isGap = msg.key.includes("-gap-");
-			const current: ContextExpansion = model.contextExpansion[msg.key] ?? (isGap ? { above: 0, below: 0 } : { above: 3, below: 3 });
+			const current: ContextExpansion =
+				model.contextExpansion[msg.key] ??
+				(isGap ? { above: 0, below: 0 } : { above: 3, below: 3 });
 			const updated: ContextExpansion =
 				msg.direction === "above"
 					? { ...current, above: current.above + 20 }
@@ -20,7 +22,11 @@ export const update = (model: Model, msg: Msg): Model => {
 			return { ...model, contextExpansion: { ...model.contextExpansion, [msg.key]: updated } };
 		}
 		case "startDrag":
-			return { ...model, dragSelection: { file: msg.file, startLine: msg.startLine, endLine: msg.startLine }, commentDraft: null };
+			return {
+				...model,
+				dragSelection: { file: msg.file, startLine: msg.startLine, endLine: msg.startLine },
+				commentDraft: null,
+			};
 		case "updateDrag": {
 			if (!model.dragSelection) return model;
 			return { ...model, dragSelection: { ...model.dragSelection, endLine: msg.endLine } };
@@ -29,12 +35,35 @@ export const update = (model: Model, msg: Msg): Model => {
 			if (!model.dragSelection) return model;
 			const lo = Math.min(model.dragSelection.startLine, model.dragSelection.endLine);
 			const hi = Math.max(model.dragSelection.startLine, model.dragSelection.endLine);
-			return { ...model, dragSelection: null, commentDraft: { file: model.dragSelection.file, startLine: lo, endLine: hi } };
+			return {
+				...model,
+				dragSelection: null,
+				commentDraft: {
+					file: model.dragSelection.file,
+					startLine: lo,
+					endLine: hi,
+					...(model.dragSelection.selectedText
+						? { selectedText: model.dragSelection.selectedText }
+						: {}),
+				},
+			};
 		}
 		case "startComment":
 			return { ...model, commentDraft: msg.draft, dragSelection: null };
 		case "cancelComment":
 			return { ...model, commentDraft: null };
+		case "textSelected": {
+			return {
+				...model,
+				commentDraft: {
+					file: msg.file,
+					startLine: msg.startLine,
+					endLine: msg.endLine,
+					selectedText: msg.selectedText,
+				},
+				dragSelection: null,
+			};
+		}
 		case "saveComment": {
 			if (!model.commentDraft) return model;
 			const id = `comment-${++commentIdCounter}`;
@@ -45,6 +74,9 @@ export const update = (model: Model, msg: Msg): Model => {
 				endLine: model.commentDraft.endLine,
 				text: msg.text,
 				code: msg.code,
+				...(model.commentDraft.selectedText
+					? { selectedText: model.commentDraft.selectedText }
+					: {}),
 			};
 			return {
 				...model,
@@ -57,7 +89,13 @@ export const update = (model: Model, msg: Msg): Model => {
 			if (!comment) return model;
 			return {
 				...model,
-				commentDraft: { file: comment.file, startLine: comment.startLine, endLine: comment.endLine },
+				commentDraft: {
+					file: comment.file,
+					startLine: comment.startLine,
+					endLine: comment.endLine,
+					initialText: comment.text,
+					...(comment.selectedText ? { selectedText: comment.selectedText } : {}),
+				},
 				comments: model.comments.filter((c) => c.id !== msg.id),
 			};
 		}
@@ -82,6 +120,9 @@ export const update = (model: Model, msg: Msg): Model => {
 		case "closePastReview":
 			return { ...model, viewingPastReview: null };
 		case "reviewDeleted":
-			return { ...model, pastReviews: model.pastReviews.filter((r) => r.filename !== msg.filename) };
+			return {
+				...model,
+				pastReviews: model.pastReviews.filter((r) => r.filename !== msg.filename),
+			};
 	}
 };

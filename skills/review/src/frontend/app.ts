@@ -1,4 +1,11 @@
-import { init, classModule, propsModule, styleModule, eventListenersModule, attributesModule } from "snabbdom";
+import {
+	attributesModule,
+	classModule,
+	eventListenersModule,
+	init,
+	propsModule,
+	styleModule,
+} from "snabbdom";
 import type { VNode } from "snabbdom";
 import type { Model, Msg, ReviewSubmission } from "../types.ts";
 import { initialModel } from "./model.ts";
@@ -17,12 +24,15 @@ const dispatch = (msg: Msg): void => {
 	if (msg.type === "fetchPastReview") {
 		fetch(`/api/reviews/${encodeURIComponent(msg.filename)}`)
 			.then((r) => r.json())
-			.then((data: { content: string }) => dispatch({ type: "viewPastReview", content: data.content }));
+			.then((data: { content: string }) =>
+				dispatch({ type: "viewPastReview", content: data.content }),
+			);
 	}
 
 	if (msg.type === "deletePastReview") {
-		fetch(`/api/reviews/${encodeURIComponent(msg.filename)}`, { method: "DELETE" })
-			.then(() => dispatch({ type: "reviewDeleted", filename: msg.filename }));
+		fetch(`/api/reviews/${encodeURIComponent(msg.filename)}`, { method: "DELETE" }).then(() =>
+			dispatch({ type: "reviewDeleted", filename: msg.filename }),
+		);
 	}
 
 	if (msg.type === "submit" && !prev.submitted) {
@@ -54,7 +64,7 @@ const scrollToNextFile = (direction: 1 | -1): void => {
 
 	// Find the header closest to the top of the viewport
 	let closestIdx = 0;
-	let closestDist = Infinity;
+	let closestDist = Number.POSITIVE_INFINITY;
 	for (let i = 0; i < headers.length; i++) {
 		const rect = headers[i]!.getBoundingClientRect();
 		const dist = Math.abs(rect.top);

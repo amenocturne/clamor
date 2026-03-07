@@ -1,8 +1,8 @@
+import hljs from "highlight.js";
 import { h } from "snabbdom";
 import type { VNode } from "snabbdom";
-import hljs from "highlight.js";
-import type { Model, Msg, FileDiff, Hunk, DiffLine, ContextExpansion } from "../../types.ts";
-import { savedCommentView, commentBoxView } from "./comment.ts";
+import type { ContextExpansion, DiffLine, FileDiff, Hunk, Model, Msg } from "../../types.ts";
+import { commentBoxView, savedCommentView } from "./comment.ts";
 
 // Track whether we installed the global mouseup listener
 let globalListenerInstalled = false;
@@ -14,6 +14,9 @@ let lastMouseX = 0;
 let lastMouseY = 0;
 let dragMouseMoveHandler: ((e: MouseEvent) => void) | null = null;
 let activeDragFile: string | null = null;
+
+// Floating "Comment" button state for text selection
+let floatingButtonCleanup: (() => void) | null = null;
 
 const SCROLL_EDGE = 60;
 const MAX_SCROLL_SPEED = 20;
@@ -30,7 +33,12 @@ const stopAutoScroll = (): void => {
 	activeDragFile = null;
 };
 
-const startAutoScroll = (dispatch: (msg: Msg) => void, filePath: string, initialX: number, initialY: number): void => {
+const startAutoScroll = (
+	dispatch: (msg: Msg) => void,
+	filePath: string,
+	initialX: number,
+	initialY: number,
+): void => {
 	stopAutoScroll();
 	activeDragFile = filePath;
 	lastMouseX = initialX;
@@ -69,7 +77,7 @@ const startAutoScroll = (dispatch: (msg: Msg) => void, filePath: string, initial
 			if (el) {
 				const row = el.closest("tr[data-line]") as HTMLElement | null;
 				if (row && row.dataset.file === activeDragFile) {
-					const num = parseInt(row.dataset.line!, 10);
+					const num = Number.parseInt(row.dataset.line!, 10);
 					if (!isNaN(num)) {
 						dispatch({ type: "updateDrag", endLine: num });
 					}
@@ -91,6 +99,96 @@ const installGlobalListener = (dispatch: (msg: Msg) => void): void => {
 		stopAutoScroll();
 		if (dispatchRef) dispatchRef({ type: "endDrag" });
 	});
+};
+
+// --- Text Selection Helpers ---
+
+const getLineInfo = (node: Node): { file: string; line: number } | null => {
+	const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+	const row = el?.closest("tr[data-line]") as HTMLElement | null;
+	if (!row) return null;
+	return {
+		file: row.dataset.file!,
+		line: Number.parseInt(row.dataset.line!, 10),
+	};
+};
+
+const removeFloatingButton = (): void => {
+	if (floatingButtonCleanup) {
+		floatingButtonCleanup();
+		floatingButtonCleanup = null;
+	}
+};
+
+const setupTextSelectionListener = (
+	diffArea: HTMLElement,
+	dispatch: (msg: Msg) => void,
+): (() => void) => {
+	const onMouseUp = (): void => {
+		// Defer to let the browser finalize the selection
+		requestAnimationFrame(() => {
+			removeFloatingButton();
+
+			const selection = window.getSelection();
+			if (!selection || selection.isCollapsed || !selection.anchorNode || !selection.focusNode)
+				return;
+
+			const selectedText = selection.toString().trim();
+			if (!selectedText) return;
+
+			const anchorInfo = getLineInfo(selection.anchorNode);
+			const focusInfo = getLineInfo(selection.focusNode);
+			if (!anchorInfo || !focusInfo) return;
+
+			// Ignore cross-file selections
+			if (anchorInfo.file !== focusInfo.file) return;
+
+			const file = anchorInfo.file;
+			const startLine = Math.min(anchorInfo.line, focusInfo.line);
+			const endLine = Math.max(anchorInfo.line, focusInfo.line);
+
+			const range = selection.getRangeAt(0);
+			const rect = range.getBoundingClientRect();
+
+			const btn = document.createElement("button");
+			btn.className = "text-select-comment-btn";
+			btn.textContent = "Comment";
+			btn.style.left = `${rect.left + rect.width / 2 - 40}px`;
+			btn.style.top = `${rect.bottom + 6}px`;
+
+			// Use mousedown + preventDefault so clicking the button doesn't clear the selection
+			const onBtnMouseDown = (e: MouseEvent): void => {
+				e.preventDefault();
+				e.stopPropagation();
+				dispatch({ type: "textSelected", file, startLine, endLine, selectedText });
+				removeFloatingButton();
+				window.getSelection()?.removeAllRanges();
+			};
+			btn.addEventListener("mousedown", onBtnMouseDown);
+
+			document.body.appendChild(btn);
+
+			// Cleanup: remove this button when dismissed
+			const onDocMouseDown = (e: MouseEvent): void => {
+				if (e.target === btn) return;
+				removeFloatingButton();
+			};
+			document.addEventListener("mousedown", onDocMouseDown, { once: true });
+
+			floatingButtonCleanup = () => {
+				btn.removeEventListener("mousedown", onBtnMouseDown);
+				document.removeEventListener("mousedown", onDocMouseDown);
+				if (btn.parentNode) btn.parentNode.removeChild(btn);
+			};
+		});
+	};
+
+	diffArea.addEventListener("mouseup", onMouseUp);
+
+	return () => {
+		diffArea.removeEventListener("mouseup", onMouseUp);
+		removeFloatingButton();
+	};
 };
 
 // --- Helpers ---
@@ -168,13 +266,21 @@ const computeVisibleSegments = (
 	const outer = expansions[hunkKey] ?? { above: DEFAULT_CONTEXT, below: DEFAULT_CONTEXT };
 
 	return clusters.map((cluster, i) => {
-		const start = i === 0
-			? Math.max(0, cluster.first - outer.above)
-			: Math.max(0, cluster.first - DEFAULT_CONTEXT - (expansions[`${hunkKey}-gap-${i - 1}`]?.above ?? 0));
+		const start =
+			i === 0
+				? Math.max(0, cluster.first - outer.above)
+				: Math.max(
+						0,
+						cluster.first - DEFAULT_CONTEXT - (expansions[`${hunkKey}-gap-${i - 1}`]?.above ?? 0),
+					);
 
-		const end = i === clusters.length - 1
-			? Math.min(lines.length, cluster.last + 1 + outer.below)
-			: Math.min(lines.length, cluster.last + 1 + DEFAULT_CONTEXT + (expansions[`${hunkKey}-gap-${i}`]?.above ?? 0));
+		const end =
+			i === clusters.length - 1
+				? Math.min(lines.length, cluster.last + 1 + outer.below)
+				: Math.min(
+						lines.length,
+						cluster.last + 1 + DEFAULT_CONTEXT + (expansions[`${hunkKey}-gap-${i}`]?.above ?? 0),
+					);
 
 		return { start, end };
 	});
@@ -230,16 +336,10 @@ const lineView = (
 	const selected = hasNewNum && isLineSelected(lineNum, model, file.path);
 	const dragging = hasNewNum && isLineDragging(lineNum, model, file.path);
 
-	// Row-level handlers — entire row is clickable for selection
+	// Row-level handler — only mouseenter for updating drag range
 	const rowHandlers: Record<string, (e: Event) => void> = {};
 
 	if (hasNewNum) {
-		rowHandlers.mousedown = (e: Event) => {
-			e.preventDefault();
-			startAutoScroll(dispatch, file.path, (e as MouseEvent).clientX, (e as MouseEvent).clientY);
-			dispatch({ type: "startDrag", file: file.path, startLine: lineNum });
-		};
-
 		rowHandlers.mouseenter = () => {
 			if (model.dragSelection && model.dragSelection.file === file.path) {
 				dispatch({ type: "updateDrag", endLine: lineNum });
@@ -247,70 +347,107 @@ const lineView = (
 		};
 	}
 
-	return h(`tr.${lineClass}`, {
-		key: `${file.path}:${line.oldNum}:${line.newNum}`,
-		class: {
-			"line-selected": selected,
-			"line-selecting": dragging,
+	// Gutter-level handler — mousedown starts line drag selection
+	const gutterHandlers: Record<string, (e: Event) => void> = {};
+
+	if (hasNewNum) {
+		gutterHandlers.mousedown = (e: Event) => {
+			e.preventDefault();
+			startAutoScroll(dispatch, file.path, (e as MouseEvent).clientX, (e as MouseEvent).clientY);
+			dispatch({ type: "startDrag", file: file.path, startLine: lineNum });
+		};
+	}
+
+	return h(
+		`tr.${lineClass}`,
+		{
+			key: `${file.path}:${line.oldNum}:${line.newNum}`,
+			class: {
+				"line-selected": selected,
+				"line-selecting": dragging,
+			},
+			attrs: hasNewNum ? { "data-file": file.path, "data-line": String(lineNum) } : {},
+			on: rowHandlers,
 		},
-		attrs: hasNewNum ? { "data-file": file.path, "data-line": String(lineNum) } : {},
-		on: rowHandlers,
-	}, [
-		h("td.gutter", {
-			class: { "gutter-del": line.type === "delete" },
-			attrs: hasNewNum ? {
-				role: "button",
-				tabindex: "0",
-				"aria-label": `Select line ${lineNum} for comment`,
-			} : {},
-		}, hasNewNum ? String(lineNum) : line.oldNum != null ? String(line.oldNum) : ""),
-		lineContentCell(highlighted),
-	]);
+		[
+			h(
+				"td.gutter",
+				{
+					class: { "gutter-del": line.type === "delete" },
+					attrs: hasNewNum
+						? {
+								role: "button",
+								tabindex: "0",
+								"aria-label": `Select line ${lineNum} for comment`,
+							}
+						: {},
+					on: gutterHandlers,
+				},
+				hasNewNum ? String(lineNum) : line.oldNum != null ? String(line.oldNum) : "",
+			),
+			lineContentCell(highlighted),
+		],
+	);
 };
 
 // --- Expand Arrows ---
 
-const expandArrow = (key: string, direction: "above" | "below", dispatch: (msg: Msg) => void): VNode =>
-	h("tr.expand-row", {
-		key: `expand-${key}-${direction}`,
-		attrs: {
-			role: "button",
-			tabindex: "0",
-			"aria-label": direction === "above" ? "Show 20 more lines above" : "Show 20 more lines below",
-		},
-		on: {
-			click: () => dispatch({ type: "expandContext", key, direction }),
-			keydown: (e: KeyboardEvent) => {
-				if (e.key === "Enter" || e.key === " ") {
-					e.preventDefault();
-					dispatch({ type: "expandContext", key, direction });
-				}
+const expandArrow = (
+	key: string,
+	direction: "above" | "below",
+	dispatch: (msg: Msg) => void,
+): VNode =>
+	h(
+		"tr.expand-row",
+		{
+			key: `expand-${key}-${direction}`,
+			attrs: {
+				role: "button",
+				tabindex: "0",
+				"aria-label":
+					direction === "above" ? "Show 20 more lines above" : "Show 20 more lines below",
+			},
+			on: {
+				click: () => dispatch({ type: "expandContext", key, direction }),
+				keydown: (e: KeyboardEvent) => {
+					if (e.key === "Enter" || e.key === " ") {
+						e.preventDefault();
+						dispatch({ type: "expandContext", key, direction });
+					}
+				},
 			},
 		},
-	}, [
-		h("td", { attrs: { colspan: 2 } }, direction === "above" ? "\u25B2 Show more" : "\u25BC Show more"),
-	]);
+		[
+			h(
+				"td",
+				{ attrs: { colspan: 2 } },
+				direction === "above" ? "\u25B2 Show more" : "\u25BC Show more",
+			),
+		],
+	);
 
 const foldArrow = (key: string, hiddenCount: number, dispatch: (msg: Msg) => void): VNode =>
-	h("tr.fold-row", {
-		key: `fold-${key}`,
-		attrs: {
-			role: "button",
-			tabindex: "0",
-			"aria-label": `Show ${hiddenCount} hidden lines`,
-		},
-		on: {
-			click: () => dispatch({ type: "expandContext", key, direction: "above" }),
-			keydown: (e: KeyboardEvent) => {
-				if (e.key === "Enter" || e.key === " ") {
-					e.preventDefault();
-					dispatch({ type: "expandContext", key, direction: "above" });
-				}
+	h(
+		"tr.fold-row",
+		{
+			key: `fold-${key}`,
+			attrs: {
+				role: "button",
+				tabindex: "0",
+				"aria-label": `Show ${hiddenCount} hidden lines`,
+			},
+			on: {
+				click: () => dispatch({ type: "expandContext", key, direction: "above" }),
+				keydown: (e: KeyboardEvent) => {
+					if (e.key === "Enter" || e.key === " ") {
+						e.preventDefault();
+						dispatch({ type: "expandContext", key, direction: "above" });
+					}
+				},
 			},
 		},
-	}, [
-		h("td", { attrs: { colspan: 2 } }, `\u22EF ${hiddenCount} lines \u22EF`),
-	]);
+		[h("td", { attrs: { colspan: 2 } }, `\u22EF ${hiddenCount} lines \u22EF`)],
+	);
 
 // --- Hunk View ---
 
@@ -404,12 +541,13 @@ const fileHeaderView = (file: FileDiff, fileIdx: number): VNode => {
 	if (stats.added > 0 && stats.deleted > 0) statsNodes.push(h("span", " "));
 	if (stats.deleted > 0) statsNodes.push(h("span.file-stats-del", `-${stats.deleted}`));
 
-	return h("div.file-header", {
-		attrs: { "data-file-idx": String(fileIdx) },
-	}, [
-		h("div", pathParts),
-		h("span.file-change-stats", statsNodes),
-	]);
+	return h(
+		"div.file-header",
+		{
+			attrs: { "data-file-idx": String(fileIdx) },
+		},
+		[h("div", pathParts), h("span.file-change-stats", statsNodes)],
+	);
 };
 
 const fileView = (
@@ -435,23 +573,33 @@ const fileView = (
 		// Hunk separator between hunks
 		if (hunkIdx > 0) {
 			tableRows.push(
-				h("tr.hunk-separator", { key: `sep-${fileIdx}-${hunkIdx}` }, [h("td", { attrs: { colspan: 2 } })]),
+				h("tr.hunk-separator", { key: `sep-${fileIdx}-${hunkIdx}` }, [
+					h("td", { attrs: { colspan: 2 } }),
+				]),
 			);
 		}
 
 		const hunk = file.hunks[hunkIdx]!;
-		const rows = hunkView(hunk, highlightedLines, lineOffset, file, fileIdx, hunkIdx, model, dispatch);
+		const rows = hunkView(
+			hunk,
+			highlightedLines,
+			lineOffset,
+			file,
+			fileIdx,
+			hunkIdx,
+			model,
+			dispatch,
+		);
 		tableRows.push(...rows);
 		lineOffset += hunk.lines.length;
 	}
 
-	children.push(h("table.diff-table", [
-		h("colgroup", [
-			h("col", { style: { width: "55px" } }),
-			h("col"),
+	children.push(
+		h("table.diff-table", [
+			h("colgroup", [h("col", { style: { width: "55px" } }), h("col")]),
+			h("tbody", tableRows),
 		]),
-		h("tbody", tableRows),
-	]));
+	);
 
 	if (file.truncated) {
 		children.push(h("div.truncated-notice", "File truncated for display."));
@@ -462,16 +610,34 @@ const fileView = (
 
 // --- Diff Area ---
 
+// Track the cleanup function from the last setupTextSelectionListener call
+let textSelectionCleanup: (() => void) | null = null;
+
 export const diffAreaView = (model: Model, dispatch: (msg: Msg) => void): VNode => {
 	const data = model.data!;
 	const diffData = data.diffs[model.activeView];
 	const files = diffData?.files ?? [];
 
 	if (files.length === 0) {
-		return h("div.diff-area", [
-			h("div.empty-state", "No files to display."),
-		]);
+		return h("div.diff-area", [h("div.empty-state", "No files to display.")]);
 	}
 
-	return h("div.diff-area", files.map((file, idx) => fileView(file, idx, model, dispatch)));
+	return h(
+		"div.diff-area",
+		{
+			hook: {
+				insert: (vnode) => {
+					if (textSelectionCleanup) textSelectionCleanup();
+					textSelectionCleanup = setupTextSelectionListener(vnode.elm as HTMLElement, dispatch);
+				},
+				destroy: () => {
+					if (textSelectionCleanup) {
+						textSelectionCleanup();
+						textSelectionCleanup = null;
+					}
+				},
+			},
+		},
+		files.map((file, idx) => fileView(file, idx, model, dispatch)),
+	);
 };

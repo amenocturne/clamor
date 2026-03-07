@@ -54,10 +54,8 @@ const extractCode = (model: Model): string => {
 const handleCommentBoxKeydown = (e: KeyboardEvent): void => {
 	if (e.key !== "Tab") return;
 
-	const container = (e.currentTarget as HTMLElement);
-	const focusable = Array.from(
-		container.querySelectorAll<HTMLElement>("button, textarea"),
-	);
+	const container = e.currentTarget as HTMLElement;
+	const focusable = Array.from(container.querySelectorAll<HTMLElement>("button, textarea"));
 	if (focusable.length === 0) return;
 
 	const first = focusable[0]!;
@@ -85,102 +83,130 @@ export const commentBoxView = (model: Model, dispatch: (msg: Msg) => void): VNod
 	if (key !== lastDraftKey) {
 		// New draft opened — reset ephemeral state and capture focus for restoration
 		captureFocus();
-		draftText = "";
+		draftText = model.commentDraft?.initialText ?? "";
 		lastDraftKey = key;
 	}
 
-	return h("tr.comment-box-row", { key: `draft-${model.commentDraft.file}:${model.commentDraft.startLine}` }, [
-		h("td", { attrs: { colspan: 2 } }, [
-			h("div.comment-box", {
-				attrs: { role: "dialog", "aria-label": "Add comment" },
-				on: { keydown: handleCommentBoxKeydown },
-			}, [
-				h("textarea.comment-textarea", {
-					props: { value: draftText, placeholder: "Add your comment..." },
-					attrs: { "aria-label": "Comment text" },
-					hook: {
-						insert: (vnode) => {
-							const el = vnode.elm as HTMLTextAreaElement;
-							el.focus();
-						},
+	return h(
+		"tr.comment-box-row",
+		{ key: `draft-${model.commentDraft.file}:${model.commentDraft.startLine}` },
+		[
+			h("td", { attrs: { colspan: 2 } }, [
+				h(
+					"div.comment-box",
+					{
+						attrs: { role: "dialog", "aria-label": "Add comment" },
+						on: { keydown: handleCommentBoxKeydown },
 					},
-					on: {
-						input: (e: Event) => {
-							draftText = (e.target as HTMLTextAreaElement).value;
-						},
-						keydown: (e: KeyboardEvent) => {
-							if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-								e.preventDefault();
-								const code = extractCode(model);
-								dispatch({ type: "saveComment", text: draftText, code });
-								draftText = "";
-								lastDraftKey = null;
-								restoreFocus();
-							}
-							if (e.key === "Escape") {
-								e.preventDefault();
-								dispatch({ type: "cancelComment" });
-								draftText = "";
-								lastDraftKey = null;
-								restoreFocus();
-							}
-						},
-					},
-				}),
-				h("div.comment-actions", [
-					h("button.btn.btn-ghost", {
-						attrs: { "aria-label": "Cancel comment" },
-						on: {
-							click: () => {
-								dispatch({ type: "cancelComment" });
-								draftText = "";
-								lastDraftKey = null;
-								restoreFocus();
+					[
+						h("textarea.comment-textarea", {
+							props: { value: draftText, placeholder: "Add your comment..." },
+							attrs: { "aria-label": "Comment text" },
+							hook: {
+								insert: (vnode) => {
+									const el = vnode.elm as HTMLTextAreaElement;
+									el.focus();
+								},
 							},
-						},
-					}, "Cancel"),
-					h("button.btn.btn-primary", {
-						attrs: { "aria-label": "Save comment" },
-						on: {
-							click: () => {
-								const code = extractCode(model);
-								dispatch({ type: "saveComment", text: draftText, code });
-								draftText = "";
-								lastDraftKey = null;
-								restoreFocus();
+							on: {
+								input: (e: Event) => {
+									draftText = (e.target as HTMLTextAreaElement).value;
+								},
+								keydown: (e: KeyboardEvent) => {
+									if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+										e.preventDefault();
+										const code = extractCode(model);
+										dispatch({ type: "saveComment", text: draftText, code });
+										draftText = "";
+										lastDraftKey = null;
+										restoreFocus();
+									}
+									if (e.key === "Escape") {
+										e.preventDefault();
+										dispatch({ type: "cancelComment" });
+										draftText = "";
+										lastDraftKey = null;
+										restoreFocus();
+									}
+								},
 							},
-						},
-					}, "Save"),
-				]),
+						}),
+						h("div.comment-actions", [
+							h(
+								"button.btn.btn-ghost",
+								{
+									attrs: { "aria-label": "Cancel comment" },
+									on: {
+										click: () => {
+											dispatch({ type: "cancelComment" });
+											draftText = "";
+											lastDraftKey = null;
+											restoreFocus();
+										},
+									},
+								},
+								"Cancel",
+							),
+							h(
+								"button.btn.btn-primary",
+								{
+									attrs: { "aria-label": "Save comment" },
+									on: {
+										click: () => {
+											const code = extractCode(model);
+											dispatch({ type: "saveComment", text: draftText, code });
+											draftText = "";
+											lastDraftKey = null;
+											restoreFocus();
+										},
+									},
+								},
+								"Save",
+							),
+						]),
+					],
+				),
 			]),
-		]),
-	]);
+		],
+	);
 };
 
 // --- Saved Comment Banner ---
 
 export const savedCommentView = (comment: StoredComment, dispatch: (msg: Msg) => void): VNode =>
-	h("tr.comment-box-row", {
-		key: `comment-${comment.id}`,
-		attrs: { "data-comment-id": comment.id },
-	}, [
-		h("td", { attrs: { colspan: 2 } }, [
-			h("div.saved-comment", {
-				on: { click: () => dispatch({ type: "editComment", id: comment.id }) },
-			}, [
-				h("div.saved-comment-header", [
-					h("span.saved-comment-location", `${comment.file}:${comment.startLine}`),
-					h("button.btn-delete-comment", {
-						attrs: { "aria-label": "Delete comment" },
-						on: {
-							click: (e: Event) => {
-								e.stopPropagation();
-								dispatch({ type: "deleteComment", id: comment.id });
-							},
-						},
-					}, "\u00D7"),
-				]),
-				h("div", comment.text),
+	h(
+		"tr.comment-box-row",
+		{
+			key: `comment-${comment.id}`,
+			attrs: { "data-comment-id": comment.id },
+		},
+		[
+			h("td", { attrs: { colspan: 2 } }, [
+				h(
+					"div.saved-comment",
+					{
+						on: { click: () => dispatch({ type: "editComment", id: comment.id }) },
+					},
+					[
+						h("div.saved-comment-header", [
+							h("span.saved-comment-location", `${comment.file}:${comment.startLine}`),
+							h(
+								"button.btn-delete-comment",
+								{
+									attrs: { "aria-label": "Delete comment" },
+									on: {
+										click: (e: Event) => {
+											e.stopPropagation();
+											dispatch({ type: "deleteComment", id: comment.id });
+										},
+									},
+								},
+								"\u00D7",
+							),
+						]),
+						h("div", comment.text),
+					],
+				),
 			]),
-		]),
-	]);
+		],
+	);

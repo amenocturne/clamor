@@ -24,7 +24,8 @@ const formatCodeBlock = (code: string): string =>
 const formatComment = (comment: ReviewComment): string => {
 	const heading = `### ${formatLineRange(comment)}`;
 	const code = formatCodeBlock(comment.code);
-	return `${heading}\n\n${code}\n\n${comment.text}`;
+	const selected = comment.selectedText ? `\n\n> ${comment.selectedText}` : "";
+	return `${heading}\n\n${code}${selected}\n\n${comment.text}`;
 };
 
 const groupByFile = (
@@ -104,6 +105,10 @@ export const formatAnnotation = (submission: ReviewSubmission, filePath: string)
 			lines.push(`### ${formatLineRange(comment)}`);
 			lines.push("");
 			lines.push(formatCodeBlock(comment.code));
+			if (comment.selectedText) {
+				lines.push("");
+				lines.push(`> ${comment.selectedText}`);
+			}
 			lines.push("");
 			lines.push(comment.text);
 		}
