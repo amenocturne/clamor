@@ -315,6 +315,19 @@ OG images: minimum 600x315, recommended 1200x630.
 **Low:**
 - 2x/3x variants for retina displays
 
+## Known Issues
+
+### Bun `--compile` leaves `.bun-build` artifacts
+
+`bun build --compile` creates ~58 MB temp files (`.*.bun-build`) that aren't cleaned up automatically ([oven-sh/bun#14020](https://github.com/oven-sh/bun/issues/14020)). They accumulate fast across builds.
+
+**Workaround:** Add cleanup to the build script:
+```json
+"build": "bun build src/index.ts --compile --outfile dist/app && rm -f .*.bun-build"
+```
+
+Also ensure `.gitignore` includes `*.bun-build`.
+
 ## Anti-patterns
 
 **Design:**
