@@ -34,16 +34,27 @@ yt-subs.py <url> [--output=PATH] [--lang=LANG] [--raw]
 
 ### inject-transcript.py
 
-Injects a previously downloaded transcript into a note that contains a `{{transcript}}` placeholder.
+Injects a transcript or lyrics into a note that contains a `{{transcript}}` placeholder.
 
 ```
-inject-transcript.py <note-path> [--keep]
+inject-transcript.py <note-path> [--keep] [--file=PATH] [--lyrics]
 ```
 
+**YouTube mode** (default):
 - Reads source URL from note's frontmatter
 - Finds transcript in `tmp/<video_id>.txt`
-- Replaces `{{transcript}}` placeholder with formatted content
-- Deletes tmp file (unless `--keep`)
+- Groups text into paragraphs for readability
+
+**Direct file mode** (`--file=PATH`):
+- Uses the specified file directly, no frontmatter lookup
+- Works for any transcript source (podcasts, lectures, manual downloads)
+
+**Lyrics mode** (`--lyrics`):
+- Preserves original line breaks and section headers (`[Verse]`, `[Chorus]`)
+- Combine with `--file` for lyrics: `--file=tmp/lyrics.txt --lyrics`
+
+Common options:
+- `--keep` — keep the source file after injection (default: delete)
 
 ## Handling Long Transcripts
 

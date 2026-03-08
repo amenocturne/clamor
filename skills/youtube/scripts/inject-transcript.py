@@ -4,26 +4,28 @@
 # dependencies = []
 # ///
 """
-Inject transcript into a source note.
+Inject transcript or lyrics into a source note.
 
 Usage:
-    inject-transcript.py <source-note> [--keep]
+    inject-transcript.py <source-note> [--keep] [--file=PATH] [--lyrics]
 
 Arguments:
-    source-note     Path to the source note (must have URL in frontmatter)
+    source-note     Path to the source note
 
 Options:
-    --keep          Keep the tmp transcript file after injection (default: delete)
+    --keep          Keep the tmp file after injection (default: delete)
+    --file=PATH     Use this file directly instead of looking up via YouTube URL
+    --lyrics        Preserve original line breaks (for lyrics with [Verse]/[Chorus] etc.)
 
-The script:
-1. Reads the source note's frontmatter to get the YouTube URL
-2. Extracts video ID from the URL
-3. Finds transcript at tmp/<video_id>.txt
-4. Replaces {{transcript}} placeholder with the content
-5. Deletes the tmp file (unless --keep)
+Modes:
+    YouTube (default):  Reads frontmatter source URL → extracts video ID → finds tmp/<id>.txt
+    Direct (--file):    Uses the specified file directly, no frontmatter lookup needed
+    Lyrics (--lyrics):  Same as direct/YouTube but preserves formatting instead of paragraph-grouping
 
 Examples:
     inject-transcript.py sources/youtube/video-title.md
+    inject-transcript.py sources/music/track-artist-song.md --file=tmp/lyrics.txt --lyrics
+    inject-transcript.py sources/podcasts/episode.md --file=tmp/episode-transcript.txt
     inject-transcript.py sources/youtube/video-title.md --keep
 """
 
@@ -78,6 +80,11 @@ def format_transcript(raw_text: str) -> str:
     return "\n\n".join(paragraphs)
 
 
+def format_lyrics(raw_text: str) -> str:
+    """Format lyrics - preserve line breaks and section headers."""
+    return "\n".join(line.rstrip() for line in raw_text.strip().split("\n"))
+
+
 def find_tmp_dir(start: Path) -> Path:
     """Find tmp directory - look for CLAUDE.md or use cwd/tmp."""
     current = start.resolve()
@@ -88,6 +95,15 @@ def find_tmp_dir(start: Path) -> Path:
     return Path.cwd() / "tmp"
 
 
+def parse_valued_arg(args: list[str], name: str) -> str | None:
+    """Parse --name=VALUE from args list."""
+    prefix = f"--{name}="
+    for arg in args:
+        if arg.startswith(prefix):
+            return arg[len(prefix):]
+    return None
+
+
 def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print(__doc__)
@@ -95,6 +111,8 @@ def main():
 
     source_note_path = sys.argv[1]
     keep_tmp = "--keep" in sys.argv
+    lyrics_mode = "--lyrics" in sys.argv
+    direct_file = parse_valued_arg(sys.argv[2:], "file")
 
     note_path = Path(source_note_path).resolve()
 
@@ -111,33 +129,43 @@ def main():
         )
         sys.exit(1)
 
-    source_url = extract_source_url(content)
-    if not source_url:
-        print("Error: No 'source:' URL found in frontmatter", file=sys.stderr)
-        sys.exit(1)
+    if direct_file:
+        transcript_path = Path(direct_file).resolve()
+        if not transcript_path.exists():
+            print(f"Error: File not found: {transcript_path}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        source_url = extract_source_url(content)
+        if not source_url:
+            print("Error: No 'source:' URL found in frontmatter", file=sys.stderr)
+            print("Hint: Use --file=PATH to specify transcript file directly", file=sys.stderr)
+            sys.exit(1)
 
-    video_id = extract_video_id(source_url)
-    if not video_id:
-        print(
-            f"Error: Could not extract video ID from URL: {source_url}", file=sys.stderr
-        )
-        sys.exit(1)
+        video_id = extract_video_id(source_url)
+        if not video_id:
+            print(
+                f"Error: Could not extract video ID from URL: {source_url}",
+                file=sys.stderr,
+            )
+            print("Hint: Use --file=PATH for non-YouTube sources", file=sys.stderr)
+            sys.exit(1)
 
-    tmp_dir = find_tmp_dir(note_path)
-    transcript_path = tmp_dir / f"{video_id}.txt"
+        tmp_dir = find_tmp_dir(note_path)
+        transcript_path = tmp_dir / f"{video_id}.txt"
 
-    if not transcript_path.exists():
-        print(f"Error: Transcript not found: {transcript_path}", file=sys.stderr)
-        print(f"Run: yt-subs.py {source_url}", file=sys.stderr)
-        sys.exit(1)
+        if not transcript_path.exists():
+            print(f"Error: Transcript not found: {transcript_path}", file=sys.stderr)
+            print(f"Run: yt-subs.py {source_url}", file=sys.stderr)
+            sys.exit(1)
 
     raw_transcript = transcript_path.read_text()
-    formatted = format_transcript(raw_transcript)
+    formatted = format_lyrics(raw_transcript) if lyrics_mode else format_transcript(raw_transcript)
 
     new_content = content.replace("{{transcript}}", formatted)
     note_path.write_text(new_content)
 
-    print(f"Injected transcript into {note_path.name}")
+    label = "lyrics" if lyrics_mode else "transcript"
+    print(f"Injected {label} into {note_path.name}")
 
     if not keep_tmp:
         transcript_path.unlink()

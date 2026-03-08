@@ -9,6 +9,17 @@ Create source note in `sources/<type>/` using the source template (see `.claude/
 - Include `{{transcript}}` placeholder where lyrics or transcript text belongs — a script resolves this placeholder later. **Never paste lyrics or transcripts inline.** Only use the placeholder.
 - Fill in metadata: URL, title, type
 
+### Injecting Transcripts
+
+**YouTube videos** — use `yt-subs.py` to download, then `inject-transcript.py` (default mode).
+
+**Manual transcripts** (podcasts, lectures, non-YouTube) — save the transcript as a text file, then inject directly:
+```bash
+inject-transcript.py sources/podcasts/episode.md --file=tmp/transcript.txt
+```
+
+**Lyrics** — use `fetch-lyrics.py` with `--output`, then inject with `--lyrics` flag (see Music Sources below).
+
 ### Step 2: Create Notes Based on User's Reactions
 
 **Only extract notes for concepts the user commented on or reacted to.**
@@ -72,9 +83,10 @@ For casual references, album notes with tracklist may suffice.
 
 ### Fetching Lyrics
 
-Use the **lyrics** skill to fetch lyrics from Genius:
+Use the **lyrics** skill to fetch lyrics from Genius, then inject into the note:
 ```bash
-uv run .claude/skills/lyrics/scripts/fetch-lyrics.py --artist "Artist" --song "Song"
+uv run .claude/skills/lyrics/scripts/fetch-lyrics.py --artist "Artist" --song "Song" --output tmp/lyrics.txt
+uv run .claude/skills/youtube/scripts/inject-transcript.py sources/music/track-artist-song.md --file=tmp/lyrics.txt --lyrics
 ```
 
 ## Source Credibility Assessment

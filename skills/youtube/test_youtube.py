@@ -450,6 +450,28 @@ class TestFormatTranscript:
         assert len(paragraphs) == 2
 
 
+class TestFormatLyrics:
+    """Test lyrics formatting - preserves structure."""
+
+    def test_preserves_line_breaks(self):
+        text = "[Verse 1]\nHello world\nSecond line\n\n[Chorus]\nHook"
+        result = inject_transcript.format_lyrics(text)
+        assert result == "[Verse 1]\nHello world\nSecond line\n\n[Chorus]\nHook"
+
+    def test_strips_trailing_whitespace(self):
+        text = "Line one   \nLine two  "
+        result = inject_transcript.format_lyrics(text)
+        assert result == "Line one\nLine two"
+
+    def test_empty_input(self):
+        assert inject_transcript.format_lyrics("") == ""
+
+    def test_preserves_blank_lines_between_sections(self):
+        text = "[Verse]\nLyrics\n\n\n[Chorus]\nMore lyrics"
+        result = inject_transcript.format_lyrics(text)
+        assert "\n\n\n" in result  # blank lines preserved
+
+
 class TestFindTmpDir:
     """Test tmp directory discovery logic."""
 
@@ -611,6 +633,104 @@ class TestInjectTranscriptPlaceholder:
             with pytest.raises(SystemExit) as exc_info:
                 inject_transcript.main()
             assert exc_info.value.code == 1
+
+    def test_direct_file_mode(self, tmp_path):
+        """--file=PATH bypasses YouTube URL lookup."""
+        note = tmp_path / "note.md"
+        note.write_text("---\ntitle: Podcast\n---\n\n{{transcript}}")
+
+        transcript = tmp_path / "manual.txt"
+        transcript.write_text("Manually downloaded\ntranscript content")
+
+        with patch.object(
+            sys, "argv",
+            ["inject-transcript.py", str(note), f"--file={transcript}"],
+        ):
+            inject_transcript.main()
+
+        result = note.read_text()
+        assert "{{transcript}}" not in result
+        assert "Manually downloaded" in result
+        assert not transcript.exists()  # deleted by default
+
+    def test_direct_file_with_keep(self, tmp_path):
+        note = tmp_path / "note.md"
+        note.write_text("---\ntitle: Test\n---\n\n{{transcript}}")
+
+        transcript = tmp_path / "manual.txt"
+        transcript.write_text("Some content")
+
+        with patch.object(
+            sys, "argv",
+            ["inject-transcript.py", str(note), f"--file={transcript}", "--keep"],
+        ):
+            inject_transcript.main()
+
+        assert transcript.exists()
+
+    def test_direct_file_not_found_exits(self, tmp_path):
+        note = tmp_path / "note.md"
+        note.write_text("---\ntitle: Test\n---\n\n{{transcript}}")
+
+        with patch.object(
+            sys, "argv",
+            ["inject-transcript.py", str(note), "--file=/nonexistent/path.txt"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                inject_transcript.main()
+            assert exc_info.value.code == 1
+
+    def test_lyrics_mode_preserves_formatting(self, tmp_path):
+        """--lyrics preserves line breaks and section headers."""
+        note = tmp_path / "note.md"
+        note.write_text("---\ntitle: Song\n---\n\n{{transcript}}")
+
+        lyrics = tmp_path / "lyrics.txt"
+        lyrics.write_text("[Verse 1]\nFirst line\nSecond line\n\n[Chorus]\nHook line")
+
+        with patch.object(
+            sys, "argv",
+            ["inject-transcript.py", str(note), f"--file={lyrics}", "--lyrics"],
+        ):
+            inject_transcript.main()
+
+        result = note.read_text()
+        assert "[Verse 1]" in result
+        assert "[Chorus]" in result
+        # Lines should NOT be joined into paragraphs
+        assert "First line\nSecond line" in result
+
+    def test_lyrics_mode_without_direct_file(self, tmp_path):
+        """--lyrics works with YouTube mode too."""
+        note = tmp_path / "note.md"
+        note.write_text(
+            "---\nsource: https://youtu.be/NbGuDcRSXlQ\n---\n\n{{transcript}}"
+        )
+
+        (tmp_path / "CLAUDE.md").write_text("")
+        tmp_dir = tmp_path / "tmp"
+        tmp_dir.mkdir()
+        (tmp_dir / "NbGuDcRSXlQ.txt").write_text("Line one\nLine two\nLine three")
+
+        with patch.object(
+            sys, "argv", ["inject-transcript.py", str(note), "--lyrics"]
+        ):
+            inject_transcript.main()
+
+        result = note.read_text()
+        assert "Line one\nLine two\nLine three" in result
+
+    def test_missing_source_url_hints_file_flag(self, tmp_path, capsys):
+        """Error message suggests --file when source URL is missing."""
+        note = tmp_path / "note.md"
+        note.write_text("---\ntitle: Test\n---\n\n{{transcript}}")
+
+        with patch.object(sys, "argv", ["inject-transcript.py", str(note)]):
+            with pytest.raises(SystemExit):
+                inject_transcript.main()
+
+        captured = capsys.readouterr()
+        assert "--file=PATH" in captured.err
 
     def test_preserves_surrounding_content(self, tmp_path):
         note = tmp_path / "note.md"
