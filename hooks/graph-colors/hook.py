@@ -11,9 +11,10 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 
-def find_vault_root(start: Path) -> Path | None:
+def find_vault_root(start: Path) -> Optional[Path]:
     """Find vault root by looking for .obsidian folder."""
     current = start.resolve()
     while current != current.parent:
@@ -23,7 +24,7 @@ def find_vault_root(start: Path) -> Path | None:
     return None
 
 
-def find_script() -> Path | None:
+def find_script() -> Optional[Path]:
     """Find the obsidian-graph-colors.py script."""
     # Look relative to this hook
     hook_dir = Path(__file__).parent
