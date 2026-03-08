@@ -1,0 +1,10 @@
+default:
+    @just --list
+
+# Transcribe audio locally with Whisper
+transcribe *FLAGS:
+    uv run scripts/transcribe.py {{FLAGS}}
+
+# Transcribe audio via OpenRouter API
+transcribe-api *FLAGS:
+    uv run scripts/transcribe_api.py {{FLAGS}}

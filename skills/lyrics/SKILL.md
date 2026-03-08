@@ -8,7 +8,7 @@ author: amenocturne
 
 Fetch song lyrics from Genius using the lyricsgenius library.
 
-> All script paths below are relative to this skill folder.
+> Run commands via justfile: `just -f <skill-path>/justfile <recipe> [flags]`
 
 ## Configuration
 
@@ -19,31 +19,31 @@ The script reads the Genius API token from `~/.claude/projects/.claude/agentic-k
 ### Fetch a single song
 
 ```bash
-uv run scripts/fetch-lyrics.py --artist "Artist Name" --song "Song Title"
+just -f <skill-path>/justfile fetch --artist "Artist Name" --song "Song Title"
 ```
 
 ### List all songs by an artist
 
 ```bash
-uv run scripts/fetch-lyrics.py --artist "Artist Name" --list
+just -f <skill-path>/justfile fetch --artist "Artist Name" --list
 ```
 
 ### Fetch multiple songs by an artist
 
 ```bash
-uv run scripts/fetch-lyrics.py --artist "Artist Name" --songs "Song 1" "Song 2" "Song 3"
+just -f <skill-path>/justfile fetch --artist "Artist Name" --songs "Song 1" "Song 2" "Song 3"
 ```
 
 ### Fetch all songs from an artist (up to N)
 
 ```bash
-uv run scripts/fetch-lyrics.py --artist "Artist Name" --all --max 20
+just -f <skill-path>/justfile fetch --artist "Artist Name" --all --max 20
 ```
 
 ### Save to file
 
 ```bash
-uv run scripts/fetch-lyrics.py --artist "Artist Name" --song "Song Title" --output tmp/lyrics.txt
+just -f <skill-path>/justfile fetch --artist "Artist Name" --song "Song Title" --output tmp/lyrics.txt
 ```
 
 ## Output Format

@@ -1,6 +1,10 @@
 default:
     @just --list
 
+# Launch review server (pass flags after --)
+launch *FLAGS:
+    bun run src/server.ts -- {{FLAGS}}
+
 dev:
     bun run src/server.ts
 

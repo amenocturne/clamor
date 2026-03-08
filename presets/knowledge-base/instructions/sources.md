@@ -85,8 +85,8 @@ For casual references, album notes with tracklist may suffice.
 
 Use the **lyrics** skill to fetch lyrics from Genius, then inject into the note:
 ```bash
-uv run .claude/skills/lyrics/scripts/fetch-lyrics.py --artist "Artist" --song "Song" --output tmp/lyrics.txt
-uv run .claude/skills/youtube/scripts/inject-transcript.py sources/music/track-artist-song.md --file=tmp/lyrics.txt --lyrics
+just -f .claude/skills/lyrics/justfile fetch --artist "Artist" --song "Song" --output tmp/lyrics.txt
+just -f .claude/skills/youtube/justfile inject sources/music/track-artist-song.md --file=tmp/lyrics.txt --lyrics
 ```
 
 ## Source Credibility Assessment

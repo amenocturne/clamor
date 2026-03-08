@@ -8,7 +8,7 @@ author: amenocturne
 
 Transcribe audio files when no subtitles are available.
 
-> All script paths below are relative to this skill folder.
+> Run commands via justfile: `just -f <skill-path>/justfile <recipe> [flags]`
 
 ## When to Use
 
@@ -20,12 +20,12 @@ Transcribe audio files when no subtitles are available.
 - **API**: `OPENROUTER_API_KEY` environment variable
 - **Large files**: `ffmpeg` for chunking
 
-## Scripts
+## Recipes
 
-### Local (offline, private)
+### transcribe (local, offline, private)
 
 ```bash
-uv run scripts/transcribe.py <audio_file> [--model=MODEL] [--lang=LANG] [--output=PATH]
+just -f <skill-path>/justfile transcribe <audio_file> [--model=MODEL] [--lang=LANG] [--output=PATH]
 ```
 
 - Uses faster-whisper (local Whisper)
@@ -34,10 +34,10 @@ uv run scripts/transcribe.py <audio_file> [--model=MODEL] [--lang=LANG] [--outpu
 - Fast/CPU: `--model=small`
 - Default output: `tmp/<filename>.txt`
 
-### API (fast, no GPU)
+### transcribe-api (fast, no GPU)
 
 ```bash
-uv run scripts/transcribe_api.py <audio_file> [--lang=LANG] [--output=PATH]
+just -f <skill-path>/justfile transcribe-api <audio_file> [--lang=LANG] [--output=PATH]
 ```
 
 - Uses OpenRouter API with Gemini Flash
@@ -54,16 +54,16 @@ uv run scripts/transcribe_api.py <audio_file> [--lang=LANG] [--output=PATH]
 
 2. Transcribe:
    ```bash
-   uv run scripts/transcribe.py tmp/audio.mp3
+   just -f <skill-path>/justfile transcribe tmp/audio.mp3
    # or
-   uv run scripts/transcribe_api.py tmp/audio.mp3
+   just -f <skill-path>/justfile transcribe-api tmp/audio.mp3
    ```
 
 3. Output saved to `tmp/<filename>.txt`
 
 ## Options
 
-Both scripts support:
+Both recipes support:
 - `--output=PATH`: Custom output file path
 - `--lang=LANG`: Language hint (e.g., `ru`, `en`)
 - `--timestamps`: Include timestamps in output

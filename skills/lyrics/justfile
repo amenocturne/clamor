@@ -1,0 +1,6 @@
+default:
+    @just --list
+
+# Fetch lyrics from Genius
+fetch *FLAGS:
+    uv run scripts/fetch-lyrics.py {{FLAGS}}

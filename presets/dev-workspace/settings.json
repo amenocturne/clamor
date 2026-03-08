@@ -5,7 +5,8 @@
       "Read(.claude/instructions/**/*)",
       "Read(.claude/templates/**/*)",
       "Read(WORKSPACE.yaml)",
-      "Bash(uv run .claude/skills/**/scripts/*.py *)"
+      "Bash(uv run .claude/skills/**/scripts/*.py *)",
+      "Bash(just -f .claude/skills/*/justfile *)"
     ]
   }
 }

@@ -8,36 +8,38 @@ author: amenocturne
 
 Fetch transcripts from YouTube videos.
 
-> All script paths below are relative to this skill folder.
+> Run commands via justfile: `just -f <skill-path>/justfile <recipe> [flags]`
 
 ## Usage
 
 When user provides a YouTube URL, download the transcript:
 
 ```bash
-uv run scripts/yt-subs.py <url> --output=tmp/<video_id>.txt
+just -f <skill-path>/justfile subs <url> --output=tmp/<video_id>.txt
 ```
 
 The `tmp/` folder is relative to the project root.
 
-## Scripts
+## Recipes
 
-### yt-subs.py
+### subs
 
-```
-yt-subs.py <url> [--output=PATH] [--lang=LANG] [--raw]
+Download YouTube subtitles as plain text.
+
+```bash
+just -f <skill-path>/justfile subs <url> [--output=PATH] [--lang=LANG] [--raw]
 ```
 
 - `--output`: Save to file (default: stdout)
 - `--lang`: Preferred language codes, comma-separated (default: en,ru)
 - `--raw`: Output raw VTT format instead of cleaned text
 
-### inject-transcript.py
+### inject
 
-Injects a transcript or lyrics into a note that contains a `{{transcript}}` placeholder.
+Inject a transcript or lyrics into a note that contains a `{{transcript}}` placeholder.
 
-```
-inject-transcript.py <note-path> [--keep] [--file=PATH] [--lyrics]
+```bash
+just -f <skill-path>/justfile inject <note-path> [--keep] [--file=PATH] [--lyrics]
 ```
 
 **YouTube mode** (default):

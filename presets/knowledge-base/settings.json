@@ -4,7 +4,8 @@
       "Read(.claude/skills/**/*)",
       "Read(.claude/instructions/**/*)",
       "Read(.claude/templates/**/*)",
-      "Bash(uv run .claude/skills/**/scripts/*.py *)"
+      "Bash(uv run .claude/skills/**/scripts/*.py *)",
+      "Bash(just -f .claude/skills/*/justfile *)"
     ]
   },
   "hooks": {}
