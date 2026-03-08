@@ -153,6 +153,38 @@ def merge_hooks(base: dict, new: dict) -> dict:
     return base
 
 
+def sync_symlinks(source_dir: Path, target_dir: Path, wanted: set[str], label: str):
+    """Sync symlinks in target_dir to match wanted set.
+
+    Removes stale symlinks (pointing into source_dir but not in wanted),
+    updates outdated ones, and creates missing ones.
+    """
+    target_dir.mkdir(exist_ok=True)
+
+    for entry in sorted(target_dir.iterdir()):
+        if not entry.is_symlink():
+            continue
+        link_target = entry.readlink()
+        try:
+            link_target.relative_to(source_dir)
+        except ValueError:
+            continue
+        if entry.name not in wanted:
+            entry.unlink()
+            console.print(f"  [yellow]−[/yellow] {label}: {entry.name} (removed)")
+        elif link_target != source_dir / entry.name:
+            entry.unlink()
+            entry.symlink_to(source_dir / entry.name)
+            console.print(f"  [blue]↻[/blue] {label}: {entry.name} (updated)")
+
+    for name in sorted(wanted):
+        src = source_dir / name
+        dst = target_dir / name
+        if src.exists() and not dst.exists():
+            dst.symlink_to(src)
+            console.print(f"  [green]✓[/green] {label}: {name}")
+
+
 def load_existing_settings(target: Path) -> dict:
     """Load existing .claude/settings.json if it exists."""
     settings_path = target / ".claude" / "settings.json"
@@ -336,36 +368,13 @@ def install(preset: str, target: Path, knowledge_base: Path | None = None):
         shutil.copy(workspace_template, workspace_target)
         console.print("  [green]✓[/green] WORKSPACE.yaml (from template)")
 
-    # Symlink skills
-    skills_dir = target_claude / "skills"
-    skills_dir.mkdir(exist_ok=True)
-    for skill in components["skills"]:
-        src = SKILLS_DIR / skill
-        dst = skills_dir / skill
-        if src.exists() and not dst.exists():
-            dst.symlink_to(src)
-            console.print(f"  [green]✓[/green] Skill: {skill}")
-
-    # Symlink hooks into .claude/hooks/
-    hooks_target = target_claude / "hooks"
-    hooks_target.mkdir(exist_ok=True)
-    for hook in components["hooks"]:
-        src = HOOKS_DIR / hook
-        dst = hooks_target / hook
-        if src.exists() and not dst.exists():
-            dst.symlink_to(src)
-            console.print(f"  [green]✓[/green] Hook: {hook}")
-
-    # Symlink pipelines
-    pipelines_target = target / "pipelines"
+    # Sync symlinks — adds missing, removes stale, updates outdated
+    sync_symlinks(SKILLS_DIR, target_claude / "skills", components["skills"], "Skill")
+    sync_symlinks(HOOKS_DIR, target_claude / "hooks", components["hooks"], "Hook")
     if components["pipelines"]:
-        pipelines_target.mkdir(exist_ok=True)
-    for pipeline in components["pipelines"]:
-        src = PIPELINES_DIR / pipeline
-        dst = pipelines_target / pipeline
-        if src.exists() and not dst.exists():
-            dst.symlink_to(src)
-            console.print(f"  [green]✓[/green] Pipeline: {pipeline}")
+        sync_symlinks(
+            PIPELINES_DIR, target / "pipelines", components["pipelines"], "Pipeline"
+        )
 
     # Print external recommendations
     if components["external"]:
@@ -422,7 +431,14 @@ def main():
             console.print("[red]Invalid selection[/red]")
             return
 
-    install(preset, args.target, args.knowledge_base)
+    try:
+        install(preset, args.target, args.knowledge_base)
+    except KeyboardInterrupt:
+        console.print(
+            "\n[bold yellow]Installation interrupted.[/bold yellow] "
+            "Target may be in a partial state. Re-run install to fix."
+        )
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
