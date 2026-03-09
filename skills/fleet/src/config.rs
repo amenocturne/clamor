@@ -7,19 +7,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FleetConfig {
     #[serde(default)]
-    pub folders: HashMap<String, FolderConfig>,
+    pub folders: HashMap<String, String>,
     #[serde(default)]
     pub tmux: TmuxConfig,
     #[serde(default)]
     pub dashboard: DashboardConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FolderConfig {
-    pub name: String,
-    pub path: String,
-    #[serde(default)]
-    pub list_subdirs: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,37 +109,13 @@ impl FleetConfig {
     }
 }
 
-impl FolderConfig {
-    /// Resolves the folder path, expanding `~`.
-    pub fn resolved_path(&self) -> PathBuf {
-        if self.path.starts_with('~') {
-            std::env::var("HOME")
-                .map(|home| PathBuf::from(self.path.replacen('~', &home, 1)))
-                .unwrap_or_else(|_| PathBuf::from(&self.path))
-        } else {
-            PathBuf::from(&self.path)
-        }
-    }
-
-    /// Lists immediate subdirectories if `list_subdirs` is true.
-    pub fn subdirs(&self) -> anyhow::Result<Vec<String>> {
-        let path = self.resolved_path();
-        std::fs::read_dir(&path)
-            .with_context(|| format!("Failed to read directory: {}", path.display()))?
-            .filter_map(|entry| {
-                entry.ok().and_then(|e| {
-                    e.file_type()
-                        .ok()
-                        .filter(|ft| ft.is_dir())
-                        .and_then(|_| e.file_name().into_string().ok())
-                        .filter(|name| !name.starts_with('.'))
-                })
-            })
-            .map(Ok)
-            .collect::<anyhow::Result<Vec<_>>>()
-            .map(|mut dirs| {
-                dirs.sort();
-                dirs
-            })
+/// Resolve a folder path, expanding `~`.
+pub fn resolve_path(path: &str) -> PathBuf {
+    if path.starts_with('~') {
+        std::env::var("HOME")
+            .map(|home| PathBuf::from(path.replacen('~', &home, 1)))
+            .unwrap_or_else(|_| PathBuf::from(path))
+    } else {
+        PathBuf::from(path)
     }
 }

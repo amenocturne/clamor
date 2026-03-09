@@ -52,7 +52,6 @@ mod tests {
             id: String::new(),
             description: String::new(),
             folder: String::new(),
-            subfolder: None,
             cwd: String::new(),
             tmux_session: String::new(),
             initial_prompt: String::new(),

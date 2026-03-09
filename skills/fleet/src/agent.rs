@@ -14,7 +14,6 @@ pub struct Agent {
     pub id: String,
     pub description: String,
     pub folder: String,
-    pub subfolder: Option<String>,
     pub cwd: String,
     pub tmux_session: String,
     pub initial_prompt: String,

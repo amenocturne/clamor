@@ -4,7 +4,7 @@ use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 
 use crate::agent::{generate_id, Agent, AgentState};
-use crate::config::{FleetConfig, FolderConfig};
+use crate::config::{resolve_path, FleetConfig};
 use crate::state::{with_state, FleetState};
 use crate::tmux;
 
@@ -18,29 +18,18 @@ pub fn spawn_agent(description: Option<String>, folder_override: Option<String>)
     }
 
     // Resolve folder
-    let (folder_key, folder_config) = match folder_override {
-        Some(ref key) => {
-            let fc = config
+    let (folder_name, folder_path) = match folder_override {
+        Some(ref name) => {
+            let path = config
                 .folders
-                .get(key)
-                .with_context(|| format!("Unknown folder: {key}"))?;
-            (key.clone(), fc.clone())
+                .get(name)
+                .with_context(|| format!("Unknown folder: {name}"))?;
+            (name.clone(), path.clone())
         }
         None => select_folder(&config)?,
     };
 
-    // Resolve optional subfolder
-    let subfolder = if folder_config.list_subdirs {
-        Some(select_subfolder(&folder_config)?)
-    } else {
-        None
-    };
-
-    // Build cwd
-    let cwd = match &subfolder {
-        Some(sub) => folder_config.resolved_path().join(sub),
-        None => folder_config.resolved_path(),
-    };
+    let cwd = resolve_path(&folder_path);
     let cwd_str = cwd.to_string_lossy().to_string();
 
     // Get task description and prompt
@@ -57,8 +46,7 @@ pub fn spawn_agent(description: Option<String>, folder_override: Option<String>)
     let agent = Agent {
         id: id.clone(),
         description: desc.clone(),
-        folder: folder_key,
-        subfolder,
+        folder: folder_name,
         cwd: cwd_str.clone(),
         tmux_session: session.clone(),
         initial_prompt: prompt.clone(),
@@ -90,12 +78,10 @@ pub fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
         .with_context(|| format!("No agent matching '{agent_ref}'"))?
         .clone();
 
-    // Kill tmux session if it exists
     if tmux::session_exists(&agent.tmux_session) {
         tmux::kill_session(&agent.tmux_session)?;
     }
 
-    // Remove from state
     with_state(&config, |state| {
         state.agents.remove(&agent.id);
     })?;
@@ -139,16 +125,14 @@ pub fn list_agents() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Collect and sort by start time
     let mut agents: Vec<&Agent> = state.agents.values().collect();
     agents.sort_by_key(|a| a.started_at);
 
-    // Column widths
     let state_w = 6;
     let desc_w = 40;
     let folder_w = agents
         .iter()
-        .map(|a| display_folder(a).len())
+        .map(|a| a.folder.len())
         .max()
         .unwrap_or(6)
         .max(6);
@@ -165,12 +149,11 @@ pub fn list_agents() -> anyhow::Result<()> {
             AgentState::Done => "done",
         };
         let desc = truncate(&agent.description, desc_w);
-        let folder = display_folder(agent);
         let time = format_duration(&agent.started_at);
 
         println!(
             "{:<state_w$}  {:<desc_w$}  {:<folder_w$}  {:>4}",
-            state_str, desc, folder, time,
+            state_str, desc, agent.folder, time,
         );
     }
 
@@ -180,7 +163,6 @@ pub fn list_agents() -> anyhow::Result<()> {
 /// Resolve an agent reference by ID prefix match.
 fn resolve_agent<'a>(state: &'a FleetState, agent_ref: &str) -> Option<&'a Agent> {
     if agent_ref.len() == 1 && agent_ref.chars().next().map_or(false, |c| c.is_alphabetic()) {
-        // Single letter = future jump key, not supported yet
         return None;
     }
 
@@ -265,7 +247,6 @@ pub fn open_config() -> anyhow::Result<()> {
     let config_path = FleetConfig::config_dir().join("config.json");
     FleetConfig::ensure_dir()?;
 
-    // Create default config if missing
     if !config_path.exists() {
         let _ = FleetConfig::load()?;
     }
@@ -285,42 +266,13 @@ pub fn open_config() -> anyhow::Result<()> {
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-/// Present numbered folder list, return (key, config).
-fn select_folder(config: &FleetConfig) -> anyhow::Result<(String, FolderConfig)> {
-    let mut folders: Vec<(&String, &FolderConfig)> = config.folders.iter().collect();
-    folders.sort_by_key(|(_, fc)| &fc.name);
+/// Present numbered folder list, return (name, path).
+fn select_folder(config: &FleetConfig) -> anyhow::Result<(String, String)> {
+    let mut folders: Vec<(&String, &String)> = config.folders.iter().collect();
+    folders.sort_by_key(|(name, _)| name.to_owned());
 
     println!("Where?");
-    for (i, (_, fc)) in folders.iter().enumerate() {
-        println!("  {}  {}", i + 1, fc.name);
-    }
-    print!("> ");
-    io::stdout().flush()?;
-
-    let input = read_line()?.trim().to_string();
-    let idx: usize = input
-        .parse::<usize>()
-        .context("Invalid selection")?
-        .checked_sub(1)
-        .context("Selection out of range")?;
-
-    let (key, fc) = folders
-        .get(idx)
-        .context("Selection out of range")?;
-
-    Ok(((*key).clone(), (*fc).clone()))
-}
-
-/// Present numbered subdirectory list, return selected name.
-fn select_subfolder(folder: &FolderConfig) -> anyhow::Result<String> {
-    let subdirs = folder.subdirs()?;
-
-    if subdirs.is_empty() {
-        bail!("No subdirectories found in {}", folder.resolved_path().display());
-    }
-
-    println!("Project?");
-    for (i, name) in subdirs.iter().enumerate() {
+    for (i, (name, _)) in folders.iter().enumerate() {
         println!("  {}  {}", i + 1, name);
     }
     print!("> ");
@@ -333,10 +285,11 @@ fn select_subfolder(folder: &FolderConfig) -> anyhow::Result<String> {
         .checked_sub(1)
         .context("Selection out of range")?;
 
-    subdirs
+    let (name, path) = folders
         .get(idx)
-        .cloned()
-        .context("Selection out of range")
+        .context("Selection out of range")?;
+
+    Ok(((*name).clone(), (*path).clone()))
 }
 
 /// Read task description from stdin, or open $EDITOR if empty.
@@ -351,11 +304,9 @@ fn read_task_description() -> anyhow::Result<(String, String)> {
         return Ok((input.clone(), input));
     }
 
-    // Empty line — open $EDITOR
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
     let tmp = std::env::temp_dir().join(format!("fleet-task-{}.md", generate_id()));
 
-    // Create empty temp file
     std::fs::write(&tmp, "")?;
 
     let status = std::process::Command::new(&editor)
@@ -376,29 +327,17 @@ fn read_task_description() -> anyhow::Result<(String, String)> {
         bail!("Empty task description, aborting.");
     }
 
-    // First line = description, full content = prompt
     let description = content.lines().next().unwrap_or("").to_string();
 
     Ok((description, content))
 }
 
-/// Read a single line from stdin.
 fn read_line() -> anyhow::Result<String> {
     let mut buf = String::new();
     io::stdin().read_line(&mut buf)?;
     Ok(buf)
 }
 
-/// Display folder name for an agent (subfolder if present, else folder key).
-fn display_folder(agent: &Agent) -> String {
-    agent
-        .subfolder
-        .as_deref()
-        .unwrap_or(&agent.folder)
-        .to_string()
-}
-
-/// Truncate a string to max_len, adding "..." if truncated.
 fn truncate(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()

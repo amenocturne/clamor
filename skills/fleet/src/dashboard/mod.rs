@@ -166,7 +166,7 @@ where
 /// Build a sorted list of (agent_id, &Agent) for display.
 /// Sorted by folder name, then by start time within each folder.
 fn build_agent_list<'a>(
-    config: &FleetConfig,
+    _config: &FleetConfig,
     state: &'a FleetState,
 ) -> Vec<(String, &'a crate::agent::Agent)> {
     let mut list: Vec<(String, &crate::agent::Agent)> = state
@@ -175,21 +175,10 @@ fn build_agent_list<'a>(
         .map(|(id, agent)| (id.clone(), agent))
         .collect();
 
-    // Sort by folder display name, then start time
+    // Sort by folder name, then start time
     list.sort_by(|a, b| {
-        let folder_a = config
-            .folders
-            .get(&a.1.folder)
-            .map(|f| &f.name)
-            .unwrap_or(&a.1.folder);
-        let folder_b = config
-            .folders
-            .get(&b.1.folder)
-            .map(|f| &f.name)
-            .unwrap_or(&b.1.folder);
-
-        folder_a
-            .cmp(folder_b)
+        a.1.folder
+            .cmp(&b.1.folder)
             .then_with(|| a.1.started_at.cmp(&b.1.started_at))
     });
 

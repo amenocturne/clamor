@@ -168,11 +168,7 @@ fn build_groups<'a>(
             })
             .collect();
 
-        let folder_name = config
-            .folders
-            .get(folder_key)
-            .map(|f| f.name.clone())
-            .unwrap_or_else(|| folder_key.clone());
+        let folder_name = folder_key.clone();
 
         groups.push(AgentGroup {
             folder_name,
