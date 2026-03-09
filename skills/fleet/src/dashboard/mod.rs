@@ -112,23 +112,44 @@ fn main_loop(
 
                     DashboardAction::SpawnNew => {
                         suspend_tui(terminal, || {
-                            // Placeholder: will be wired to the spawn flow later
-                            eprintln!("new: not yet wired from dashboard");
-                            std::thread::sleep(Duration::from_secs(1));
+                            if let Err(e) = crate::spawn::spawn_agent(None, None) {
+                                eprintln!("Error: {e}");
+                                std::thread::sleep(Duration::from_secs(1));
+                            }
                         })?;
                     }
 
                     DashboardAction::EditAgent => {
                         suspend_tui(terminal, || {
-                            eprintln!("edit: not yet wired from dashboard");
-                            std::thread::sleep(Duration::from_secs(1));
+                            print!("Agent ID: ");
+                            let _ = io::Write::flush(&mut io::stdout());
+                            let mut buf = String::new();
+                            if io::stdin().read_line(&mut buf).is_ok() {
+                                let id = buf.trim();
+                                if !id.is_empty() {
+                                    if let Err(e) = crate::spawn::edit_agent(id, None) {
+                                        eprintln!("Error: {e}");
+                                        std::thread::sleep(Duration::from_secs(1));
+                                    }
+                                }
+                            }
                         })?;
                     }
 
                     DashboardAction::KillAgent => {
                         suspend_tui(terminal, || {
-                            eprintln!("kill: not yet wired from dashboard");
-                            std::thread::sleep(Duration::from_secs(1));
+                            print!("Kill agent ID: ");
+                            let _ = io::Write::flush(&mut io::stdout());
+                            let mut buf = String::new();
+                            if io::stdin().read_line(&mut buf).is_ok() {
+                                let id = buf.trim();
+                                if !id.is_empty() {
+                                    if let Err(e) = crate::spawn::kill_agent(id) {
+                                        eprintln!("Error: {e}");
+                                        std::thread::sleep(Duration::from_secs(1));
+                                    }
+                                }
+                            }
                         })?;
                     }
 

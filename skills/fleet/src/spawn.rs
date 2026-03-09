@@ -128,6 +128,7 @@ pub fn list_agents() -> anyhow::Result<()> {
     let mut agents: Vec<&Agent> = state.agents.values().collect();
     agents.sort_by_key(|a| a.started_at);
 
+    let id_w = 6;
     let state_w = 6;
     let desc_w = 40;
     let folder_w = agents
@@ -138,8 +139,8 @@ pub fn list_agents() -> anyhow::Result<()> {
         .max(6);
 
     println!(
-        "{:<state_w$}  {:<desc_w$}  {:<folder_w$}  {:>4}",
-        "STATE", "DESCRIPTION", "FOLDER", "TIME",
+        "{:<id_w$}  {:<state_w$}  {:<desc_w$}  {:<folder_w$}  {:>4}",
+        "ID", "STATE", "DESCRIPTION", "FOLDER", "TIME",
     );
 
     for agent in &agents {
@@ -152,8 +153,8 @@ pub fn list_agents() -> anyhow::Result<()> {
         let time = format_duration(&agent.started_at);
 
         println!(
-            "{:<state_w$}  {:<desc_w$}  {:<folder_w$}  {:>4}",
-            state_str, desc, agent.folder, time,
+            "{:<id_w$}  {:<state_w$}  {:<desc_w$}  {:<folder_w$}  {:>4}",
+            agent.id, state_str, desc, agent.folder, time,
         );
     }
 
