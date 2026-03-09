@@ -32,7 +32,7 @@ just -f <skill-path>/justfile transcribe <audio_file> [--model=MODEL] [--lang=LA
 - Best quality: `--model=large-v3` (~10GB VRAM)
 - Good balance: `--model=medium` (~5GB VRAM)
 - Fast/CPU: `--model=small`
-- Default output: `tmp/<filename>.txt`
+- Default output: `<project-root>/tmp/<filename>.txt` (use `--output` to specify)
 
 ### transcribe-api (fast, no GPU)
 
@@ -43,23 +43,25 @@ just -f <skill-path>/justfile transcribe-api <audio_file> [--lang=LANG] [--outpu
 - Uses OpenRouter API with Gemini Flash
 - Requires `OPENROUTER_API_KEY` env var
 - Auto-chunks files over 18MB
-- Default output: `tmp/<filename>.txt`
+- Default output: `<project-root>/tmp/<filename>.txt` (use `--output` to specify)
 
 ## Workflow
 
+**All paths must be absolute.** `just` runs from the justfile's directory, so relative paths resolve there, not in the project root.
+
 1. Download audio (if from YouTube):
    ```bash
-   yt-dlp -x --audio-format mp3 -o "tmp/%(id)s.%(ext)s" <url>
+   yt-dlp -x --audio-format mp3 -o "<project-root>/tmp/%(id)s.%(ext)s" <url>
    ```
 
 2. Transcribe:
    ```bash
-   just -f <skill-path>/justfile transcribe tmp/audio.mp3
+   just -f <skill-path>/justfile transcribe <project-root>/tmp/audio.mp3
    # or
-   just -f <skill-path>/justfile transcribe-api tmp/audio.mp3
+   just -f <skill-path>/justfile transcribe-api <project-root>/tmp/audio.mp3
    ```
 
-3. Output saved to `tmp/<filename>.txt`
+3. Output saved to `<project-root>/tmp/<filename>.txt`
 
 ## Options
 

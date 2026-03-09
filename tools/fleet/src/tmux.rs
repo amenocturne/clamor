@@ -31,7 +31,10 @@ pub fn create_session(name: &str, cwd: &str, prompt: &str, agent_id: &str) -> an
 }
 
 /// Kill a tmux session by name.
+/// If any clients are attached to it, switches them to another session first.
 pub fn kill_session(name: &str) -> anyhow::Result<()> {
+    evacuate_clients(name);
+
     let status = Command::new("tmux")
         .args(["kill-session", "-t", name])
         .status()
@@ -42,6 +45,59 @@ pub fn kill_session(name: &str) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Move any clients attached to `session` to another available session.
+fn evacuate_clients(session: &str) {
+    // Find clients attached to this session
+    let output = Command::new("tmux")
+        .args(["list-clients", "-t", session, "-F", "#{client_name}"])
+        .output();
+
+    let clients = match output {
+        Ok(o) if o.status.success() => {
+            String::from_utf8(o.stdout).unwrap_or_default()
+        }
+        _ => return,
+    };
+
+    let client_names: Vec<&str> = clients.lines().filter(|l| !l.is_empty()).collect();
+    if client_names.is_empty() {
+        return;
+    }
+
+    // Find a fallback session (any session that isn't the one being killed)
+    let fallback = find_fallback_session(session);
+
+    for client in client_names {
+        if let Some(ref target) = fallback {
+            let _ = Command::new("tmux")
+                .args(["switch-client", "-c", client, "-t", target])
+                .status();
+        }
+    }
+}
+
+/// Find a session to switch to: prefer non-fleet sessions, fall back to any.
+fn find_fallback_session(exclude: &str) -> Option<String> {
+    let output = Command::new("tmux")
+        .args(["list-sessions", "-F", "#{session_name}"])
+        .output()
+        .ok()?;
+
+    let sessions: Vec<String> = String::from_utf8(output.stdout)
+        .unwrap_or_default()
+        .lines()
+        .filter(|s| *s != exclude)
+        .map(String::from)
+        .collect();
+
+    // Prefer non-fleet sessions (the user's editor/main session)
+    sessions
+        .iter()
+        .find(|s| !s.starts_with("fleet-") && *s != "popup")
+        .cloned()
+        .or_else(|| sessions.into_iter().next())
 }
 
 /// Check if a tmux session exists.

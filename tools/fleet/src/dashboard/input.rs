@@ -24,6 +24,8 @@ pub enum DashboardAction {
     Cancel,
     /// Exit the dashboard
     Quit,
+    /// Open the popup terminal (Ctrl+T)
+    OpenTerminal,
     /// Refresh the display (no-op action)
     Refresh,
 }
@@ -44,9 +46,13 @@ pub enum InputMode {
 
 /// Process a keyboard event and return the corresponding action.
 pub fn handle_input(event: KeyEvent, key_map: &HashMap<char, String>, mode: &InputMode) -> DashboardAction {
-    // Ctrl+C always quits
-    if matches!(event.code, KeyCode::Char('c') if event.modifiers.contains(KeyModifiers::CONTROL)) {
-        return DashboardAction::Quit;
+    if event.modifiers.contains(KeyModifiers::CONTROL) {
+        if matches!(event.code, KeyCode::Char('c') | KeyCode::Char('f')) {
+            return DashboardAction::Quit;
+        }
+        if event.code == KeyCode::Char('t') {
+            return DashboardAction::OpenTerminal;
+        }
     }
 
     match mode {

@@ -34,6 +34,7 @@ pub fn render(
     key_assignments: &[(String, char)],
     stale_ids: &[String],
     killed_ids: &[String],
+    pinned: &[(char, String, String)],
     overlay: &Overlay,
 ) {
     let area = frame.area();
@@ -67,7 +68,7 @@ pub fn render(
 
     render_header(frame, chunks[0], total, needs_input);
     render_separator(frame, chunks[1]);
-    render_body(frame, chunks[2], &groups, pending_kill);
+    render_body(frame, chunks[2], &groups, pinned, pending_kill);
     render_footer(frame, chunks[3], pending_kill);
 
     // Render overlay popups on top
@@ -219,8 +220,37 @@ fn build_groups<'a>(
     groups
 }
 
-fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup], pending_kill: bool) {
+fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup], pinned: &[(char, String, String)], pending_kill: bool) {
     let mut lines: Vec<Line> = Vec::new();
+    let width = area.width as usize;
+
+    // Pinned sessions
+    for (key, label, session) in pinned {
+        let key_str = format!("[{}]", key);
+        let available = width.saturating_sub(key_str.len() + 6);
+        let session_len = session.len();
+        let label_max = available.saturating_sub(session_len + 2);
+        let label_display = if label.len() > label_max {
+            format!("{}\u{2026}", &label[..label_max.saturating_sub(1)])
+        } else {
+            label.clone()
+        };
+        let padding = available.saturating_sub(label_display.len() + session_len);
+
+        lines.push(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(key_str, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("   "),
+            Span::raw(label_display),
+            Span::raw(" ".repeat(padding)),
+            Span::styled(session.clone(), Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+
+    if !pinned.is_empty() && !groups.is_empty() {
+        let sep = "\u{2500}".repeat(width.saturating_sub(1));
+        lines.push(Line::from(Span::styled(sep, Style::default().fg(Color::DarkGray))));
+    }
 
     for (i, group) in groups.iter().enumerate() {
         if i > 0 {
@@ -232,8 +262,6 @@ fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup], pending_kil
             format!(" {}", group.folder_name),
             Style::default().add_modifier(Modifier::BOLD),
         )));
-
-        let width = area.width as usize;
 
         for da in &group.agents {
             lines.push(render_agent_line(da, width, pending_kill));

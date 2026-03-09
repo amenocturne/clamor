@@ -1,5 +1,5 @@
 mod input;
-mod keys;
+pub(crate) mod keys;
 mod render;
 
 use std::collections::HashMap;
@@ -111,10 +111,20 @@ fn main_loop(
         let killed_ids: Vec<String> = killed_at.keys().cloned().collect();
         let key_assignments = keys::assign_keys(&agent_list);
 
-        let key_map: HashMap<char, String> = key_assignments
+        let mut key_map: HashMap<char, String> = key_assignments
             .iter()
             .map(|(id, k)| (*k, id.clone()))
             .collect();
+
+        // Pinned sessions get number keys 1-9 (prefixed with "pinned:" to distinguish)
+        let mut pinned: Vec<(&String, &String)> = config.pinned_sessions.iter().collect();
+        pinned.sort_by_key(|(label, _)| *label);
+        for (i, (_, session_name)) in pinned.iter().enumerate() {
+            if i >= 9 { break; }
+            if let Some(key) = char::from_digit((i + 1) as u32, 10) {
+                key_map.insert(key, format!("pinned:{}", session_name));
+            }
+        }
 
         let agent_refs: HashMap<String, &Agent> = state
             .agents
@@ -135,8 +145,18 @@ fn main_loop(
             },
         };
 
+        // Build pinned sessions for render: (key, label, session_name)
+        let pinned_display: Vec<(char, String, String)> = pinned.iter().enumerate()
+            .filter(|(i, _)| *i < 9)
+            .filter(|(_, (_, session))| tmux::session_exists(session))
+            .map(|(i, (label, session))| {
+                let key = char::from_digit((i + 1) as u32, 10).unwrap();
+                (key, (*label).clone(), (*session).clone())
+            })
+            .collect();
+
         terminal.draw(|frame| {
-            render::render(frame, config, &agent_refs, &key_assignments, &stale_ids, &killed_ids, &overlay);
+            render::render(frame, config, &agent_refs, &key_assignments, &stale_ids, &killed_ids, &pinned_display, &overlay);
         })?;
 
         if event::poll(refresh).context("Failed to poll for events")? {
@@ -144,11 +164,36 @@ fn main_loop(
                 match input::handle_input(key_event, &key_map, &mode) {
                     DashboardAction::Quit => break,
 
-                    DashboardAction::Attach(agent_id) => {
+                    DashboardAction::OpenTerminal => {
+                        if std::env::var("FLEET_POPUP").is_ok() {
+                            let _ = std::fs::write("/tmp/fleet-open-term", b"1");
+                        }
+                        break;
+                    }
+
+                    DashboardAction::Attach(ref target) => {
                         mode = InputMode::Normal;
-                        if let Some(agent) = state.agents.get(&agent_id) {
+                        let target_session = if let Some(session) = target.strip_prefix("pinned:") {
+                            if tmux::session_exists(session) {
+                                Some(session.to_string())
+                            } else {
+                                None
+                            }
+                        } else if let Some(agent) = state.agents.get(target) {
                             if tmux::session_exists(&agent.tmux_session) {
-                                tmux::switch_to(&agent.tmux_session)?;
+                                Some(agent.tmux_session.clone())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        if let Some(ref session) = target_session {
+                            if std::env::var("FLEET_POPUP").is_ok() {
+                                let _ = std::fs::write("/tmp/fleet-target", session.as_bytes());
+                                break;
+                            } else {
+                                let _ = tmux::switch_to(session);
                             }
                         }
                     }

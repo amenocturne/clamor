@@ -15,10 +15,10 @@ Fetch transcripts from YouTube videos.
 When user provides a YouTube URL, download the transcript:
 
 ```bash
-just -f <skill-path>/justfile subs <url> --output=tmp/<video_id>.txt
+just -f <skill-path>/justfile subs <url> --output=<project-root>/tmp/<video_id>.txt
 ```
 
-The `tmp/` folder is relative to the project root.
+**All paths must be absolute.** `just` runs from the justfile's directory, so relative paths resolve there, not in the project root.
 
 ## Recipes
 
@@ -44,7 +44,7 @@ just -f <skill-path>/justfile inject <note-path> [--keep] [--file=PATH] [--lyric
 
 **YouTube mode** (default):
 - Reads source URL from note's frontmatter
-- Finds transcript in `tmp/<video_id>.txt`
+- Finds transcript in `<project-root>/tmp/<video_id>.txt`
 - Groups text into paragraphs for readability
 
 **Direct file mode** (`--file=PATH`):
@@ -53,7 +53,7 @@ just -f <skill-path>/justfile inject <note-path> [--keep] [--file=PATH] [--lyric
 
 **Lyrics mode** (`--lyrics`):
 - Preserves original line breaks and section headers (`[Verse]`, `[Chorus]`)
-- Combine with `--file` for lyrics: `--file=tmp/lyrics.txt --lyrics`
+- Combine with `--file` for lyrics: `--file=<project-root>/tmp/lyrics.txt --lyrics`
 
 Common options:
 - `--keep` — keep the source file after injection (default: delete)
@@ -70,7 +70,7 @@ If the transcript is too long to fit in context or would consume too much of it:
 
 Example subagent prompt:
 ```
-Read the transcript at tmp/<video_id>.txt and create a section-by-section summary.
+Read the transcript at <project-root>/tmp/<video_id>.txt and create a section-by-section summary.
 For each logical section, provide:
 - Line range (e.g., lines 1-50)
 - Brief description of topics discussed

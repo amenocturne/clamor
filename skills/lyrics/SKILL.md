@@ -43,8 +43,10 @@ just -f <skill-path>/justfile fetch --artist "Artist Name" --all --max 20
 ### Save to file
 
 ```bash
-just -f <skill-path>/justfile fetch --artist "Artist Name" --song "Song Title" --output tmp/lyrics.txt
+just -f <skill-path>/justfile fetch --artist "Artist Name" --song "Song Title" --output <project-root>/tmp/lyrics.txt
 ```
+
+**All paths must be absolute.** `just` runs from the justfile's directory, so relative paths resolve there, not in the project root.
 
 ## Output Format
 

@@ -9,9 +9,6 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Open the live dashboard (alias for default)
-    Watch,
-
     /// One-shot status table
     Ls,
 
@@ -58,6 +55,9 @@ pub enum Command {
 
     /// Open config in $EDITOR
     Config,
+
+    /// Open dashboard in a tmux popup (bind to Ctrl+F)
+    Popup,
 
     /// Internal: called by Claude Code hooks (reads stdin JSON)
     Hook,

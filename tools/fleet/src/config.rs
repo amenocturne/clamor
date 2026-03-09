@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use anyhow::Context;
@@ -12,6 +12,8 @@ pub struct FleetConfig {
     pub tmux: TmuxConfig,
     #[serde(default)]
     pub dashboard: DashboardConfig,
+    #[serde(default)]
+    pub pinned_sessions: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +65,7 @@ impl Default for FleetConfig {
             folders: HashMap::new(),
             tmux: TmuxConfig::default(),
             dashboard: DashboardConfig::default(),
+            pinned_sessions: BTreeMap::new(),
         }
     }
 }

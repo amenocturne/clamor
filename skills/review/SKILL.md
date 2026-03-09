@@ -15,7 +15,7 @@ Launch a local browser-based UI for reviewing committed git changes or annotatin
 For reviewing committed git changes with inline comments.
 
 ```bash
-just -f <skill-path>/justfile launch --repo "$(pwd)" --range HEAD~N..HEAD --message "Brief description" &
+just -f <skill-path>/justfile launch --repo "$(pwd)" --range HEAD~N..HEAD --message "Brief description"
 ```
 
 ### Text Annotation Mode
@@ -23,7 +23,7 @@ just -f <skill-path>/justfile launch --repo "$(pwd)" --range HEAD~N..HEAD --mess
 For annotating any text file (lyrics, notes, prose) with line-level comments.
 
 ```bash
-just -f <skill-path>/justfile launch --mode text --file "/path/to/file.txt" --message "Optional description" &
+just -f <skill-path>/justfile launch --mode text --file "/path/to/file.txt" --message "Optional description"
 ```
 
 **CRITICAL: Use `run_in_background` parameter** when launching the server. This lets you receive a task notification when the user finishes.
