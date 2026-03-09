@@ -16,7 +16,8 @@ fn main() -> Result<()> {
 
     match cli.command {
         None | Some(Command::Watch) => {
-            eprintln!("dashboard: not implemented");
+            let config = config::FleetConfig::load()?;
+            dashboard::run(&config)?;
         }
         Some(Command::Ls) => {
             spawn::list_agents()?;
@@ -25,16 +26,13 @@ fn main() -> Result<()> {
             spawn::spawn_agent(description, folder)?;
         }
         Some(Command::Attach { agent_ref }) => {
-            eprintln!("attach: not implemented (ref={})", agent_ref);
+            spawn::attach_agent(&agent_ref)?;
         }
         Some(Command::Edit {
             agent_ref,
             description,
         }) => {
-            eprintln!(
-                "edit: not implemented (ref={}, description={:?})",
-                agent_ref, description
-            );
+            spawn::edit_agent(&agent_ref, description)?;
         }
         Some(Command::Kill { agent_ref }) => {
             spawn::kill_agent(&agent_ref)?;
@@ -43,7 +41,7 @@ fn main() -> Result<()> {
             spawn::clean_agents()?;
         }
         Some(Command::Config) => {
-            eprintln!("config: not implemented");
+            spawn::open_config()?;
         }
         Some(Command::Hook) => {
             if let Err(e) = hook::run() {

@@ -211,6 +211,78 @@ fn format_duration(since: &DateTime<Utc>) -> String {
     }
 }
 
+/// Attach to an agent's tmux session.
+pub fn attach_agent(agent_ref: &str) -> anyhow::Result<()> {
+    tmux::require_tmux()?;
+    let config = FleetConfig::load()?;
+    let state = FleetState::load(&config)?;
+
+    let agent = resolve_agent(&state, agent_ref)
+        .with_context(|| format!("No agent matching '{agent_ref}'"))?;
+
+    if !tmux::session_exists(&agent.tmux_session) {
+        bail!("Agent {}'s tmux session no longer exists", agent.id);
+    }
+
+    tmux::switch_to(&agent.tmux_session)
+}
+
+/// Edit an agent's description.
+pub fn edit_agent(agent_ref: &str, description: Option<String>) -> anyhow::Result<()> {
+    let config = FleetConfig::load()?;
+    let state = FleetState::load(&config)?;
+
+    let agent_id = resolve_agent(&state, agent_ref)
+        .with_context(|| format!("No agent matching '{agent_ref}'"))?
+        .id
+        .clone();
+
+    let new_desc = match description {
+        Some(d) => d,
+        None => {
+            print!("Description: ");
+            io::stdout().flush()?;
+            read_line()?.trim().to_string()
+        }
+    };
+
+    if new_desc.is_empty() {
+        bail!("Empty description, aborting.");
+    }
+
+    with_state(&config, |state| {
+        if let Some(agent) = state.agents.get_mut(&agent_id) {
+            agent.description = new_desc.clone();
+        }
+    })?;
+
+    println!("Updated description for {agent_id}: {new_desc}");
+    Ok(())
+}
+
+/// Open config in $EDITOR.
+pub fn open_config() -> anyhow::Result<()> {
+    let config_path = FleetConfig::config_dir().join("config.json");
+    FleetConfig::ensure_dir()?;
+
+    // Create default config if missing
+    if !config_path.exists() {
+        let _ = FleetConfig::load()?;
+    }
+
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
+    let status = std::process::Command::new(&editor)
+        .arg(&config_path)
+        .status()
+        .with_context(|| format!("Failed to open {editor}"))?;
+
+    if !status.success() {
+        bail!("Editor exited with non-zero status");
+    }
+
+    Ok(())
+}
+
 // ── Helpers ────────────────────────────────────────────────────────
 
 /// Present numbered folder list, return (key, config).
