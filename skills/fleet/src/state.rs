@@ -51,6 +51,7 @@ impl FleetState {
     }
 
     /// Writes state to `~/.fleet/state.json` with an exclusive file lock.
+    #[allow(dead_code)]
     pub fn save(&self, config: &FleetConfig) -> anyhow::Result<()> {
         FleetConfig::ensure_dir()?;
         let path = Self::state_path(config);
@@ -82,7 +83,7 @@ impl FleetState {
 ///
 /// Acquires an exclusive lock, reads current state, applies `f`, writes back,
 /// and releases the lock. Returns whatever `f` returns.
-pub fn with_state<F, R>(config: &FleetConfig, f: F) -> anyhow::Result<R>
+pub fn with_state<F, R>(_config: &FleetConfig, f: F) -> anyhow::Result<R>
 where
     F: FnOnce(&mut FleetState) -> R,
 {

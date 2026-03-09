@@ -70,6 +70,7 @@ pub fn switch_to(name: &str) -> anyhow::Result<()> {
 }
 
 /// List all tmux sessions. Returns session names.
+#[allow(dead_code)]
 pub fn list_sessions() -> anyhow::Result<Vec<String>> {
     let output = Command::new("tmux")
         .args(["list-sessions", "-F", "#{session_name}"])
