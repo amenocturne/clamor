@@ -39,6 +39,13 @@ clean:
     find . -name "*.pyc" -delete
     find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
+# Build and install fleet binary to ~/.local/bin
+fleet-install:
+    cd skills/fleet && cargo build --release
+    mkdir -p ~/.local/bin
+    cp skills/fleet/target/release/fleet ~/.local/bin/fleet
+    @echo "fleet installed to ~/.local/bin/fleet"
+
 # Aliases
 alias i := install
 alias l := list
