@@ -43,6 +43,10 @@ fn run_inner() -> anyhow::Result<()> {
         };
 
         match event.hook_event_name.as_str() {
+            "UserPromptSubmit" => {
+                agent.state = AgentState::Working;
+                agent.last_activity_at = Utc::now();
+            }
             "Notification" => {
                 agent.state = AgentState::Input;
             }
