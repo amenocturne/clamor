@@ -22,13 +22,14 @@ struct HookEvent {
 /// - Agent ID not found in state (agent was cleaned up)
 /// - Any error occurs (hooks should not block Claude Code)
 pub fn run() -> anyhow::Result<()> {
+    // Always consume stdin to avoid broken pipe errors in Claude Code
+    let mut input = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
+
     let agent_id = match std::env::var("FLEET_AGENT_ID") {
         Ok(id) => id,
         Err(_) => return Ok(()),
     };
-
-    let mut input = String::new();
-    std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
 
     let event: HookEvent = serde_json::from_str(&input)?;
     let config = FleetConfig::load()?;
