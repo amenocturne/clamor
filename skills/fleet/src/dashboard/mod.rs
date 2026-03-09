@@ -19,7 +19,7 @@ use crate::config::FleetConfig;
 use crate::state::FleetState;
 use crate::tmux;
 
-use input::DashboardAction;
+use input::{DashboardAction, InputMode};
 
 /// Run the interactive dashboard.
 pub fn run(config: &FleetConfig) -> Result<()> {
@@ -62,55 +62,47 @@ fn main_loop(
     config: &FleetConfig,
 ) -> Result<()> {
     let refresh = Duration::from_secs_f64(config.dashboard.refresh_interval);
+    let mut mode = InputMode::Normal;
 
     loop {
-        // Load current state
         let state = FleetState::load(config)?;
-
-        // Build agent list sorted by folder then start time (stable display order)
         let agent_list = build_agent_list(config, &state);
-
-        // Detect stale agents
         let stale_ids = detect_stale(&state);
-
-        // Assign jump keys
         let key_assignments = keys::assign_keys(&agent_list);
 
-        // Build key_map: char -> agent_id for input handling
         let key_map: HashMap<char, String> = key_assignments
             .iter()
             .map(|(id, k)| (*k, id.clone()))
             .collect();
 
-        // Build agent refs for rendering: id -> &Agent
         let agent_refs: HashMap<String, &crate::agent::Agent> = state
             .agents
             .iter()
             .map(|(id, a)| (id.clone(), a))
             .collect();
 
-        // Render
+        // Render — pass mode for status hint
+        let pending_kill = matches!(mode, InputMode::WaitingKill);
         terminal.draw(|frame| {
-            render::render(frame, config, &agent_refs, &key_assignments, &stale_ids);
+            render::render(frame, config, &agent_refs, &key_assignments, &stale_ids, pending_kill);
         })?;
 
-        // Poll for input with timeout
         if event::poll(refresh).context("Failed to poll for events")? {
             if let Event::Key(key_event) = event::read().context("Failed to read event")? {
-                match input::handle_input(key_event, &key_map) {
+                match input::handle_input(key_event, &key_map, &mode) {
                     DashboardAction::Quit => break,
 
                     DashboardAction::Attach(agent_id) => {
+                        mode = InputMode::Normal;
                         if let Some(agent) = state.agents.get(&agent_id) {
                             if tmux::session_exists(&agent.tmux_session) {
                                 tmux::switch_to(&agent.tmux_session)?;
-                                // User will return via the return key binding;
-                                // loop continues and re-renders on next iteration
                             }
                         }
                     }
 
                     DashboardAction::SpawnNew => {
+                        mode = InputMode::Normal;
                         suspend_tui(terminal, || {
                             if let Err(e) = crate::spawn::spawn_agent(None, None) {
                                 eprintln!("Error: {e}");
@@ -119,41 +111,22 @@ fn main_loop(
                         })?;
                     }
 
-                    DashboardAction::EditAgent => {
-                        suspend_tui(terminal, || {
-                            print!("Agent ID: ");
-                            let _ = io::Write::flush(&mut io::stdout());
-                            let mut buf = String::new();
-                            if io::stdin().read_line(&mut buf).is_ok() {
-                                let id = buf.trim();
-                                if !id.is_empty() {
-                                    if let Err(e) = crate::spawn::edit_agent(id, None) {
-                                        eprintln!("Error: {e}");
-                                        std::thread::sleep(Duration::from_secs(1));
-                                    }
-                                }
-                            }
-                        })?;
+                    DashboardAction::PendingKill => {
+                        mode = InputMode::WaitingKill;
                     }
 
-                    DashboardAction::KillAgent => {
-                        suspend_tui(terminal, || {
-                            print!("Kill agent ID: ");
-                            let _ = io::Write::flush(&mut io::stdout());
-                            let mut buf = String::new();
-                            if io::stdin().read_line(&mut buf).is_ok() {
-                                let id = buf.trim();
-                                if !id.is_empty() {
-                                    if let Err(e) = crate::spawn::kill_agent(id) {
-                                        eprintln!("Error: {e}");
-                                        std::thread::sleep(Duration::from_secs(1));
-                                    }
-                                }
-                            }
-                        })?;
+                    DashboardAction::KillAgent(agent_id) => {
+                        mode = InputMode::Normal;
+                        if let Err(e) = crate::spawn::kill_agent(&agent_id) {
+                            // silently ignore — agent might already be gone
+                            let _ = e;
+                        }
                     }
 
-                    DashboardAction::Refresh => {}
+                    DashboardAction::Refresh => {
+                        // Any unrecognized key in pending mode cancels it
+                        mode = InputMode::Normal;
+                    }
                 }
             }
         }
@@ -185,7 +158,6 @@ where
 }
 
 /// Build a sorted list of (agent_id, &Agent) for display.
-/// Sorted by folder name, then by start time within each folder.
 fn build_agent_list<'a>(
     _config: &FleetConfig,
     state: &'a FleetState,
@@ -196,7 +168,6 @@ fn build_agent_list<'a>(
         .map(|(id, agent)| (id.clone(), agent))
         .collect();
 
-    // Sort by folder name, then start time
     list.sort_by(|a, b| {
         a.1.folder
             .cmp(&b.1.folder)

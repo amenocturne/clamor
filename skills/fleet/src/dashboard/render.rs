@@ -24,6 +24,7 @@ pub fn render(
     agents: &HashMap<String, &Agent>,
     key_assignments: &[(String, char)],
     stale_ids: &[String],
+    pending_kill: bool,
 ) {
     let area = frame.area();
 
@@ -55,7 +56,7 @@ pub fn render(
     render_header(frame, chunks[0], total, needs_input);
     render_separator(frame, chunks[1]);
     render_body(frame, chunks[2], &groups);
-    render_footer(frame, chunks[3]);
+    render_footer(frame, chunks[3], pending_kill);
 }
 
 fn render_header(frame: &mut Frame, area: Rect, total: usize, needs_input: usize) {
@@ -95,20 +96,32 @@ fn render_separator(frame: &mut Frame, area: Rect) {
     frame.render_widget(sep, area);
 }
 
-fn render_footer(frame: &mut Frame, area: Rect) {
-    let footer = Paragraph::new(Line::from(vec![
-        Span::raw(" "),
-        Span::styled("[key]", Style::default().fg(Color::Cyan)),
-        Span::raw(" attach  "),
-        Span::styled("[n]", Style::default().fg(Color::Cyan)),
-        Span::raw("ew  "),
-        Span::styled("[e]", Style::default().fg(Color::Cyan)),
-        Span::raw("dit  "),
-        Span::styled("[K]", Style::default().fg(Color::Cyan)),
-        Span::raw("ill  "),
-        Span::styled("[q]", Style::default().fg(Color::Cyan)),
-        Span::raw("uit"),
-    ]));
+fn render_footer(frame: &mut Frame, area: Rect, pending_kill: bool) {
+    let footer = if pending_kill {
+        Paragraph::new(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                "Kill: press agent key (Esc to cancel)",
+                Style::default()
+                    .fg(Color::Red)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]))
+    } else {
+        Paragraph::new(Line::from(vec![
+            Span::raw(" "),
+            Span::styled("[key]", Style::default().fg(Color::Cyan)),
+            Span::raw(" attach  "),
+            Span::styled("[n]", Style::default().fg(Color::Cyan)),
+            Span::raw("ew  "),
+            Span::styled("[K", Style::default().fg(Color::Cyan)),
+            Span::raw("+"),
+            Span::styled("key]", Style::default().fg(Color::Cyan)),
+            Span::raw(" kill  "),
+            Span::styled("[q]", Style::default().fg(Color::Cyan)),
+            Span::raw("uit"),
+        ]))
+    };
     frame.render_widget(footer, area);
 }
 
