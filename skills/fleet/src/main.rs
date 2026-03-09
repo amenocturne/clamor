@@ -3,6 +3,7 @@ mod cli;
 mod config;
 mod dashboard;
 mod hook;
+mod picker;
 mod spawn;
 mod state;
 mod tmux;

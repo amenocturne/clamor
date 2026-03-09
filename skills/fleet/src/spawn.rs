@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 
 use crate::agent::{generate_id, Agent, AgentState};
 use crate::config::{resolve_path, FleetConfig};
+use crate::picker;
 use crate::state::{with_state, FleetState};
 use crate::tmux;
 
@@ -267,29 +268,17 @@ pub fn open_config() -> anyhow::Result<()> {
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-/// Present numbered folder list, return (name, path).
+/// Interactive folder picker.
 fn select_folder(config: &FleetConfig) -> anyhow::Result<(String, String)> {
     let mut folders: Vec<(&String, &String)> = config.folders.iter().collect();
     folders.sort_by_key(|(name, _)| name.to_owned());
 
-    println!("Where?");
-    for (i, (name, _)) in folders.iter().enumerate() {
-        println!("  {}  {}", i + 1, name);
-    }
-    print!("> ");
-    io::stdout().flush()?;
+    let options: Vec<String> = folders.iter().map(|(name, _)| (*name).clone()).collect();
 
-    let input = read_line()?.trim().to_string();
-    let idx: usize = input
-        .parse::<usize>()
-        .context("Invalid selection")?
-        .checked_sub(1)
-        .context("Selection out of range")?;
+    let idx = picker::pick("Where?", &options)?
+        .context("Aborted.")?;
 
-    let (name, path) = folders
-        .get(idx)
-        .context("Selection out of range")?;
-
+    let (name, path) = &folders[idx];
     Ok(((*name).clone(), (*path).clone()))
 }
 
