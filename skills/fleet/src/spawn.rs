@@ -92,6 +92,27 @@ pub fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Kill all agents: terminate tmux sessions and clear state.
+pub fn kill_all_agents() -> anyhow::Result<()> {
+    let config = FleetConfig::load()?;
+    let state = FleetState::load(&config)?;
+
+    let count = state.agents.len();
+    for agent in state.agents.values() {
+        if tmux::session_exists(&agent.tmux_session) {
+            let _ = tmux::kill_session(&agent.tmux_session);
+        }
+    }
+
+    with_state(&config, |state| {
+        state.agents.clear();
+    })?;
+
+    println!("Killed {count} agent(s).");
+
+    Ok(())
+}
+
 /// Remove all done agents from state.
 pub fn clean_agents() -> anyhow::Result<()> {
     let config = FleetConfig::load()?;

@@ -35,8 +35,14 @@ fn main() -> Result<()> {
         }) => {
             spawn::edit_agent(&agent_ref, description)?;
         }
-        Some(Command::Kill { agent_ref }) => {
-            spawn::kill_agent(&agent_ref)?;
+        Some(Command::Kill { all: true, .. }) => {
+            spawn::kill_all_agents()?;
+        }
+        Some(Command::Kill { agent_ref: Some(r), .. }) => {
+            spawn::kill_agent(&r)?;
+        }
+        Some(Command::Kill { .. }) => {
+            unreachable!("clap enforces ref or --all");
         }
         Some(Command::Clean) => {
             spawn::clean_agents()?;

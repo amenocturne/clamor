@@ -42,11 +42,15 @@ pub enum Command {
         description: Option<String>,
     },
 
-    /// Terminate an agent
+    /// Terminate an agent (or all with --all)
     Kill {
         /// Jump key letter or hex ID prefix
-        #[arg(name = "ref")]
-        agent_ref: String,
+        #[arg(name = "ref", required_unless_present = "all")]
+        agent_ref: Option<String>,
+
+        /// Kill all agents
+        #[arg(long)]
+        all: bool,
     },
 
     /// Remove done agents
