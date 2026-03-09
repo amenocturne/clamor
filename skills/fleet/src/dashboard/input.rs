@@ -58,11 +58,15 @@ pub fn handle_input(event: KeyEvent, key_map: &HashMap<char, String>, mode: &Inp
 }
 
 fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardAction {
+    let shift = event.modifiers.contains(KeyModifiers::SHIFT);
+
     match event.code {
         KeyCode::Char('q') => DashboardAction::Quit,
-        KeyCode::Char('c') => DashboardAction::SpawnInline,
         KeyCode::Char('C') => DashboardAction::SpawnEditor,
+        KeyCode::Char('c') if shift => DashboardAction::SpawnEditor,
+        KeyCode::Char('c') => DashboardAction::SpawnInline,
         KeyCode::Char('K') => DashboardAction::PendingKill,
+        KeyCode::Char('k') if shift => DashboardAction::PendingKill,
         KeyCode::Char(c) => match key_map.get(&c) {
             Some(agent_id) => DashboardAction::Attach(agent_id.clone()),
             None => DashboardAction::Refresh,

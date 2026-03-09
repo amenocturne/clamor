@@ -30,6 +30,8 @@ pub fn run(config: &FleetConfig) -> Result<()> {
     let dashboard_session = tmux::current_session()?;
     tmux::setup_return_key(&config.tmux.return_key, &dashboard_session)?;
 
+    install_panic_hook();
+
     let mut terminal = setup_terminal()?;
 
     let result = main_loop(&mut terminal, config);
@@ -37,6 +39,17 @@ pub fn run(config: &FleetConfig) -> Result<()> {
     restore_terminal(&mut terminal)?;
 
     result
+}
+
+/// Install a panic hook that restores the terminal before printing the panic message.
+/// Without this, a panic leaves the terminal in raw mode + alternate screen.
+fn install_panic_hook() {
+    let original = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = terminal::disable_raw_mode();
+        let _ = io::stdout().execute(LeaveAlternateScreen);
+        original(info);
+    }));
 }
 
 fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
@@ -65,6 +78,8 @@ fn main_loop(
 ) -> Result<()> {
     let refresh = Duration::from_secs_f64(config.dashboard.refresh_interval);
     let mut mode = InputMode::Normal;
+    let mut killed_at: HashMap<String, std::time::Instant> = HashMap::new();
+    let kill_linger = Duration::from_secs(3);
 
     // Pre-sort folders for picker
     let mut sorted_folders: Vec<(String, String)> = config.folders.iter()
@@ -73,9 +88,27 @@ fn main_loop(
     sorted_folders.sort_by(|a, b| a.0.cmp(&b.0));
 
     loop {
+        // Expire killed agents that have lingered long enough
+        let expired: Vec<String> = killed_at
+            .iter()
+            .filter(|(_, t)| t.elapsed() > kill_linger)
+            .map(|(id, _)| id.clone())
+            .collect();
+        if !expired.is_empty() {
+            let _ = with_state(config, |state| {
+                for id in &expired {
+                    state.agents.remove(id);
+                }
+            });
+            for id in &expired {
+                killed_at.remove(id);
+            }
+        }
+
         let state = FleetState::load(config)?;
         let agent_list = build_agent_list(config, &state);
         let stale_ids = detect_stale(&state);
+        let killed_ids: Vec<String> = killed_at.keys().cloned().collect();
         let key_assignments = keys::assign_keys(&agent_list);
 
         let key_map: HashMap<char, String> = key_assignments
@@ -103,7 +136,7 @@ fn main_loop(
         };
 
         terminal.draw(|frame| {
-            render::render(frame, config, &agent_refs, &key_assignments, &stale_ids, &overlay);
+            render::render(frame, config, &agent_refs, &key_assignments, &stale_ids, &killed_ids, &overlay);
         })?;
 
         if event::poll(refresh).context("Failed to poll for events")? {
@@ -142,7 +175,7 @@ fn main_loop(
                     DashboardAction::SpawnEditor => {
                         mode = InputMode::Normal;
                         suspend_tui(terminal, || {
-                            if let Err(e) = crate::spawn::spawn_agent(None, None) {
+                            if let Err(e) = crate::spawn::spawn_agent(None, None, true) {
                                 eprintln!("Error: {e}");
                                 std::thread::sleep(Duration::from_secs(1));
                             }
@@ -186,7 +219,13 @@ fn main_loop(
 
                     DashboardAction::KillAgent(agent_id) => {
                         mode = InputMode::Normal;
-                        let _ = crate::spawn::kill_agent(&agent_id);
+                        // Kill tmux session but keep agent in state briefly to show "killed"
+                        if let Some(agent) = state.agents.get(&agent_id) {
+                            if tmux::session_exists(&agent.tmux_session) {
+                                let _ = tmux::kill_session(&agent.tmux_session);
+                            }
+                        }
+                        killed_at.insert(agent_id, std::time::Instant::now());
                     }
 
                     DashboardAction::Cancel => {

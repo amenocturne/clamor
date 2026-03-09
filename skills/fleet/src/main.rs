@@ -18,13 +18,17 @@ fn main() -> Result<()> {
     match cli.command {
         None | Some(Command::Watch) => {
             let config = config::FleetConfig::load()?;
+            let respawned = spawn::respawn_dead()?;
+            if respawned > 0 {
+                eprintln!("Respawned {respawned} dead agent(s).");
+            }
             dashboard::run(&config)?;
         }
         Some(Command::Ls) => {
             spawn::list_agents()?;
         }
         Some(Command::New { description, folder }) => {
-            spawn::spawn_agent(description, folder)?;
+            spawn::spawn_agent(description, folder, false)?;
         }
         Some(Command::Attach { agent_ref }) => {
             spawn::attach_agent(&agent_ref)?;
@@ -51,9 +55,7 @@ fn main() -> Result<()> {
             spawn::open_config()?;
         }
         Some(Command::Hook) => {
-            if let Err(e) = hook::run() {
-                eprintln!("fleet hook error: {e}");
-            }
+            hook::run();
         }
     }
 

@@ -10,11 +10,12 @@ use ratatui::Frame;
 use crate::agent::{Agent, AgentState};
 use crate::config::FleetConfig;
 
-/// An agent prepared for display, with its assigned jump key and stale status.
+/// An agent prepared for display, with its assigned jump key and status flags.
 pub struct DisplayAgent<'a> {
     pub agent: &'a Agent,
     pub key: Option<char>,
     pub stale: bool,
+    pub killed: bool,
 }
 
 /// Overlay state passed to render for popup display.
@@ -32,6 +33,7 @@ pub fn render(
     agents: &HashMap<String, &Agent>,
     key_assignments: &[(String, char)],
     stale_ids: &[String],
+    killed_ids: &[String],
     overlay: &Overlay,
 ) {
     let area = frame.area();
@@ -42,11 +44,13 @@ pub fn render(
         .map(|(id, k)| (id.as_str(), *k))
         .collect();
 
-    // Build display agents grouped by folder
-    let groups = build_groups(config, agents, &id_to_key, stale_ids);
+    let pending_kill = matches!(overlay, Overlay::PendingKill);
 
-    // Count stats
-    let total = agents.len();
+    // Build display agents grouped by folder
+    let groups = build_groups(config, agents, &id_to_key, stale_ids, killed_ids);
+
+    // Count stats (exclude killed from count)
+    let total = agents.len() - killed_ids.iter().filter(|id| agents.contains_key(*id)).count();
     let needs_input = agents
         .values()
         .filter(|a| a.state == AgentState::Input)
@@ -61,10 +65,9 @@ pub fn render(
     ])
     .split(area);
 
-    let pending_kill = matches!(overlay, Overlay::PendingKill);
     render_header(frame, chunks[0], total, needs_input);
     render_separator(frame, chunks[1]);
-    render_body(frame, chunks[2], &groups);
+    render_body(frame, chunks[2], &groups, pending_kill);
     render_footer(frame, chunks[3], pending_kill);
 
     // Render overlay popups on top
@@ -158,6 +161,7 @@ fn build_groups<'a>(
     agents: &HashMap<String, &'a Agent>,
     id_to_key: &HashMap<&str, char>,
     stale_ids: &[String],
+    killed_ids: &[String],
 ) -> Vec<AgentGroup<'a>> {
     // Collect folder names from config, sorted
     let mut folder_keys: Vec<&String> = config.folders.keys().collect();
@@ -200,6 +204,7 @@ fn build_groups<'a>(
                 agent,
                 key: id_to_key.get(id.as_str()).copied(),
                 stale: stale_ids.contains(id),
+                killed: killed_ids.contains(id),
             })
             .collect();
 
@@ -214,7 +219,7 @@ fn build_groups<'a>(
     groups
 }
 
-fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup]) {
+fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup], pending_kill: bool) {
     let mut lines: Vec<Line> = Vec::new();
 
     for (i, group) in groups.iter().enumerate() {
@@ -231,7 +236,7 @@ fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup]) {
         let width = area.width as usize;
 
         for da in &group.agents {
-            lines.push(render_agent_line(da, width));
+            lines.push(render_agent_line(da, width, pending_kill));
         }
     }
 
@@ -239,53 +244,72 @@ fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup]) {
     frame.render_widget(body, area);
 }
 
-fn render_agent_line(da: &DisplayAgent, width: usize) -> Line<'static> {
+fn render_agent_line(da: &DisplayAgent, width: usize, pending_kill: bool) -> Line<'static> {
     let key_str = da
         .key
         .map(|c| format!("  {}  ", c))
         .unwrap_or_else(|| "     ".into());
 
-    let (state_label, state_style) = match da.agent.state {
-        AgentState::Input => (
-            "input",
+    let (state_label, state_style) = if da.killed {
+        (
+            "killed",
             Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ),
-        AgentState::Working => ("work ", Style::default().fg(Color::Green)),
-        AgentState::Done => ("done ", Style::default().fg(Color::DarkGray)),
+                .fg(Color::Red)
+                .add_modifier(Modifier::DIM),
+        )
+    } else {
+        match da.agent.state {
+            AgentState::Input => (
+                "input",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            AgentState::Working => ("work ", Style::default().fg(Color::Green)),
+            AgentState::Done => ("done ", Style::default().fg(Color::DarkGray)),
+        }
     };
 
     let duration = format_duration(da.agent.started_at);
-    let stale_suffix = if da.stale { " ?" } else { "" };
+    let stale_suffix = if da.stale && !da.killed { " ?" } else { "" };
     let duration_with_stale = format!("{}{}", duration, stale_suffix);
 
+    // state_label is 5 or 6 chars — normalize to 6 for "killed"
+    let state_display = format!("{:<6}", state_label);
+
     // Calculate available space for description:
-    // key(5) + state(5) + spacing(4) + duration(~8) + padding(2)
-    let overhead = key_str.len() + 5 + 4 + duration_with_stale.len() + 2;
+    // key(5) + state(6) + spacing(4) + duration(~8) + padding(2)
+    let overhead = key_str.len() + 6 + 4 + duration_with_stale.len() + 2;
     let desc_width = width.saturating_sub(overhead);
     let description = truncate(&da.agent.description, desc_width);
 
     // Pad description to fill available width
     let padded_desc = format!("{:<width$}", description, width = desc_width);
 
-    let key_style = Style::default()
-        .fg(Color::Cyan)
-        .add_modifier(Modifier::BOLD);
-
-    let desc_style = match da.agent.state {
-        AgentState::Done => Style::default().fg(Color::DarkGray),
-        _ => Style::default(),
+    // In kill mode, highlight keys in red to indicate they're killable
+    let key_style = if pending_kill && da.key.is_some() && !da.killed {
+        Style::default()
+            .fg(Color::Red)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
     };
 
-    let duration_style = match da.agent.state {
-        AgentState::Done => Style::default().fg(Color::DarkGray),
-        _ => Style::default().fg(Color::DarkGray),
+    let dimmed = da.killed || da.agent.state == AgentState::Done;
+
+    let desc_style = if dimmed {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default()
     };
+
+    let duration_style = Style::default().fg(Color::DarkGray);
 
     Line::from(vec![
         Span::styled(key_str, key_style),
-        Span::styled(state_label.to_string(), state_style),
+        Span::styled(state_display, state_style),
         Span::raw("  "),
         Span::styled(padded_desc, desc_style),
         Span::raw("  "),

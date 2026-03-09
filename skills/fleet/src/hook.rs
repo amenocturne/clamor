@@ -3,7 +3,7 @@ use serde::Deserialize;
 
 use crate::agent::AgentState;
 use crate::config::FleetConfig;
-use crate::state::with_state;
+use crate::state::try_with_state;
 
 #[derive(Debug, Deserialize)]
 struct HookEvent {
@@ -17,11 +17,13 @@ struct HookEvent {
 /// Run the hook: read stdin JSON, update agent state.
 /// Called as `fleet hook` subcommand.
 ///
-/// Exit silently (success) if:
-/// - FLEET_AGENT_ID is not set (not a fleet-managed agent)
-/// - Agent ID not found in state (agent was cleaned up)
-/// - Any error occurs (hooks should not block Claude Code)
-pub fn run() -> anyhow::Result<()> {
+/// Never fails — hooks must not block Claude Code.
+/// Silently exits on any error or when FLEET_AGENT_ID is not set.
+pub fn run() {
+    let _ = run_inner();
+}
+
+fn run_inner() -> anyhow::Result<()> {
     // Always consume stdin to avoid broken pipe errors in Claude Code
     let mut input = String::new();
     std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
@@ -34,7 +36,7 @@ pub fn run() -> anyhow::Result<()> {
     let event: HookEvent = serde_json::from_str(&input)?;
     let config = FleetConfig::load()?;
 
-    with_state(&config, |state| {
+    try_with_state(&config, |state| {
         let agent = match state.agents.get_mut(&agent_id) {
             Some(a) => a,
             None => return,

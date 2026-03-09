@@ -10,7 +10,8 @@ use crate::state::{with_state, FleetState};
 use crate::tmux;
 
 /// Interactive agent spawn flow.
-pub fn spawn_agent(description: Option<String>, folder_override: Option<String>) -> anyhow::Result<()> {
+/// If `force_editor` is true, open $EDITOR directly instead of showing a text prompt.
+pub fn spawn_agent(description: Option<String>, folder_override: Option<String>, force_editor: bool) -> anyhow::Result<()> {
     tmux::require_tmux()?;
     let config = FleetConfig::load()?;
 
@@ -36,6 +37,7 @@ pub fn spawn_agent(description: Option<String>, folder_override: Option<String>)
     // Get task description and prompt
     let (desc, prompt) = match description {
         Some(d) => (d.clone(), d),
+        None if force_editor => read_task_from_editor()?,
         None => read_task_description()?,
     };
 
@@ -111,6 +113,40 @@ pub fn kill_all_agents() -> anyhow::Result<()> {
     println!("Killed {count} agent(s).");
 
     Ok(())
+}
+
+/// Respawn agents whose tmux sessions no longer exist.
+/// Silently re-creates sessions using the stored prompt and cwd.
+pub fn respawn_dead() -> anyhow::Result<usize> {
+    let config = FleetConfig::load()?;
+    let state = FleetState::load(&config)?;
+
+    let dead: Vec<&Agent> = state
+        .agents
+        .values()
+        .filter(|a| {
+            !matches!(a.state, AgentState::Done) && !tmux::session_exists(&a.tmux_session)
+        })
+        .collect();
+
+    let count = dead.len();
+    for agent in &dead {
+        tmux::create_session(&agent.tmux_session, &agent.cwd, &agent.initial_prompt, &agent.id)?;
+    }
+
+    // Reset their state to working
+    if count > 0 {
+        with_state(&config, |state| {
+            for agent in &dead {
+                if let Some(a) = state.agents.get_mut(&agent.id) {
+                    a.state = AgentState::Working;
+                    a.last_activity_at = chrono::Utc::now();
+                }
+            }
+        })?;
+    }
+
+    Ok(count)
 }
 
 /// Remove all done agents from state.
@@ -315,6 +351,12 @@ fn read_task_description() -> anyhow::Result<(String, String)> {
         return Ok((input.clone(), input));
     }
 
+    read_task_from_editor()
+}
+
+/// Open $EDITOR directly to compose a task prompt.
+/// Returns (first_line_as_description, full_content_as_prompt).
+fn read_task_from_editor() -> anyhow::Result<(String, String)> {
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
     let tmp = std::env::temp_dir().join(format!("fleet-task-{}.md", generate_id()));
 

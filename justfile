@@ -43,6 +43,7 @@ clean:
 fleet-install:
     cd skills/fleet && cargo build --release
     mkdir -p ~/.local/bin
+    rm -f ~/.local/bin/fleet
     cp skills/fleet/target/release/fleet ~/.local/bin/fleet
     @echo "fleet installed to ~/.local/bin/fleet"
 

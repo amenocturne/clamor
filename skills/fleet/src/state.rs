@@ -20,7 +20,7 @@ impl FleetState {
         FleetConfig::config_dir().join("state.json")
     }
 
-    /// Reads state from `~/.fleet/state.json` with an exclusive file lock.
+    /// Reads state from `~/.fleet/state.json` with a shared (read) lock.
     /// Returns empty state if the file doesn't exist.
     pub fn load(config: &FleetConfig) -> anyhow::Result<Self> {
         let path = Self::state_path(config);
@@ -32,8 +32,8 @@ impl FleetState {
         let file = File::open(&path)
             .with_context(|| format!("Failed to open state file: {}", path.display()))?;
 
-        file.lock_exclusive()
-            .context("Failed to acquire lock on state file")?;
+        file.lock_shared()
+            .context("Failed to acquire shared lock on state file")?;
 
         let mut contents = String::new();
         (&file)
@@ -87,6 +87,26 @@ pub fn with_state<F, R>(_config: &FleetConfig, f: F) -> anyhow::Result<R>
 where
     F: FnOnce(&mut FleetState) -> R,
 {
+    with_state_inner(f, true)
+}
+
+/// Like `with_state`, but non-blocking: returns Ok(None) if the lock can't be acquired.
+/// Used by hooks to avoid blocking Claude Code.
+pub fn try_with_state<F, R>(_config: &FleetConfig, f: F) -> anyhow::Result<Option<R>>
+where
+    F: FnOnce(&mut FleetState) -> R,
+{
+    match with_state_inner(f, false) {
+        Ok(r) => Ok(Some(r)),
+        Err(e) if e.to_string().contains("lock") => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+fn with_state_inner<F, R>(f: F, blocking: bool) -> anyhow::Result<R>
+where
+    F: FnOnce(&mut FleetState) -> R,
+{
     FleetConfig::ensure_dir()?;
     let path = FleetConfig::config_dir().join("state.json");
 
@@ -98,8 +118,13 @@ where
         .open(&path)
         .with_context(|| format!("Failed to open state file: {}", path.display()))?;
 
-    file.lock_exclusive()
-        .context("Failed to acquire lock on state file")?;
+    if blocking {
+        file.lock_exclusive()
+            .context("Failed to acquire lock on state file")?;
+    } else {
+        file.try_lock_exclusive()
+            .context("Failed to acquire lock on state file (non-blocking)")?;
+    }
 
     // Read current state (or default if empty/missing)
     let mut contents = String::new();
