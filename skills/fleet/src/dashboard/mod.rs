@@ -7,6 +7,7 @@ use std::io;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use crossterm::event::{self, Event};
 use crossterm::terminal::{
     self, EnterAlternateScreen, LeaveAlternateScreen,
@@ -15,11 +16,12 @@ use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
-use crate::config::FleetConfig;
-use crate::state::FleetState;
+use crate::agent::{generate_id, Agent, AgentState};
+use crate::config::{resolve_path, FleetConfig};
+use crate::state::{with_state, FleetState};
 use crate::tmux;
 
-use input::{DashboardAction, InputMode};
+use input::{DashboardAction, InputMode, PromptEdit};
 
 /// Run the interactive dashboard.
 pub fn run(config: &FleetConfig) -> Result<()> {
@@ -64,6 +66,12 @@ fn main_loop(
     let refresh = Duration::from_secs_f64(config.dashboard.refresh_interval);
     let mut mode = InputMode::Normal;
 
+    // Pre-sort folders for picker
+    let mut sorted_folders: Vec<(String, String)> = config.folders.iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    sorted_folders.sort_by(|a, b| a.0.cmp(&b.0));
+
     loop {
         let state = FleetState::load(config)?;
         let agent_list = build_agent_list(config, &state);
@@ -75,16 +83,27 @@ fn main_loop(
             .map(|(id, k)| (*k, id.clone()))
             .collect();
 
-        let agent_refs: HashMap<String, &crate::agent::Agent> = state
+        let agent_refs: HashMap<String, &Agent> = state
             .agents
             .iter()
             .map(|(id, a)| (id.clone(), a))
             .collect();
 
-        // Render — pass mode for status hint
-        let pending_kill = matches!(mode, InputMode::WaitingKill);
+        // Build overlay from current mode
+        let overlay = match &mode {
+            InputMode::Normal => render::Overlay::None,
+            InputMode::WaitingKill => render::Overlay::PendingKill,
+            InputMode::PickingFolder { .. } => render::Overlay::FolderPicker {
+                folders: &sorted_folders,
+            },
+            InputMode::TypingPrompt { folder_name, input, .. } => render::Overlay::PromptInput {
+                folder_name,
+                input,
+            },
+        };
+
         terminal.draw(|frame| {
-            render::render(frame, config, &agent_refs, &key_assignments, &stale_ids, pending_kill);
+            render::render(frame, config, &agent_refs, &key_assignments, &stale_ids, &overlay);
         })?;
 
         if event::poll(refresh).context("Failed to poll for events")? {
@@ -101,7 +120,26 @@ fn main_loop(
                         }
                     }
 
-                    DashboardAction::SpawnNew => {
+                    DashboardAction::SpawnInline => {
+                        if sorted_folders.len() == 1 {
+                            // Skip picker, go straight to prompt
+                            let (name, path) = &sorted_folders[0];
+                            mode = InputMode::TypingPrompt {
+                                folder_name: name.clone(),
+                                folder_path: path.clone(),
+                                input: String::new(),
+                            };
+                        } else if sorted_folders.is_empty() {
+                            // No folders configured
+                            mode = InputMode::Normal;
+                        } else {
+                            mode = InputMode::PickingFolder {
+                                folder_count: sorted_folders.len(),
+                            };
+                        }
+                    }
+
+                    DashboardAction::SpawnEditor => {
                         mode = InputMode::Normal;
                         suspend_tui(terminal, || {
                             if let Err(e) = crate::spawn::spawn_agent(None, None) {
@@ -111,26 +149,86 @@ fn main_loop(
                         })?;
                     }
 
+                    DashboardAction::FolderPicked(idx) => {
+                        if let Some((name, path)) = sorted_folders.get(idx) {
+                            mode = InputMode::TypingPrompt {
+                                folder_name: name.clone(),
+                                folder_path: path.clone(),
+                                input: String::new(),
+                            };
+                        } else {
+                            mode = InputMode::Normal;
+                        }
+                    }
+
+                    DashboardAction::PromptInput(edit) => {
+                        if let InputMode::TypingPrompt { ref mut input, .. } = mode {
+                            match edit {
+                                PromptEdit::Char(c) => input.push(c),
+                                PromptEdit::Backspace => { input.pop(); }
+                            }
+                        }
+                    }
+
+                    DashboardAction::PromptSubmitted => {
+                        if let InputMode::TypingPrompt { folder_name, folder_path, input } = &mode {
+                            let prompt = input.trim().to_string();
+                            if !prompt.is_empty() {
+                                let _ = spawn_inline(config, folder_name, folder_path, &prompt);
+                            }
+                        }
+                        mode = InputMode::Normal;
+                    }
+
                     DashboardAction::PendingKill => {
                         mode = InputMode::WaitingKill;
                     }
 
                     DashboardAction::KillAgent(agent_id) => {
                         mode = InputMode::Normal;
-                        if let Err(e) = crate::spawn::kill_agent(&agent_id) {
-                            // silently ignore — agent might already be gone
-                            let _ = e;
-                        }
+                        let _ = crate::spawn::kill_agent(&agent_id);
                     }
 
-                    DashboardAction::Refresh => {
-                        // Any unrecognized key in pending mode cancels it
+                    DashboardAction::Cancel => {
                         mode = InputMode::Normal;
                     }
+
+                    DashboardAction::Refresh => {}
                 }
             }
         }
     }
+
+    Ok(())
+}
+
+/// Spawn an agent directly from the dashboard (no TUI suspend needed).
+fn spawn_inline(config: &FleetConfig, folder_name: &str, folder_path: &str, prompt: &str) -> Result<()> {
+    let cwd = resolve_path(folder_path);
+    let cwd_str = cwd.to_string_lossy().to_string();
+
+    let id = generate_id();
+    let session = tmux::session_name(&config.tmux.session_prefix, &id);
+    let now = Utc::now();
+
+    let agent = Agent {
+        id: id.clone(),
+        description: prompt.to_string(),
+        folder: folder_name.to_string(),
+        cwd: cwd_str.clone(),
+        tmux_session: session.clone(),
+        initial_prompt: prompt.to_string(),
+        state: AgentState::Working,
+        started_at: now,
+        last_activity_at: now,
+        last_tool: None,
+    };
+
+    with_state(config, |state| {
+        state.agents.insert(id.clone(), agent);
+    })?;
+
+    tmux::create_session(&session, &cwd_str, prompt, &id)?;
 
     Ok(())
 }
@@ -161,8 +259,8 @@ where
 fn build_agent_list<'a>(
     _config: &FleetConfig,
     state: &'a FleetState,
-) -> Vec<(String, &'a crate::agent::Agent)> {
-    let mut list: Vec<(String, &crate::agent::Agent)> = state
+) -> Vec<(String, &'a Agent)> {
+    let mut list: Vec<(String, &Agent)> = state
         .agents
         .iter()
         .map(|(id, agent)| (id.clone(), agent))
@@ -185,7 +283,7 @@ fn detect_stale(state: &FleetState) -> Vec<String> {
         .filter(|(_, agent)| {
             matches!(
                 agent.state,
-                crate::agent::AgentState::Working | crate::agent::AgentState::Input
+                AgentState::Working | AgentState::Input
             ) && !tmux::session_exists(&agent.tmux_session)
         })
         .map(|(id, _)| id.clone())

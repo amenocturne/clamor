@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::agent::{Agent, AgentState};
@@ -17,6 +17,14 @@ pub struct DisplayAgent<'a> {
     pub stale: bool,
 }
 
+/// Overlay state passed to render for popup display.
+pub enum Overlay<'a> {
+    None,
+    PendingKill,
+    FolderPicker { folders: &'a [(String, String)] },
+    PromptInput { folder_name: &'a str, input: &'a str },
+}
+
 /// Render the full dashboard frame.
 pub fn render(
     frame: &mut Frame,
@@ -24,7 +32,7 @@ pub fn render(
     agents: &HashMap<String, &Agent>,
     key_assignments: &[(String, char)],
     stale_ids: &[String],
-    pending_kill: bool,
+    overlay: &Overlay,
 ) {
     let area = frame.area();
 
@@ -53,10 +61,22 @@ pub fn render(
     ])
     .split(area);
 
+    let pending_kill = matches!(overlay, Overlay::PendingKill);
     render_header(frame, chunks[0], total, needs_input);
     render_separator(frame, chunks[1]);
     render_body(frame, chunks[2], &groups);
     render_footer(frame, chunks[3], pending_kill);
+
+    // Render overlay popups on top
+    match overlay {
+        Overlay::FolderPicker { folders } => {
+            render_folder_popup(frame, area, folders);
+        }
+        Overlay::PromptInput { folder_name, input } => {
+            render_prompt_popup(frame, area, folder_name, input);
+        }
+        _ => {}
+    }
 }
 
 fn render_header(frame: &mut Frame, area: Rect, total: usize, needs_input: usize) {
@@ -112,8 +132,10 @@ fn render_footer(frame: &mut Frame, area: Rect, pending_kill: bool) {
             Span::raw(" "),
             Span::styled("[key]", Style::default().fg(Color::Cyan)),
             Span::raw(" attach  "),
-            Span::styled("[n]", Style::default().fg(Color::Cyan)),
-            Span::raw("ew  "),
+            Span::styled("[c]", Style::default().fg(Color::Cyan)),
+            Span::raw("reate  "),
+            Span::styled("[C]", Style::default().fg(Color::Cyan)),
+            Span::raw(" $EDITOR  "),
             Span::styled("[K", Style::default().fg(Color::Cyan)),
             Span::raw("+"),
             Span::styled("key]", Style::default().fg(Color::Cyan)),
@@ -302,4 +324,72 @@ fn truncate(s: &str, max_len: usize) -> String {
         let truncated: String = s.chars().take(max_len - 3).collect();
         format!("{}...", truncated)
     }
+}
+
+/// Center a popup rect of given width/height inside an area.
+fn popup_area(area: Rect, width: u16, height: u16) -> Rect {
+    let [area] = Layout::horizontal([Constraint::Length(width)])
+        .flex(Flex::Center)
+        .areas(area);
+    let [area] = Layout::vertical([Constraint::Length(height)])
+        .flex(Flex::Center)
+        .areas(area);
+    area
+}
+
+fn render_folder_popup(frame: &mut Frame, area: Rect, folders: &[(String, String)]) {
+    let height = (folders.len() as u16) + 2; // border top/bottom
+    let width = folders
+        .iter()
+        .map(|(name, _)| name.len() + 6) // "  1  Name"
+        .max()
+        .unwrap_or(20)
+        .max(20) as u16
+        + 2; // borders
+
+    let popup = popup_area(area, width, height);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(" Create ");
+
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let lines: Vec<Line> = folders
+        .iter()
+        .enumerate()
+        .map(|(i, (name, _))| {
+            Line::from(vec![
+                Span::styled(
+                    format!("  {}  ", i + 1),
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(name.clone()),
+            ])
+        })
+        .collect();
+
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn render_prompt_popup(frame: &mut Frame, area: Rect, folder_name: &str, input: &str) {
+    let width = area.width.min(60);
+    let popup = popup_area(area, width, 3);
+    frame.render_widget(Clear, popup);
+
+    let title = format!(" {} ", folder_name);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(title);
+
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let display = format!("{input}▎");
+    let prompt = Paragraph::new(Line::from(Span::raw(display)));
+    frame.render_widget(prompt, inner);
 }
