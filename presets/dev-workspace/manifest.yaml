@@ -16,6 +16,7 @@ skills:
   - config
   - project-setup
   - todo
+  - fleet
 common:
   - dev-workflow
   - code-conventions
@@ -26,6 +27,7 @@ common:
 hooks:
   - notification
   - workflow-check
+  - fleet
 pipelines: []
 external:
   - github.com/anthropics/skills/skill-creator
