@@ -33,7 +33,7 @@ fn default_session_prefix() -> String {
 }
 
 fn default_return_key() -> String {
-    "F".into()
+    "f".into()
 }
 
 fn default_refresh_interval() -> f64 {
