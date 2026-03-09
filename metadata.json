@@ -1,0 +1,13 @@
+{
+  "name": "fleet",
+  "version": "0.1.0",
+  "description": "CLI orchestrator for managing multiple Claude Code instances via tmux",
+  "abstract": "Spawn, monitor, and switch between multiple Claude Code sessions using a live dashboard. Track agent states (working/input/done) via hooks.",
+  "author": "amenocturne",
+  "keywords": [
+    "tmux",
+    "orchestration",
+    "multi-agent",
+    "dashboard"
+  ]
+}
