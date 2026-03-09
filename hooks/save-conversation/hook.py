@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -73,11 +74,75 @@ def format_markdown(project_dir: Path):
         return False
 
 
+HOOK_LOCK = "hook-commit.lock"
+STALE_THRESHOLD = 30.0  # seconds — matches hook timeout, older = dead process
+WAIT_TIMEOUT = 15.0     # seconds — max time to wait for another hook
+POLL_INTERVAL = 0.5     # seconds
+
+
+def _clean_stale_git_lock(project_dir: Path):
+    """Remove git's index.lock if stale (older than STALE_THRESHOLD)."""
+    index_lock = project_dir / ".git" / "index.lock"
+    try:
+        if index_lock.exists():
+            age = time.time() - index_lock.stat().st_mtime
+            if age > STALE_THRESHOLD:
+                index_lock.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _acquire_lock(project_dir: Path) -> bool:
+    """Acquire hook commit lock. Waits for active locks, cleans stale ones."""
+    lock_file = project_dir / ".git" / HOOK_LOCK
+    waited = 0.0
+    force_attempts = 0
+
+    while True:
+        try:
+            fd = os.open(str(lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            return True
+        except FileExistsError:
+            try:
+                age = time.time() - lock_file.stat().st_mtime
+                if age > STALE_THRESHOLD:
+                    lock_file.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                lock_file.unlink(missing_ok=True)
+                continue
+
+            if waited >= WAIT_TIMEOUT:
+                force_attempts += 1
+                if force_attempts > 2:
+                    return False
+                lock_file.unlink(missing_ok=True)
+                continue
+
+            time.sleep(POLL_INTERVAL)
+            waited += POLL_INTERVAL
+        except OSError:
+            return False
+
+
+def _release_lock(project_dir: Path):
+    lock_file = project_dir / ".git" / HOOK_LOCK
+    lock_file.unlink(missing_ok=True)
+
+
 def git_commit(project_dir: Path, message: str, files: list[Path]):
-    """Stage specific files and commit."""
+    """Stage specific files and commit with lock management."""
     if not files:
         return False
+
+    if not _acquire_lock(project_dir):
+        return False
+
     try:
+        _clean_stale_git_lock(project_dir)
+
         subprocess.run(
             ["git", "add"] + [str(f) for f in files],
             cwd=project_dir,
@@ -97,6 +162,8 @@ def git_commit(project_dir: Path, message: str, files: list[Path]):
             return True
     except subprocess.CalledProcessError:
         pass
+    finally:
+        _release_lock(project_dir)
     return False
 
 
