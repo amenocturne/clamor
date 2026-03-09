@@ -1,0 +1,60 @@
+use clap::{Parser, Subcommand};
+
+#[derive(Parser, Debug)]
+#[command(name = "fleet", about = "CLI orchestrator for Claude Code instances via tmux")]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Open the live dashboard (alias for default)
+    Watch,
+
+    /// One-shot status table
+    Ls,
+
+    /// Spawn a new agent
+    New {
+        /// Description of the task
+        description: Option<String>,
+
+        /// Folder name override
+        #[arg(long)]
+        folder: Option<String>,
+    },
+
+    /// Switch to an agent's tmux session
+    Attach {
+        /// Jump key letter or hex ID prefix
+        #[arg(name = "ref")]
+        agent_ref: String,
+    },
+
+    /// Update an agent's description
+    Edit {
+        /// Jump key letter or hex ID prefix
+        #[arg(name = "ref")]
+        agent_ref: String,
+
+        /// New description
+        description: Option<String>,
+    },
+
+    /// Terminate an agent
+    Kill {
+        /// Jump key letter or hex ID prefix
+        #[arg(name = "ref")]
+        agent_ref: String,
+    },
+
+    /// Remove done agents
+    Clean,
+
+    /// Open config in $EDITOR
+    Config,
+
+    /// Internal: called by Claude Code hooks (reads stdin JSON)
+    Hook,
+}
