@@ -22,6 +22,17 @@
       ]
     }
   ],
+  "UserPromptSubmit": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "{hook_dir}/hook.sh",
+          "timeout": 5
+        }
+      ]
+    }
+  ],
   "Stop": [
     {
       "hooks": [
