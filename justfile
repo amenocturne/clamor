@@ -5,8 +5,12 @@
 default:
     @just --list
 
-# Install preset interactively
+# Reinstall all registered installations (falls back to interactive if no registry)
 install:
+    uv run install.py --all
+
+# Install preset interactively
+install-interactive:
     uv run install.py
 
 # Install preset to a target directory

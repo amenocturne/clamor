@@ -25,5 +25,8 @@ hooks/save-conversation/uv.lock
 # Skill virtual environments (created by uv run with PEP 723 scripts)
 skills/**/.venv/
 
+# Machine-specific installation registry
+installations.yaml
+
 # Claude Code local state
 .claude/

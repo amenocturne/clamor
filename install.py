@@ -30,6 +30,7 @@ SKILLS_DIR = REPO_ROOT / "skills"
 HOOKS_DIR = REPO_ROOT / "hooks"
 PIPELINES_DIR = REPO_ROOT / "pipelines"
 COMMON_DIR = REPO_ROOT / "common"
+REGISTRY_PATH = REPO_ROOT / "installations.yaml"
 
 INCLUDE_PATTERN = r"\{\{include:([^}]+)\}\}"
 FRONTMATTER_PATTERN = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
@@ -265,6 +266,62 @@ def update_config(target: Path, preset: str, knowledge_base: Path | None = None)
     return config
 
 
+def load_registry() -> list[dict]:
+    """Read installations.yaml and return list of entries. Empty list if missing."""
+    if not REGISTRY_PATH.exists():
+        return []
+    content = REGISTRY_PATH.read_text()
+    entries = yaml.safe_load(content)
+    return entries if isinstance(entries, list) else []
+
+
+def save_registry(entries: list[dict]):
+    """Write list of installation entries to installations.yaml."""
+    REGISTRY_PATH.write_text(yaml.dump(entries, default_flow_style=False, sort_keys=False))
+
+
+def update_registry(preset: str, target: Path, knowledge_base: Path | None = None):
+    """Upsert a registry entry by target path."""
+    entries = load_registry()
+    target_str = str(target.resolve())
+
+    entry = {"preset": preset, "target": target_str}
+    if knowledge_base is not None:
+        entry["knowledge_base"] = str(knowledge_base.resolve())
+
+    for i, existing in enumerate(entries):
+        if existing.get("target") == target_str:
+            entries[i] = entry
+            save_registry(entries)
+            return
+
+    entries.append(entry)
+    save_registry(entries)
+
+
+def install_all() -> int:
+    """Reinstall all registered installations. Returns count of successes."""
+    entries = load_registry()
+    if not entries:
+        console.print(
+            "[yellow]No installations registered yet. Starting interactive install...[/yellow]"
+        )
+        return 0
+
+    success = 0
+    for entry in entries:
+        preset = entry["preset"]
+        target = Path(entry["target"])
+        kb = Path(entry["knowledge_base"]) if entry.get("knowledge_base") else None
+        console.print(f"\n[bold]━━━ {preset} → {target} ━━━[/bold]")
+        try:
+            install(preset, target, kb)
+            success += 1
+        except Exception as e:
+            console.print(f"[red]Failed: {e}[/red]")
+    return success
+
+
 def install(preset: str, target: Path, knowledge_base: Path | None = None):
     """Main installation logic."""
     console.print(f"[bold]Installing preset:[/bold] {preset}")
@@ -383,6 +440,7 @@ def install(preset: str, target: Path, knowledge_base: Path | None = None):
             console.print(f"  npx skills add {ext}")
 
     console.print("\n[bold green]Done![/bold green]")
+    update_registry(preset, target, knowledge_base)
 
 
 def list_presets():
@@ -407,10 +465,20 @@ def main():
         type=Path,
         help="Path to knowledge base (Obsidian vault) for integration",
     )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        dest="install_all",
+        help="Reinstall all registered installations",
+    )
     args = parser.parse_args()
 
     if args.list:
         list_presets()
+        return
+
+    if args.install_all:
+        install_all()
         return
 
     if args.preset:
