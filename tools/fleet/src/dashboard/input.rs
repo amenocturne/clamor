@@ -6,11 +6,11 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub enum DashboardAction {
     Attach(String),
     SpawnInline,
-    SpawnEditor,
     KillAgent(String),
     PendingKill,
     FolderPicked(usize),
     PromptSubmitted,
+    SpawnEmpty,
     PromptInput(PromptEdit),
     AdoptStart,
     AdoptInput(PromptEdit),
@@ -59,15 +59,11 @@ pub fn handle_input(event: KeyEvent, key_map: &HashMap<char, String>, mode: &Inp
 }
 
 fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardAction {
-    let shift = event.modifiers.contains(KeyModifiers::SHIFT);
-
     match event.code {
         KeyCode::Char('q') => DashboardAction::Quit,
-        KeyCode::Char('C') => DashboardAction::SpawnEditor,
-        KeyCode::Char('c') if shift => DashboardAction::SpawnEditor,
         KeyCode::Char('c') => DashboardAction::SpawnInline,
         KeyCode::Char('K') => DashboardAction::PendingKill,
-        KeyCode::Char('k') if shift => DashboardAction::PendingKill,
+        KeyCode::Char('k') if event.modifiers.contains(KeyModifiers::SHIFT) => DashboardAction::PendingKill,
         KeyCode::Char('R') => DashboardAction::AdoptStart,
         KeyCode::Char(c) => match key_map.get(&c) {
             Some(agent_id) => DashboardAction::Attach(agent_id.clone()),
@@ -107,6 +103,7 @@ fn handle_folder_pick(event: KeyEvent, folder_count: usize) -> DashboardAction {
 fn handle_prompt_input(event: KeyEvent) -> DashboardAction {
     match event.code {
         KeyCode::Enter => DashboardAction::PromptSubmitted,
+        KeyCode::Tab => DashboardAction::SpawnEmpty,
         KeyCode::Esc => DashboardAction::Cancel,
         KeyCode::Backspace => DashboardAction::PromptInput(PromptEdit::Backspace),
         KeyCode::Char(c) => DashboardAction::PromptInput(PromptEdit::Char(c)),

@@ -168,8 +168,6 @@ fn render_footer(frame: &mut Frame, area: Rect, pending_kill: bool) {
             Span::raw(" attach  "),
             Span::styled("[c]", Style::default().fg(Color::Cyan)),
             Span::raw("reate  "),
-            Span::styled("[C]", Style::default().fg(Color::Cyan)),
-            Span::raw(" $EDITOR  "),
             Span::styled("[R]", Style::default().fg(Color::Cyan)),
             Span::raw(" adopt  "),
             Span::styled("[K", Style::default().fg(Color::Cyan)),
@@ -422,7 +420,7 @@ fn render_folder_popup(frame: &mut Frame, area: Rect, folders: &[(String, String
 
 fn render_prompt_popup(frame: &mut Frame, area: Rect, folder_name: &str, input: &str) {
     let width = area.width.min(60);
-    let popup = popup_area(area, width, 3);
+    let popup = popup_area(area, width, 4);
     frame.render_widget(Clear, popup);
 
     let title = format!(" {} ", folder_name);
@@ -435,7 +433,15 @@ fn render_prompt_popup(frame: &mut Frame, area: Rect, folder_name: &str, input: 
     frame.render_widget(block, popup);
 
     let display = format!("{input}\u{258e}");
-    let prompt = Paragraph::new(Line::from(Span::raw(display)));
+    let lines = vec![
+        Line::from(Span::raw(display)),
+        Line::from(vec![
+            Span::styled("Empty → $EDITOR", Style::default().fg(Color::DarkGray)),
+            Span::styled("  Tab → ", Style::default().fg(Color::DarkGray)),
+            Span::styled("empty session", Style::default().fg(Color::DarkGray)),
+        ]),
+    ];
+    let prompt = Paragraph::new(lines);
     frame.render_widget(prompt, inner);
 }
 
