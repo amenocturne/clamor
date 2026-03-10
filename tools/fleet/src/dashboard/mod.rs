@@ -345,6 +345,8 @@ fn dashboard_iteration(
             render::Overlay::StaleAgent { description: desc }
         }
         InputMode::ConfirmEmptySpawn { .. } => render::Overlay::ConfirmEmptySpawn,
+        InputMode::WaitingEdit => render::Overlay::PendingEdit,
+        InputMode::EditingDescription { input, .. } => render::Overlay::EditInput { input },
     };
 
     terminal.draw(|frame| {
@@ -504,6 +506,44 @@ fn dashboard_iteration(
                     *input_mode = InputMode::Normal;
                 }
 
+                DashboardAction::PendingEdit => {
+                    *input_mode = InputMode::WaitingEdit;
+                }
+
+                DashboardAction::EditAgent(agent_id) => {
+                    let current_desc = state.agents.get(&agent_id)
+                        .map(|a| a.description.clone())
+                        .unwrap_or_default();
+                    *input_mode = InputMode::EditingDescription {
+                        agent_id,
+                        input: current_desc,
+                    };
+                }
+
+                DashboardAction::EditInput(edit) => {
+                    if let InputMode::EditingDescription { ref mut input, .. } = input_mode {
+                        match edit {
+                            PromptEdit::Char(c) => input.push(c),
+                            PromptEdit::Backspace => { input.pop(); }
+                        }
+                    }
+                }
+
+                DashboardAction::EditSubmitted => {
+                    if let InputMode::EditingDescription { agent_id, input } = input_mode {
+                        let new_desc = input.trim().to_string();
+                        if !new_desc.is_empty() {
+                            let id = agent_id.clone();
+                            let _ = with_state(config, |state| {
+                                if let Some(agent) = state.agents.get_mut(&id) {
+                                    agent.description = new_desc;
+                                }
+                            });
+                        }
+                    }
+                    *input_mode = InputMode::Normal;
+                }
+
                 DashboardAction::PendingKill => {
                     *input_mode = InputMode::WaitingKill;
                 }
@@ -598,9 +638,10 @@ fn terminal_iteration(
     };
 
     // Render
-    if let Some(pv) = pane_views.get(agent_id) {
+    if let Some(pv) = pane_views.get_mut(agent_id) {
+        let screen = pv.scrolled_screen();
         terminal.draw(|frame| {
-            render::render_terminal(frame, pv, agent);
+            render::render_terminal(frame, screen, agent);
         })?;
     }
 
@@ -629,6 +670,11 @@ fn terminal_iteration(
                     return Ok(LoopAction::Continue);
                 }
 
+                // Any keyboard input snaps scrollback to live view
+                if let Some(pv) = pane_views.get_mut(agent_id) {
+                    pv.snap_to_bottom();
+                }
+
                 // Forward all other keys to PTY
                 if let Some(bytes) = pane::encode_key(key_event) {
                     let _ = client.send_input(agent_id, &bytes);
@@ -636,12 +682,41 @@ fn terminal_iteration(
             }
 
             Event::Mouse(mouse_event) => {
-                // Calculate pane area (minus title bar)
                 let (term_cols, term_rows) = crossterm::terminal::size()?;
                 let content_rows = term_rows.saturating_sub(1);
                 let pane_area = ratatui::layout::Rect::new(0, 1, term_cols, content_rows);
-                if let Some(bytes) = pane::encode_mouse_for_pane(mouse_event, pane_area) {
-                    let _ = client.send_input(agent_id, &bytes);
+
+                let mouse_mode = pane_views.get(agent_id)
+                    .map_or(false, |pv| pv.mouse_mode_active());
+
+                if mouse_mode {
+                    // App handles mouse — forward as SGR
+                    if let Some(bytes) = pane::encode_mouse_for_pane(mouse_event, pane_area) {
+                        let _ = client.send_input(agent_id, &bytes);
+                    }
+                } else {
+                    // No mouse mode — handle scroll locally
+                    match mouse_event.kind {
+                        crossterm::event::MouseEventKind::ScrollUp => {
+                            if let Some(pv) = pane_views.get_mut(agent_id) {
+                                if pv.alternate_screen() {
+                                    let _ = client.send_input(agent_id, b"\x1b[A\x1b[A\x1b[A");
+                                } else {
+                                    pv.scroll_offset = pv.scroll_offset.saturating_add(3);
+                                }
+                            }
+                        }
+                        crossterm::event::MouseEventKind::ScrollDown => {
+                            if let Some(pv) = pane_views.get_mut(agent_id) {
+                                if pv.alternate_screen() {
+                                    let _ = client.send_input(agent_id, b"\x1b[B\x1b[B\x1b[B");
+                                } else {
+                                    pv.scroll_offset = pv.scroll_offset.saturating_sub(3);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
 

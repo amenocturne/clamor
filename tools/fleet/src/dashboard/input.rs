@@ -9,6 +9,10 @@ pub enum DashboardAction {
     SpawnEditor,
     KillAgent(String),
     PendingKill,
+    EditAgent(String),
+    PendingEdit,
+    EditInput(PromptEdit),
+    EditSubmitted,
     FolderPicked(usize),
     PromptSubmitted,
     PromptInput(PromptEdit),
@@ -39,6 +43,8 @@ pub enum InputMode {
     StalePrompt { count: usize },
     StaleAgent { agent_id: String },
     ConfirmEmptySpawn { folder_name: String, folder_path: String },
+    WaitingEdit,
+    EditingDescription { agent_id: String, input: String },
 }
 
 /// Process a keyboard event and return the corresponding action.
@@ -52,6 +58,8 @@ pub fn handle_input(event: KeyEvent, key_map: &HashMap<char, String>, mode: &Inp
     match mode {
         InputMode::Normal => handle_normal(event, key_map),
         InputMode::WaitingKill => handle_pending_kill(event, key_map),
+        InputMode::WaitingEdit => handle_pending_edit(event, key_map),
+        InputMode::EditingDescription { .. } => handle_edit_input(event),
         InputMode::PickingFolder { folder_count, .. } => handle_folder_pick(event, *folder_count),
         InputMode::TypingPrompt { .. } => handle_prompt_input(event),
         InputMode::TypingAdopt { .. } => handle_adopt_input(event),
@@ -69,6 +77,7 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
         KeyCode::Char('c') => DashboardAction::SpawnInline,
         KeyCode::Char('K') => DashboardAction::PendingKill,
         KeyCode::Char('k') if event.modifiers.contains(KeyModifiers::SHIFT) => DashboardAction::PendingKill,
+        KeyCode::Char('e') => DashboardAction::PendingEdit,
         KeyCode::Char('R') => DashboardAction::AdoptStart,
         KeyCode::Char(c) => match key_map.get(&c) {
             Some(agent_id) => DashboardAction::Attach(agent_id.clone()),
@@ -87,6 +96,27 @@ fn handle_pending_kill(event: KeyEvent, key_map: &HashMap<char, String>) -> Dash
         },
         KeyCode::Esc => DashboardAction::Cancel,
         _ => DashboardAction::Cancel,
+    }
+}
+
+fn handle_pending_edit(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardAction {
+    match event.code {
+        KeyCode::Char(c) => match key_map.get(&c) {
+            Some(agent_id) => DashboardAction::EditAgent(agent_id.clone()),
+            None => DashboardAction::Cancel,
+        },
+        KeyCode::Esc => DashboardAction::Cancel,
+        _ => DashboardAction::Cancel,
+    }
+}
+
+fn handle_edit_input(event: KeyEvent) -> DashboardAction {
+    match event.code {
+        KeyCode::Enter => DashboardAction::EditSubmitted,
+        KeyCode::Esc => DashboardAction::Cancel,
+        KeyCode::Backspace => DashboardAction::EditInput(PromptEdit::Backspace),
+        KeyCode::Char(c) => DashboardAction::EditInput(PromptEdit::Char(c)),
+        _ => DashboardAction::Refresh,
     }
 }
 

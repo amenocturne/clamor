@@ -30,12 +30,14 @@ pub fn agent_color(color_index: u8) -> Color {
 /// that processes output bytes received from the daemon, and tracks scroll state.
 pub struct PaneView {
     pub parser: vt100::Parser,
+    pub scroll_offset: usize,
 }
 
 impl PaneView {
     pub fn new(rows: u16, cols: u16) -> Self {
         Self {
             parser: vt100::Parser::new(rows, cols, 10000),
+            scroll_offset: 0,
         }
     }
 
@@ -49,9 +51,27 @@ impl PaneView {
         self.parser.screen_mut().set_size(rows, cols);
     }
 
-    /// Access the parsed terminal screen (immutable).
-    pub fn screen(&self) -> &vt100::Screen {
+    /// Apply scrollback offset and return the screen for rendering.
+    /// Clamps offset to actual scrollback size.
+    pub fn scrolled_screen(&mut self) -> &vt100::Screen {
+        self.parser.screen_mut().set_scrollback(self.scroll_offset);
+        self.scroll_offset = self.parser.screen().scrollback();
         self.parser.screen()
+    }
+
+    /// Whether the app inside the PTY has mouse mode enabled.
+    pub fn mouse_mode_active(&self) -> bool {
+        self.parser.screen().mouse_protocol_mode() != vt100::MouseProtocolMode::None
+    }
+
+    /// Whether the app is using the alternate screen buffer.
+    pub fn alternate_screen(&self) -> bool {
+        self.parser.screen().alternate_screen()
+    }
+
+    /// Snap back to live view (scroll_offset = 0).
+    pub fn snap_to_bottom(&mut self) {
+        self.scroll_offset = 0;
     }
 }
 
