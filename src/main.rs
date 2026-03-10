@@ -24,6 +24,10 @@ fn main() -> Result<()> {
     match cli.command {
         None => {
             let config = FleetConfig::load()?;
+            if config.folders.is_empty() {
+                eprintln!("Error: No folders configured. Run `fleet config` to add folders.");
+                std::process::exit(1);
+            }
             dashboard::run(&config, None)?;
         }
         Some(Command::Ls) => {
