@@ -83,7 +83,7 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
             Some(agent_id) => DashboardAction::Attach(agent_id.clone()),
             None => DashboardAction::Refresh,
         },
-        KeyCode::Esc => DashboardAction::Quit,
+        KeyCode::Esc => DashboardAction::Refresh,
         _ => DashboardAction::Refresh,
     }
 }
