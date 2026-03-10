@@ -50,7 +50,7 @@ fn reconcile_state(config: &FleetConfig, client: &mut DaemonClient) -> Result<us
     let lost_count = with_state(config, |state| {
         let mut count = 0;
         for (id, agent) in state.agents.iter_mut() {
-            if agent.state != AgentState::Lost && agent.state != AgentState::Done && !daemon_ids.contains(id) {
+            if agent.state != AgentState::Lost && !daemon_ids.contains(id) {
                 agent.state = AgentState::Lost;
                 count += 1;
             }
@@ -328,6 +328,12 @@ fn dashboard_iteration(
         InputMode::StalePrompt { count } => render::Overlay::StaleAgents {
             count: *count,
         },
+        InputMode::StaleAgent { ref agent_id } => {
+            let desc = state.agents.get(agent_id)
+                .map(|a| a.description.as_str())
+                .unwrap_or("unknown");
+            render::Overlay::StaleAgent { description: desc }
+        }
     };
 
     terminal.draw(|frame| {
@@ -342,8 +348,12 @@ fn dashboard_iteration(
 
                 DashboardAction::Attach(ref agent_id) => {
                     *input_mode = InputMode::Normal;
-                    if state.agents.contains_key(agent_id) {
-                        return Ok(LoopAction::SwitchToTerminal(agent_id.clone()));
+                    if let Some(agent) = state.agents.get(agent_id) {
+                        if agent.state == AgentState::Lost {
+                            *input_mode = InputMode::StaleAgent { agent_id: agent_id.clone() };
+                        } else {
+                            return Ok(LoopAction::SwitchToTerminal(agent_id.clone()));
+                        }
                     }
                 }
 
@@ -449,9 +459,16 @@ fn dashboard_iteration(
                 }
 
                 DashboardAction::CleanStale => {
-                    let _ = with_state(config, |state| {
-                        state.agents.retain(|_, a| a.state != AgentState::Lost);
-                    });
+                    if let InputMode::StaleAgent { ref agent_id } = input_mode {
+                        let id = agent_id.clone();
+                        let _ = with_state(config, |state| {
+                            state.agents.remove(&id);
+                        });
+                    } else {
+                        let _ = with_state(config, |state| {
+                            state.agents.retain(|_, a| a.state != AgentState::Lost);
+                        });
+                    }
                     *input_mode = InputMode::Normal;
                 }
 
