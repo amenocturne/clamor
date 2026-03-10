@@ -90,11 +90,11 @@ pub fn spawn_agent(description: Option<String>, folder_override: Option<String>,
         None => read_task_description()?,
     };
 
-    let id = generate_id();
+    let state = FleetState::load(&config)?;
+    let existing_ids: std::collections::HashSet<String> = state.agents.keys().cloned().collect();
+    let id = generate_id(&existing_ids);
     let now = Utc::now();
 
-    // Determine key and color from existing agents
-    let state = FleetState::load(&config)?;
     let existing: Vec<&Agent> = state.agents.values().collect();
     let key = keys::next_available_key(&existing);
     let color_index = next_color_index(&existing);
@@ -165,10 +165,11 @@ pub fn adopt_session(session_id: &str, description: Option<String>, folder_overr
         }
     };
 
-    let id = generate_id();
+    let state = FleetState::load(&config)?;
+    let existing_ids: std::collections::HashSet<String> = state.agents.keys().cloned().collect();
+    let id = generate_id(&existing_ids);
     let now = Utc::now();
 
-    let state = FleetState::load(&config)?;
     let existing: Vec<&Agent> = state.agents.values().collect();
     let key = keys::next_available_key(&existing);
     let color_index = next_color_index(&existing);
@@ -370,7 +371,7 @@ pub fn edit_agent(agent_ref: &str, description: Option<String>) -> anyhow::Resul
 
 /// Open config in $EDITOR.
 pub fn open_config() -> anyhow::Result<()> {
-    let config_path = FleetConfig::config_dir().join("config.json");
+    let config_path = FleetConfig::config_dir()?.join("config.json");
     FleetConfig::ensure_dir()?;
 
     if !config_path.exists() {
@@ -439,7 +440,7 @@ fn read_task_description() -> anyhow::Result<(String, String)> {
 /// Returns (first_line_as_description, full_content_as_prompt).
 pub fn read_task_from_editor() -> anyhow::Result<(String, String)> {
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
-    let tmp = std::env::temp_dir().join(format!("fleet-task-{}.md", generate_id()));
+    let tmp = std::env::temp_dir().join(format!("fleet-task-{}.md", generate_id(&std::collections::HashSet::new())));
 
     std::fs::write(&tmp, "")?;
 
@@ -473,11 +474,13 @@ fn read_line() -> anyhow::Result<String> {
 }
 
 fn truncate(s: &str, max_len: usize) -> String {
+    if max_len <= 3 {
+        return s.chars().take(max_len).collect();
+    }
     if s.len() <= max_len {
         s.to_string()
-    } else if max_len > 3 {
-        format!("{}...", &s[..max_len - 3])
     } else {
-        s[..max_len].to_string()
+        let truncated: String = s.chars().take(max_len - 3).collect();
+        format!("{}...", truncated)
     }
 }

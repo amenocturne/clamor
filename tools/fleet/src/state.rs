@@ -16,14 +16,14 @@ pub struct FleetState {
 }
 
 impl FleetState {
-    fn state_path(_config: &FleetConfig) -> std::path::PathBuf {
-        FleetConfig::config_dir().join("state.json")
+    fn state_path(_config: &FleetConfig) -> anyhow::Result<std::path::PathBuf> {
+        Ok(FleetConfig::config_dir()?.join("state.json"))
     }
 
     /// Reads state from `~/.fleet/state.json` with a shared (read) lock.
     /// Returns empty state if the file doesn't exist.
     pub fn load(config: &FleetConfig) -> anyhow::Result<Self> {
-        let path = Self::state_path(config);
+        let path = Self::state_path(config)?;
 
         if !path.exists() {
             return Ok(Self::default());
@@ -54,7 +54,7 @@ impl FleetState {
     #[allow(dead_code)]
     pub fn save(&self, config: &FleetConfig) -> anyhow::Result<()> {
         FleetConfig::ensure_dir()?;
-        let path = Self::state_path(config);
+        let path = Self::state_path(config)?;
 
         let file = OpenOptions::new()
             .write(true)
@@ -98,8 +98,14 @@ where
 {
     match with_state_inner(f, false) {
         Ok(r) => Ok(Some(r)),
-        Err(e) if e.to_string().contains("lock") => Ok(None),
-        Err(e) => Err(e),
+        Err(e) => {
+            if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+                if io_err.kind() == std::io::ErrorKind::WouldBlock {
+                    return Ok(None);
+                }
+            }
+            Err(e)
+        }
     }
 }
 
@@ -108,7 +114,7 @@ where
     F: FnOnce(&mut FleetState) -> R,
 {
     FleetConfig::ensure_dir()?;
-    let path = FleetConfig::config_dir().join("state.json");
+    let path = FleetConfig::config_dir()?.join("state.json");
 
     let file = OpenOptions::new()
         .read(true)

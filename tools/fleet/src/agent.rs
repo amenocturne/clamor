@@ -27,10 +27,16 @@ pub struct Agent {
     pub color_index: u8,
 }
 
-pub fn generate_id() -> String {
+pub fn generate_id(existing: &std::collections::HashSet<String>) -> String {
     use rand::Rng;
-    let n: u32 = rand::thread_rng().gen_range(0..0xFFFFFF);
-    format!("{:06x}", n)
+    let mut rng = rand::thread_rng();
+    loop {
+        let n: u32 = rng.gen_range(0..0xFFFFFF);
+        let id = format!("{:06x}", n);
+        if !existing.contains(&id) {
+            return id;
+        }
+    }
 }
 
 pub fn next_color_index(existing: &[&Agent]) -> u8 {

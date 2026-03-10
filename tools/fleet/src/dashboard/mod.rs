@@ -844,7 +844,8 @@ fn spawn_inline(
     let cwd = resolve_path(folder_path);
     let cwd_str = cwd.to_string_lossy().to_string();
 
-    let id = generate_id();
+    let existing_ids: std::collections::HashSet<String> = current_state.agents.keys().cloned().collect();
+    let id = generate_id(&existing_ids);
     let now = Utc::now();
 
     let existing: Vec<&Agent> = current_state.agents.values().collect();
@@ -894,7 +895,8 @@ fn adopt_inline(
     let cwd = resolve_path(folder_path);
     let cwd_str = cwd.to_string_lossy().to_string();
 
-    let id = generate_id();
+    let existing_ids: std::collections::HashSet<String> = current_state.agents.keys().cloned().collect();
+    let id = generate_id(&existing_ids);
     let now = Utc::now();
 
     let existing: Vec<&Agent> = current_state.agents.values().collect();

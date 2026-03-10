@@ -16,7 +16,7 @@ pub struct DaemonClient {
 impl DaemonClient {
     /// Connect to the running daemon.
     pub fn connect() -> Result<Self> {
-        let path = crate::daemon::daemon_socket_path();
+        let path = crate::daemon::daemon_socket_path()?;
         let stream = UnixStream::connect(&path)
             .with_context(|| format!("connecting to daemon at {}", path.display()))?;
         Ok(Self { stream })
