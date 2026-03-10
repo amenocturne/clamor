@@ -5,7 +5,6 @@ mod config;
 mod daemon;
 mod dashboard;
 mod hook;
-mod log;
 mod mock_agent;
 mod pane;
 mod picker;
