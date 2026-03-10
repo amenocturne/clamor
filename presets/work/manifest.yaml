@@ -17,6 +17,7 @@ skills:
 common:
   - dev-workflow
   - code-conventions
+  - git
   - commands
   - agentic-kit
   - communication-style
