@@ -344,6 +344,7 @@ fn dashboard_iteration(
                 .unwrap_or("unknown");
             render::Overlay::StaleAgent { description: desc }
         }
+        InputMode::ConfirmEmptySpawn { .. } => render::Overlay::ConfirmEmptySpawn,
     };
 
     terminal.draw(|frame| {
@@ -392,17 +393,84 @@ fn dashboard_iteration(
                     } else {
                         *input_mode = InputMode::PickingFolder {
                             folder_count: sorted_folders.len(),
+                            for_editor: false,
+                        };
+                    }
+                }
+
+                DashboardAction::SpawnEditor => {
+                    if sorted_folders.len() == 1 {
+                        let (name, path) = &sorted_folders[0];
+                        let folder_name_owned = name.clone();
+                        let folder_path_owned = path.clone();
+                        let mut editor_result: Option<(String, String)> = None;
+                        suspend_tui(terminal, || {
+                            if let Ok(result) = crate::spawn::read_task_from_editor() {
+                                editor_result = Some(result);
+                            }
+                        })?;
+                        *client = DaemonClient::connect()?;
+                        client.set_nonblocking(true)?;
+                        match editor_result {
+                            Some((description, prompt)) => {
+                                let state = FleetState::load(config)?;
+                                let _ = spawn_inline(config, client, &folder_name_owned, &folder_path_owned, &description, &prompt, &state);
+                            }
+                            None => {
+                                *input_mode = InputMode::ConfirmEmptySpawn {
+                                    folder_name: folder_name_owned,
+                                    folder_path: folder_path_owned,
+                                };
+                            }
+                        }
+                    } else if sorted_folders.is_empty() {
+                        *input_mode = InputMode::Normal;
+                    } else {
+                        *input_mode = InputMode::PickingFolder {
+                            folder_count: sorted_folders.len(),
+                            for_editor: true,
                         };
                     }
                 }
 
                 DashboardAction::FolderPicked(idx) => {
+                    let for_editor = matches!(input_mode, InputMode::PickingFolder { for_editor: true, .. });
                     if let Some((name, path)) = sorted_folders.get(idx) {
-                        *input_mode = InputMode::TypingPrompt {
-                            folder_name: name.clone(),
-                            folder_path: path.clone(),
-                            input: String::new(),
-                        };
+                        if for_editor {
+                            let folder_name_owned = name.clone();
+                            let folder_path_owned = path.clone();
+                            let mut editor_result: Option<(String, String)> = None;
+                            suspend_tui(terminal, || {
+                                match crate::spawn::read_task_from_editor() {
+                                    Ok(result) => editor_result = Some(result),
+                                    Err(e) => {
+                                        eprintln!("Error: {e}");
+                                        std::thread::sleep(Duration::from_secs(1));
+                                    }
+                                }
+                            })?;
+                            *client = DaemonClient::connect()?;
+                            client.set_nonblocking(true)?;
+                            match editor_result {
+                                Some((description, prompt)) => {
+                                    let state = FleetState::load(config)?;
+                                    let _ = spawn_inline(config, client, &folder_name_owned, &folder_path_owned, &description, &prompt, &state);
+                                    *input_mode = InputMode::Normal;
+                                }
+                                None => {
+                                    *input_mode = InputMode::ConfirmEmptySpawn {
+                                        folder_name: folder_name_owned,
+                                        folder_path: folder_path_owned,
+                                    };
+                                }
+                            }
+                        } else {
+                            *input_mode = InputMode::TypingPrompt {
+                                folder_name: name.clone(),
+                                folder_path: path.clone(),
+                                input: String::new(),
+                            };
+                        }
                     } else {
                         *input_mode = InputMode::Normal;
                     }
@@ -417,40 +485,21 @@ fn dashboard_iteration(
                     }
                 }
 
-                DashboardAction::SpawnEmpty => {
-                    if let InputMode::TypingPrompt { folder_name, folder_path, .. } = input_mode {
-                        let _ = spawn_inline(config, client, folder_name, folder_path, "interactive", "", &state);
-                    }
-                    *input_mode = InputMode::Normal;
-                }
-
                 DashboardAction::PromptSubmitted => {
                     if let InputMode::TypingPrompt { folder_name, folder_path, input } = input_mode {
                         let prompt = input.trim().to_string();
                         if !prompt.is_empty() {
                             let _ = spawn_inline(config, client, folder_name, folder_path, &prompt, &prompt, &state);
                         } else {
-                            // Empty prompt: suspend TUI and open $EDITOR
-                            let folder_name_owned = folder_name.clone();
-                            let folder_path_owned = folder_path.clone();
-                            let mut editor_result: Option<(String, String)> = None;
-                            suspend_tui(terminal, || {
-                                match crate::spawn::read_task_from_editor() {
-                                    Ok(result) => editor_result = Some(result),
-                                    Err(e) => {
-                                        eprintln!("Error: {e}");
-                                        std::thread::sleep(Duration::from_secs(1));
-                                    }
-                                }
-                            })?;
-                            // Reconnect after suspend (daemon is single-client)
-                            *client = DaemonClient::connect()?;
-                            client.set_nonblocking(true)?;
-                            if let Some((description, prompt)) = editor_result {
-                                let state = FleetState::load(config)?;
-                                let _ = spawn_inline(config, client, &folder_name_owned, &folder_path_owned, &description, &prompt, &state);
-                            }
+                            let _ = spawn_inline(config, client, folder_name, folder_path, "interactive", "", &state);
                         }
+                    }
+                    *input_mode = InputMode::Normal;
+                }
+
+                DashboardAction::ConfirmYes => {
+                    if let InputMode::ConfirmEmptySpawn { folder_name, folder_path } = input_mode {
+                        let _ = spawn_inline(config, client, folder_name, folder_path, "interactive", "", &state);
                     }
                     *input_mode = InputMode::Normal;
                 }
