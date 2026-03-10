@@ -29,7 +29,27 @@ use crate::pane::{self, PaneView};
 use crate::protocol::DaemonMessage;
 use crate::state::{with_state, FleetState};
 
-use input::{DashboardAction, InputMode, PromptEdit};
+use input::{DashboardAction, InputMode, PromptEdit, PromptField};
+
+fn apply_edit(s: &mut String, edit: &PromptEdit) {
+    match edit {
+        PromptEdit::Char(c) => s.push(*c),
+        PromptEdit::Backspace => { s.pop(); }
+        PromptEdit::DeleteWord => {
+            let trimmed = s.trim_end_matches(|c: char| !c.is_alphanumeric());
+            let len_after_spaces = trimmed.len();
+            let word_trimmed = trimmed.trim_end_matches(|c: char| c.is_alphanumeric());
+            let len_after_word = word_trimmed.len();
+            if len_after_spaces == s.len() && len_after_word == len_after_spaces {
+                // nothing matched, just pop one char
+                s.pop();
+            } else {
+                s.truncate(len_after_word);
+            }
+        }
+        PromptEdit::DeleteLine => s.clear(),
+    }
+}
 
 enum AppMode {
     Dashboard,
@@ -328,9 +348,11 @@ fn dashboard_iteration(
         InputMode::PickingFolder { .. } => render::Overlay::FolderPicker {
             folders: sorted_folders,
         },
-        InputMode::TypingPrompt { folder_name, input, .. } => render::Overlay::PromptInput {
+        InputMode::TypingPrompt { folder_name, title, prompt, active_field, .. } => render::Overlay::PromptInput {
             folder_name,
-            input,
+            title,
+            prompt,
+            active_field,
         },
         InputMode::TypingAdopt { input } => render::Overlay::AdoptInput {
             input,
@@ -388,7 +410,9 @@ fn dashboard_iteration(
                         *input_mode = InputMode::TypingPrompt {
                             folder_name: name.clone(),
                             folder_path: path.clone(),
-                            input: String::new(),
+                            title: String::new(),
+                            prompt: String::new(),
+                            active_field: PromptField::Title,
                         };
                     } else if sorted_folders.is_empty() {
                         *input_mode = InputMode::Normal;
@@ -470,7 +494,9 @@ fn dashboard_iteration(
                             *input_mode = InputMode::TypingPrompt {
                                 folder_name: name.clone(),
                                 folder_path: path.clone(),
-                                input: String::new(),
+                                title: String::new(),
+                                prompt: String::new(),
+                                active_field: PromptField::Title,
                             };
                         }
                     } else {
@@ -478,25 +504,45 @@ fn dashboard_iteration(
                     }
                 }
 
+                DashboardAction::PromptToggleField => {
+                    if let InputMode::TypingPrompt { ref mut active_field, .. } = input_mode {
+                        *active_field = match active_field {
+                            PromptField::Title => PromptField::Prompt,
+                            PromptField::Prompt => PromptField::Title,
+                        };
+                    }
+                }
+
                 DashboardAction::PromptInput(edit) => {
-                    if let InputMode::TypingPrompt { ref mut input, .. } = input_mode {
-                        match edit {
-                            PromptEdit::Char(c) => input.push(c),
-                            PromptEdit::Backspace => { input.pop(); }
-                        }
+                    if let InputMode::TypingPrompt { ref mut title, ref mut prompt, ref active_field, .. } = input_mode {
+                        let target = match active_field {
+                            PromptField::Title => title,
+                            PromptField::Prompt => prompt,
+                        };
+                        apply_edit(target, &edit);
                     }
                 }
 
                 DashboardAction::PromptSubmitted => {
-                    if let InputMode::TypingPrompt { folder_name, folder_path, input } = input_mode {
-                        let prompt = input.trim().to_string();
-                        if !prompt.is_empty() {
-                            let _ = spawn_inline(config, client, folder_name, folder_path, &prompt, &prompt, &state);
+                    let mut submitted = false;
+                    if let InputMode::TypingPrompt { folder_name, folder_path, title, prompt, active_field } = input_mode {
+                        let title_trimmed = title.trim().to_string();
+                        if title_trimmed.is_empty() {
+                            *active_field = PromptField::Title;
                         } else {
-                            let _ = spawn_inline(config, client, folder_name, folder_path, "interactive", "", &state);
+                            let prompt_trimmed = prompt.trim().to_string();
+                            let effective_prompt = if prompt_trimmed.is_empty() {
+                                &title_trimmed
+                            } else {
+                                &prompt_trimmed
+                            };
+                            let _ = spawn_inline(config, client, folder_name, folder_path, &title_trimmed, effective_prompt, &state);
+                            submitted = true;
                         }
                     }
-                    *input_mode = InputMode::Normal;
+                    if submitted {
+                        *input_mode = InputMode::Normal;
+                    }
                 }
 
                 DashboardAction::ConfirmYes => {
@@ -522,10 +568,7 @@ fn dashboard_iteration(
 
                 DashboardAction::EditInput(edit) => {
                     if let InputMode::EditingDescription { ref mut input, .. } = input_mode {
-                        match edit {
-                            PromptEdit::Char(c) => input.push(c),
-                            PromptEdit::Backspace => { input.pop(); }
-                        }
+                        apply_edit(input, &edit);
                     }
                 }
 
@@ -560,10 +603,7 @@ fn dashboard_iteration(
 
                 DashboardAction::AdoptInput(edit) => {
                     if let InputMode::TypingAdopt { ref mut input } = input_mode {
-                        match edit {
-                            PromptEdit::Char(c) => input.push(c),
-                            PromptEdit::Backspace => { input.pop(); }
-                        }
+                        apply_edit(input, &edit);
                     }
                 }
 
