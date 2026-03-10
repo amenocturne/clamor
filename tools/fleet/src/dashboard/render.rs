@@ -60,7 +60,7 @@ pub fn render(
 
     render_header(frame, chunks[0], total, needs_input);
     render_separator(frame, chunks[1]);
-    render_body(frame, chunks[2], &groups, pending_kill);
+    render_body(frame, chunks[2], &groups);
     render_footer(frame, chunks[3], pending_kill);
 
     // Render overlay popups on top
@@ -240,7 +240,7 @@ fn build_groups<'a>(
     groups
 }
 
-fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup], pending_kill: bool) {
+fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup]) {
     let mut lines: Vec<Line> = Vec::new();
     let width = area.width as usize;
 
@@ -256,7 +256,7 @@ fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup], pending_kil
         )));
 
         for da in &group.agents {
-            lines.push(render_agent_line(da, width, pending_kill));
+            lines.push(render_agent_line(da, width));
         }
     }
 
@@ -264,7 +264,7 @@ fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup], pending_kil
     frame.render_widget(body, area);
 }
 
-fn render_agent_line(da: &DisplayAgent, width: usize, pending_kill: bool) -> Line<'static> {
+fn render_agent_line(da: &DisplayAgent, width: usize) -> Line<'static> {
     let key_str = da
         .key
         .map(|c| format!("  {}  ", c))
@@ -304,16 +304,9 @@ fn render_agent_line(da: &DisplayAgent, width: usize, pending_kill: bool) -> Lin
 
     let padded_desc = format!("{:<width$}", description, width = desc_width);
 
-    // In kill mode, highlight keys in red
-    let key_style = if pending_kill && da.key.is_some() && !da.killed {
-        Style::default()
-            .fg(Color::Red)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD)
-    };
+    let key_style = Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
 
     let dimmed = da.killed || da.agent.state == AgentState::Done || da.agent.state == AgentState::Lost;
 
