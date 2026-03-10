@@ -35,6 +35,8 @@ pub fn build_agent_cmd(prompt: &str) -> Vec<String> {
             "--description".to_string(),
             prompt.to_string(),
         ]
+    } else if prompt.is_empty() {
+        vec!["claude".to_string()]
     } else {
         vec!["claude".to_string(), prompt.to_string()]
     }
@@ -435,7 +437,7 @@ fn read_task_description() -> anyhow::Result<(String, String)> {
 
 /// Open $EDITOR directly to compose a task prompt.
 /// Returns (first_line_as_description, full_content_as_prompt).
-fn read_task_from_editor() -> anyhow::Result<(String, String)> {
+pub fn read_task_from_editor() -> anyhow::Result<(String, String)> {
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
     let tmp = std::env::temp_dir().join(format!("fleet-task-{}.md", generate_id()));
 

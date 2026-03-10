@@ -396,16 +396,6 @@ fn dashboard_iteration(
                     }
                 }
 
-                DashboardAction::SpawnEditor => {
-                    *input_mode = InputMode::Normal;
-                    suspend_tui(terminal, || {
-                        if let Err(e) = crate::spawn::spawn_agent(None, None, true) {
-                            eprintln!("Error: {e}");
-                            std::thread::sleep(Duration::from_secs(1));
-                        }
-                    })?;
-                }
-
                 DashboardAction::FolderPicked(idx) => {
                     if let Some((name, path)) = sorted_folders.get(idx) {
                         *input_mode = InputMode::TypingPrompt {
@@ -427,11 +417,39 @@ fn dashboard_iteration(
                     }
                 }
 
+                DashboardAction::SpawnEmpty => {
+                    if let InputMode::TypingPrompt { folder_name, folder_path, .. } = input_mode {
+                        let _ = spawn_inline(config, client, folder_name, folder_path, "interactive", "", &state);
+                    }
+                    *input_mode = InputMode::Normal;
+                }
+
                 DashboardAction::PromptSubmitted => {
                     if let InputMode::TypingPrompt { folder_name, folder_path, input } = input_mode {
                         let prompt = input.trim().to_string();
                         if !prompt.is_empty() {
-                            let _ = spawn_inline(config, client, folder_name, folder_path, &prompt, &state);
+                            let _ = spawn_inline(config, client, folder_name, folder_path, &prompt, &prompt, &state);
+                        } else {
+                            // Empty prompt: suspend TUI and open $EDITOR
+                            let folder_name_owned = folder_name.clone();
+                            let folder_path_owned = folder_path.clone();
+                            let mut editor_result: Option<(String, String)> = None;
+                            suspend_tui(terminal, || {
+                                match crate::spawn::read_task_from_editor() {
+                                    Ok(result) => editor_result = Some(result),
+                                    Err(e) => {
+                                        eprintln!("Error: {e}");
+                                        std::thread::sleep(Duration::from_secs(1));
+                                    }
+                                }
+                            })?;
+                            // Reconnect after suspend (daemon is single-client)
+                            *client = DaemonClient::connect()?;
+                            client.set_nonblocking(true)?;
+                            if let Some((description, prompt)) = editor_result {
+                                let state = FleetState::load(config)?;
+                                let _ = spawn_inline(config, client, &folder_name_owned, &folder_path_owned, &description, &prompt, &state);
+                            }
                         }
                     }
                     *input_mode = InputMode::Normal;
@@ -610,6 +628,7 @@ fn spawn_inline(
     client: &mut DaemonClient,
     folder_name: &str,
     folder_path: &str,
+    description: &str,
     prompt: &str,
     current_state: &FleetState,
 ) -> Result<()> {
@@ -625,7 +644,7 @@ fn spawn_inline(
 
     let agent = Agent {
         id: id.clone(),
-        description: prompt.to_string(),
+        description: description.to_string(),
         folder: folder_name.to_string(),
         cwd: cwd_str.clone(),
         initial_prompt: prompt.to_string(),
