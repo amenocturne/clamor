@@ -25,6 +25,7 @@ pub enum Overlay<'a> {
     FolderPicker { folders: &'a [(String, String)] },
     PromptInput { folder_name: &'a str, input: &'a str },
     AdoptInput { input: &'a str },
+    StaleAgents { count: usize },
 }
 
 /// Render the full dashboard frame.
@@ -73,6 +74,9 @@ pub fn render(
         }
         Overlay::AdoptInput { input } => {
             render_adopt_popup(frame, area, input);
+        }
+        Overlay::StaleAgents { count } => {
+            render_stale_popup(frame, area, *count);
         }
         _ => {}
     }
@@ -447,4 +451,30 @@ fn render_adopt_popup(frame: &mut Frame, area: Rect, input: &str) {
     let display = format!("{input}\u{258e}");
     let prompt = Paragraph::new(Line::from(Span::raw(display)));
     frame.render_widget(prompt, inner);
+}
+
+fn render_stale_popup(frame: &mut Frame, area: Rect, count: usize) {
+    let width = area.width.min(58);
+    let popup = popup_area(area, width, 7);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(" Stale agents ");
+
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let text = vec![
+        Line::from(format!(" {count} agent(s) lost from a previous daemon session.")),
+        Line::from(""),
+        Line::from(Span::styled(
+            " You can resume them: claude --resume <session-id>",
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::from(""),
+        Line::from(" [y] clean up    [n] keep"),
+    ];
+    frame.render_widget(Paragraph::new(text), inner);
 }

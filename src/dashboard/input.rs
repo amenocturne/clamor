@@ -4,33 +4,21 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Actions the dashboard can take in response to keyboard input.
 pub enum DashboardAction {
-    /// Switch to terminal view for an agent
     Attach(String),
-    /// Start inline spawn flow (folder picker -> text input popup)
     SpawnInline,
-    /// Spawn via $EDITOR (suspend TUI)
     SpawnEditor,
-    /// Kill a specific agent by ID
     KillAgent(String),
-    /// Enter pending kill mode (waiting for jump key)
     PendingKill,
-    /// Folder selected during inline spawn — transition to text input
     FolderPicked(usize),
-    /// Inline prompt submitted — spawn the agent
     PromptSubmitted,
-    /// Character typed in prompt input
     PromptInput(PromptEdit),
-    /// Start adopt flow
     AdoptStart,
-    /// Typing session ID for adopt
     AdoptInput(PromptEdit),
-    /// Session ID entered for adopt
     AdoptSubmitted,
-    /// Cancel current mode, return to normal
+    CleanStale,
+    DismissStale,
     Cancel,
-    /// Exit the dashboard
     Quit,
-    /// Refresh the display (no-op action)
     Refresh,
 }
 
@@ -47,6 +35,7 @@ pub enum InputMode {
     PickingFolder { folder_count: usize },
     TypingPrompt { folder_name: String, folder_path: String, input: String },
     TypingAdopt { input: String },
+    StalePrompt { count: usize },
 }
 
 /// Process a keyboard event and return the corresponding action.
@@ -63,6 +52,7 @@ pub fn handle_input(event: KeyEvent, key_map: &HashMap<char, String>, mode: &Inp
         InputMode::PickingFolder { folder_count } => handle_folder_pick(event, *folder_count),
         InputMode::TypingPrompt { .. } => handle_prompt_input(event),
         InputMode::TypingAdopt { .. } => handle_adopt_input(event),
+        InputMode::StalePrompt { .. } => handle_stale_input(event),
     }
 }
 
@@ -128,6 +118,14 @@ fn handle_adopt_input(event: KeyEvent) -> DashboardAction {
         KeyCode::Esc => DashboardAction::Cancel,
         KeyCode::Backspace => DashboardAction::AdoptInput(PromptEdit::Backspace),
         KeyCode::Char(c) => DashboardAction::AdoptInput(PromptEdit::Char(c)),
+        _ => DashboardAction::Refresh,
+    }
+}
+
+fn handle_stale_input(event: KeyEvent) -> DashboardAction {
+    match event.code {
+        KeyCode::Char('y') => DashboardAction::CleanStale,
+        KeyCode::Char('n') | KeyCode::Esc => DashboardAction::DismissStale,
         _ => DashboardAction::Refresh,
     }
 }
