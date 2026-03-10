@@ -42,8 +42,16 @@ impl PaneView {
     }
 
     /// Feed output bytes (received from daemon) into the vt100 parser.
+    /// When scrolled up, adjusts offset so the user stays at the same content.
     pub fn process_output(&mut self, data: &[u8]) {
-        self.parser.process(data);
+        if self.scroll_offset > 0 {
+            let before = self.scrollback_len();
+            self.parser.process(data);
+            let after = self.scrollback_len();
+            self.scroll_offset += after.saturating_sub(before);
+        } else {
+            self.parser.process(data);
+        }
     }
 
     /// Resize the virtual terminal.
@@ -67,6 +75,14 @@ impl PaneView {
     /// Whether the app is using the alternate screen buffer.
     pub fn alternate_screen(&self) -> bool {
         self.parser.screen().alternate_screen()
+    }
+
+    /// Total scrollback lines available (set to MAX, read clamped value).
+    fn scrollback_len(&mut self) -> usize {
+        self.parser.screen_mut().set_scrollback(usize::MAX);
+        let len = self.parser.screen().scrollback();
+        self.parser.screen_mut().set_scrollback(0);
+        len
     }
 
     /// Snap back to live view (scroll_offset = 0).
