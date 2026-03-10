@@ -353,17 +353,21 @@ fn handle_client_message(
             HandleResult::Continue
         }
         ClientMessage::Subscribe { id } => {
+            crate::log::log(&format!("daemon: Subscribe id={} known={}", id, agents.contains_key(&id)));
             if let Some(slot) = agents.get(&id) {
                 let catch_up_data: Vec<u8> = slot.ring_buffer.iter().copied().collect();
+                crate::log::log(&format!("daemon: sending CatchUp {} bytes, alive={}", catch_up_data.len(), slot.alive));
                 subscriptions.insert(id.clone());
-                let _ = send_to_client(
+                let sent = send_to_client(
                     stream,
                     &DaemonMessage::CatchUp {
                         id,
                         data: catch_up_data,
                     },
                 );
+                crate::log::log(&format!("daemon: CatchUp sent={sent}"));
             } else {
+                crate::log::log(&format!("daemon: unknown agent {id}"));
                 let _ = send_to_client(
                     stream,
                     &DaemonMessage::Error {
