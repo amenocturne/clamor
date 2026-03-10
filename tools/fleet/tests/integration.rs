@@ -396,7 +396,7 @@ fn test_clean_removes_done_agents() {
         .output()
         .unwrap();
     assert!(output.status.success());
-    assert!(String::from_utf8_lossy(&output.stdout).contains("1 done agent(s)"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1 finished agent(s)"));
 
     // Verify empty
     let output = fleet_cmd()
