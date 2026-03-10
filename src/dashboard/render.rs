@@ -26,6 +26,7 @@ pub enum Overlay<'a> {
     PromptInput { folder_name: &'a str, input: &'a str },
     AdoptInput { input: &'a str },
     StaleAgents { count: usize },
+    StaleAgent { description: &'a str },
 }
 
 /// Render the full dashboard frame.
@@ -77,6 +78,9 @@ pub fn render(
         }
         Overlay::StaleAgents { count } => {
             render_stale_popup(frame, area, *count);
+        }
+        Overlay::StaleAgent { description } => {
+            render_stale_agent_popup(frame, area, description);
         }
         _ => {}
     }
@@ -475,6 +479,33 @@ fn render_stale_popup(frame: &mut Frame, area: Rect, count: usize) {
         )),
         Line::from(""),
         Line::from(" [y] clean up    [n] keep"),
+    ];
+    frame.render_widget(Paragraph::new(text), inner);
+}
+
+fn render_stale_agent_popup(frame: &mut Frame, area: Rect, description: &str) {
+    let width = area.width.min(58);
+    let popup = popup_area(area, width, 7);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(" Stale session ");
+
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let desc = truncate(description, (width - 4) as usize);
+    let text = vec![
+        Line::from(format!(" \"{}\" is from a previous daemon.", desc)),
+        Line::from(""),
+        Line::from(Span::styled(
+            " Resume outside fleet: claude --resume <session-id>",
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::from(""),
+        Line::from(" [y] remove    [n] keep"),
     ];
     frame.render_widget(Paragraph::new(text), inner);
 }

@@ -36,6 +36,7 @@ pub enum InputMode {
     TypingPrompt { folder_name: String, folder_path: String, input: String },
     TypingAdopt { input: String },
     StalePrompt { count: usize },
+    StaleAgent { agent_id: String },
 }
 
 /// Process a keyboard event and return the corresponding action.
@@ -53,6 +54,7 @@ pub fn handle_input(event: KeyEvent, key_map: &HashMap<char, String>, mode: &Inp
         InputMode::TypingPrompt { .. } => handle_prompt_input(event),
         InputMode::TypingAdopt { .. } => handle_adopt_input(event),
         InputMode::StalePrompt { .. } => handle_stale_input(event),
+        InputMode::StaleAgent { .. } => handle_stale_input(event),
     }
 }
 
