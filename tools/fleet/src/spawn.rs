@@ -317,11 +317,12 @@ pub fn resume_agents() -> anyhow::Result<()> {
         }
     }
 
-    // Mark resumed agents as Working
+    // Mark resumed agents as Input — they're waiting for interaction.
+    // Hooks will flip to Working once the agent actually starts executing.
     with_state(|state| {
         for agent in &resumable {
             if let Some(a) = state.agents.get_mut(&agent.id) {
-                a.state = AgentState::Working;
+                a.state = AgentState::Input;
                 a.last_activity_at = chrono::Utc::now();
             }
         }

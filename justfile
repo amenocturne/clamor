@@ -57,7 +57,11 @@ fleet-install:
     if [ -S ~/.fleet/fleet.sock ]; then
         if [[ "$NEW_HASH" != "$OLD_HASH" ]]; then
             echo "Fleet daemon code changed — restart required."
-            fleet pre-upgrade || exit 0
+            fleet pre-upgrade
+            rc=$?
+            if [[ $rc -ne 0 && $rc -le 128 ]]; then
+                exit 0
+            fi
             NEED_RESUME=true
         else
             echo "Daemon running — no daemon code changes, hot-swapping binary."
