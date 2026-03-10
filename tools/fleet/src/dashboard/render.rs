@@ -25,7 +25,7 @@ pub enum Overlay<'a> {
     None,
     PendingKill,
     FolderPicker { folders: &'a [(String, String)] },
-    PromptInput { folder_name: &'a str, title: &'a str, prompt: &'a str, active_field: &'a PromptField },
+    PromptInput { folder_name: &'a str, title: &'a str, description: &'a str, active_field: &'a PromptField },
     AdoptInput { input: &'a str },
     StaleAgents { count: usize },
     StaleAgent { description: &'a str },
@@ -73,8 +73,8 @@ pub fn render(
         Overlay::FolderPicker { folders } => {
             render_folder_popup(frame, area, folders);
         }
-        Overlay::PromptInput { folder_name, title, prompt, active_field } => {
-            render_prompt_popup(frame, area, folder_name, title, prompt, active_field);
+        Overlay::PromptInput { folder_name, title, description, active_field } => {
+            render_prompt_popup(frame, area, folder_name, title, description, active_field);
         }
         Overlay::AdoptInput { input } => {
             render_adopt_popup(frame, area, input);
@@ -116,7 +116,7 @@ pub fn render_terminal(
         AgentState::Lost => "lost",
     };
     let duration = format_duration(agent.started_at);
-    pane::render_title_bar(frame, chunks[0], &agent.folder, &agent.description, state_str, &duration, color, true, Some("^F back"));
+    pane::render_title_bar(frame, chunks[0], &agent.folder, &agent.title, state_str, &duration, color, true, Some("^F back"));
 
     let pseudo_term = tui_term::widget::PseudoTerminal::new(screen);
     frame.render_widget(pseudo_term, chunks[1]);
@@ -327,7 +327,7 @@ fn render_agent_line(da: &DisplayAgent, width: usize) -> Line<'static> {
     // key(5) + state(6) + spacing(4) + duration(~8) + padding(2)
     let overhead = key_str.len() + 6 + 4 + duration.len() + 2;
     let desc_width = width.saturating_sub(overhead);
-    let description = truncate(&da.agent.description, desc_width);
+    let description = truncate(&da.agent.title, desc_width);
 
     let padded_desc = format!("{:<width$}", description, width = desc_width);
 
@@ -439,7 +439,7 @@ fn render_folder_popup(frame: &mut Frame, area: Rect, folders: &[(String, String
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-fn render_prompt_popup(frame: &mut Frame, area: Rect, folder_name: &str, title_text: &str, prompt_text: &str, active_field: &PromptField) {
+fn render_prompt_popup(frame: &mut Frame, area: Rect, folder_name: &str, title_text: &str, desc_text: &str, active_field: &PromptField) {
     let width = area.width.min(70);
     let height = (area.height * 2 / 5).clamp(10, 20);
     let popup = popup_area(area, width, height);
@@ -455,9 +455,9 @@ fn render_prompt_popup(frame: &mut Frame, area: Rect, folder_name: &str, title_t
     frame.render_widget(block, popup);
 
     let cursor = "\u{258e}";
-    let (title_active, prompt_active) = match active_field {
+    let (title_active, desc_active) = match active_field {
         PromptField::Title => (true, false),
-        PromptField::Prompt => (false, true),
+        PromptField::Description => (false, true),
     };
 
     let title_label_style = if title_active {
@@ -465,7 +465,7 @@ fn render_prompt_popup(frame: &mut Frame, area: Rect, folder_name: &str, title_t
     } else {
         Style::default().fg(Color::DarkGray)
     };
-    let prompt_label_style = if prompt_active {
+    let desc_label_style = if desc_active {
         Style::default().fg(Color::Cyan)
     } else {
         Style::default().fg(Color::DarkGray)
@@ -476,10 +476,10 @@ fn render_prompt_popup(frame: &mut Frame, area: Rect, folder_name: &str, title_t
     } else {
         title_text.to_string()
     };
-    let prompt_display = if prompt_active {
-        format!("{prompt_text}{cursor}")
+    let desc_display = if desc_active {
+        format!("{desc_text}{cursor}")
     } else {
-        prompt_text.to_string()
+        desc_text.to_string()
     };
 
     let lines = vec![
@@ -488,11 +488,11 @@ fn render_prompt_popup(frame: &mut Frame, area: Rect, folder_name: &str, title_t
             Span::raw(title_display),
         ]),
         Line::from(""),
-        Line::from(Span::styled("Prompt:", prompt_label_style)),
-        Line::from(Span::raw(prompt_display)),
+        Line::from(Span::styled("Description:", desc_label_style)),
+        Line::from(Span::raw(desc_display)),
         Line::from(""),
         Line::from(Span::styled(
-            "Tab switch \u{00b7} empty prompt \u{2192} uses title",
+            "Tab switch \u{00b7} empty = interactive session",
             Style::default().fg(Color::DarkGray),
         )),
     ];

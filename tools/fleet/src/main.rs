@@ -40,8 +40,15 @@ fn main() -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("no agent matching '{agent_ref}'"))?;
             dashboard::run(&config, Some(agent.id.clone()))?;
         }
-        Some(Command::New { description, folder }) => {
-            spawn::spawn_agent(description, folder, false)?;
+        Some(Command::New { title, description, folder }) => {
+            // If title provided via CLI: title is set, description becomes prompt
+            // If only title: title is both title and prompt (backward compat)
+            let effective_desc = match (title, description) {
+                (Some(t), Some(d)) => Some(format!("{t}\n\n{d}")),
+                (Some(t), None) => Some(t),
+                (None, _) => None,
+            };
+            spawn::spawn_agent(effective_desc, folder, false)?;
         }
         Some(Command::Adopt { session_id, description, folder }) => {
             spawn::adopt_session(&session_id, description, folder)?;

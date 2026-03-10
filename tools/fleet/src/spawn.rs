@@ -25,20 +25,22 @@ pub fn is_debug_mode() -> bool {
 
 /// Build the command to spawn for an agent.
 /// In debug mode, spawns `fleet _mock-agent` instead of `claude`.
-pub fn build_agent_cmd(prompt: &str) -> Vec<String> {
+pub fn build_agent_cmd(prompt: Option<&str>) -> Vec<String> {
     if is_debug_mode() {
         let exe = std::env::current_exe()
             .unwrap_or_else(|_| "fleet".into());
+        let desc = prompt.unwrap_or("interactive");
         vec![
             exe.to_string_lossy().to_string(),
             "mock-agent".to_string(),
             "--description".to_string(),
-            prompt.to_string(),
+            desc.to_string(),
         ]
-    } else if prompt.is_empty() {
-        vec!["claude".to_string()]
     } else {
-        vec!["claude".to_string(), prompt.to_string()]
+        match prompt {
+            Some(p) if !p.is_empty() => vec!["claude".to_string(), p.to_string()],
+            _ => vec!["claude".to_string()],
+        }
     }
 }
 
@@ -83,10 +85,13 @@ pub fn spawn_agent(description: Option<String>, folder_override: Option<String>,
     let cwd = resolve_path(&folder_path);
     let cwd_str = cwd.to_string_lossy().to_string();
 
-    // Get task description and prompt
-    let (desc, prompt) = match description {
-        Some(d) => (d.clone(), d),
-        None if force_editor => read_task_from_editor()?,
+    // Get title and optional prompt
+    let (title, prompt) = match description {
+        Some(d) => (d.clone(), Some(d)),
+        None if force_editor => {
+            let (t, p) = read_task_from_editor()?;
+            (t, Some(p))
+        }
         None => read_task_description()?,
     };
 
@@ -99,13 +104,15 @@ pub fn spawn_agent(description: Option<String>, folder_override: Option<String>,
     let key = keys::next_available_key(&existing);
     let color_index = next_color_index(&existing);
 
+    let initial_state = if prompt.is_some() { AgentState::Working } else { AgentState::Input };
+
     let agent = Agent {
         id: id.clone(),
-        description: desc.clone(),
+        title: title.clone(),
         folder: folder_name,
         cwd: cwd_str.clone(),
         initial_prompt: prompt.clone(),
-        state: AgentState::Working,
+        state: initial_state,
         started_at: now,
         last_activity_at: now,
         last_tool: None,
@@ -119,12 +126,12 @@ pub fn spawn_agent(description: Option<String>, folder_override: Option<String>,
     })?;
 
     // Spawn via daemon
-    let cmd = build_agent_cmd(&prompt);
+    let cmd = build_agent_cmd(prompt.as_deref());
     let env = vec![("FLEET_AGENT_ID".to_string(), id.clone())];
     let mut client = DaemonClient::connect()?;
     client.spawn_agent(&id, &cwd_str, &cmd, &env)?;
 
-    println!("Spawned agent {id}: {desc}");
+    println!("Spawned agent {id}: {title}");
 
     Ok(())
 }
@@ -152,14 +159,14 @@ pub fn adopt_session(session_id: &str, description: Option<String>, folder_overr
     let cwd = resolve_path(&folder_path);
     let cwd_str = cwd.to_string_lossy().to_string();
 
-    let desc = match description {
+    let title = match description {
         Some(d) => d,
         None => {
-            print!("Description: ");
+            print!("Title: ");
             io::stdout().flush()?;
             let input = read_line()?.trim().to_string();
             if input.is_empty() {
-                bail!("Empty description, aborting.");
+                bail!("Empty title, aborting.");
             }
             input
         }
@@ -176,10 +183,10 @@ pub fn adopt_session(session_id: &str, description: Option<String>, folder_overr
 
     let agent = Agent {
         id: id.clone(),
-        description: desc.clone(),
+        title: title.clone(),
         folder: folder_name,
         cwd: cwd_str.clone(),
-        initial_prompt: format!("--resume {session_id}"),
+        initial_prompt: Some(format!("--resume {session_id}")),
         state: AgentState::Working,
         started_at: now,
         last_activity_at: now,
@@ -197,7 +204,7 @@ pub fn adopt_session(session_id: &str, description: Option<String>, folder_overr
     let mut client = DaemonClient::connect()?;
     client.spawn_agent(&id, &cwd_str, &cmd, &env)?;
 
-    println!("Adopted session {session_id} as agent {id}: {desc}");
+    println!("Adopted session {session_id} as agent {id}: {title}");
 
     Ok(())
 }
@@ -219,7 +226,7 @@ pub fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
         state.agents.remove(&agent.id);
     })?;
 
-    println!("Killed agent {}: {}", agent.id, agent.description);
+    println!("Killed agent {}: {}", agent.id, agent.title);
 
     Ok(())
 }
@@ -290,7 +297,7 @@ pub fn list_agents() -> anyhow::Result<()> {
 
     println!(
         "{:<id_w$}  {:<state_w$}  {:<desc_w$}  {:<folder_w$}  {:>5}",
-        "ID", "STATE", "DESCRIPTION", "FOLDER", "TIME",
+        "ID", "STATE", "TITLE", "FOLDER", "TIME",
     );
 
     for agent in &agents {
@@ -300,7 +307,7 @@ pub fn list_agents() -> anyhow::Result<()> {
             AgentState::Done => "done",
             AgentState::Lost => "lost",
         };
-        let desc = truncate(&agent.description, desc_w);
+        let desc = truncate(&agent.title, desc_w);
         let time = format_duration(agent.started_at);
 
         println!(
@@ -331,7 +338,7 @@ pub fn resolve_agent<'a>(state: &'a FleetState, agent_ref: &str) -> Option<&'a A
     }
 }
 
-/// Edit an agent's description.
+/// Edit an agent's title.
 pub fn edit_agent(agent_ref: &str, description: Option<String>) -> anyhow::Result<()> {
     let state = FleetState::load()?;
 
@@ -340,26 +347,26 @@ pub fn edit_agent(agent_ref: &str, description: Option<String>) -> anyhow::Resul
         .id
         .clone();
 
-    let new_desc = match description {
+    let new_title = match description {
         Some(d) => d,
         None => {
-            print!("Description: ");
+            print!("Title: ");
             io::stdout().flush()?;
             read_line()?.trim().to_string()
         }
     };
 
-    if new_desc.is_empty() {
-        bail!("Empty description, aborting.");
+    if new_title.is_empty() {
+        bail!("Empty title, aborting.");
     }
 
     with_state(|state| {
         if let Some(agent) = state.agents.get_mut(&agent_id) {
-            agent.description = new_desc.clone();
+            agent.title = new_title.clone();
         }
     })?;
 
-    println!("Updated description for {agent_id}: {new_desc}");
+    println!("Updated title for {agent_id}: {new_title}");
     Ok(())
 }
 
@@ -403,19 +410,21 @@ fn select_folder(config: &FleetConfig) -> anyhow::Result<(String, String)> {
     Ok(((*name).clone(), (*path).clone()))
 }
 
-/// Read task description from stdin, or open $EDITOR if empty.
-/// Returns (description, prompt).
-fn read_task_description() -> anyhow::Result<(String, String)> {
-    print!("Task: ");
+/// Read title from stdin. Returns (title, optional_prompt).
+/// If user enters a one-liner, it's used as both title and prompt.
+/// If empty, opens $EDITOR.
+fn read_task_description() -> anyhow::Result<(String, Option<String>)> {
+    print!("Title: ");
     io::stdout().flush()?;
 
     let input = read_line()?.trim().to_string();
 
     if !input.is_empty() {
-        return Ok((input.clone(), input));
+        return Ok((input.clone(), Some(input)));
     }
 
-    read_task_from_editor()
+    let (title, prompt) = read_task_from_editor()?;
+    Ok((title, Some(prompt)))
 }
 
 /// Open $EDITOR directly to compose a task prompt.
