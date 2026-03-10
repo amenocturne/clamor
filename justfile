@@ -41,11 +41,22 @@ clean:
 
 # Build and install fleet binary to ~/.local/bin
 fleet-install:
-    cd tools/fleet && cargo build --release
+    #!/usr/bin/env bash
+    if [ -S ~/.fleet/fleet.sock ]; then
+        echo "Fleet daemon is running."
+        read -rp "Stop daemon and install? [y/N] " answer
+        if [[ "$answer" =~ ^[Yy]$ ]]; then
+            fleet stop 2>/dev/null || true
+            echo "Daemon stopped, installing..."
+        else
+            echo "Make sure all agents finish, then you can safely install the newer version."
+            exit 0
+        fi
+    fi
+    cargo build --release --manifest-path tools/fleet/Cargo.toml
     mkdir -p ~/.local/bin
-    rm -f ~/.local/bin/fleet
-    cp tools/fleet/target/release/fleet ~/.local/bin/fleet
-    @echo "fleet installed to ~/.local/bin/fleet"
+    cp -f tools/fleet/target/release/fleet ~/.local/bin/fleet
+    echo "fleet installed to ~/.local/bin/fleet"
 
 # Aliases
 alias i := install
