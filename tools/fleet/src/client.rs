@@ -107,13 +107,16 @@ impl DaemonClient {
 
     pub fn list_agents(&mut self) -> Result<Vec<DaemonAgent>> {
         self.send(ClientMessage::List)?;
-        let msg: DaemonMessage = recv_message(&mut self.stream)?;
-        match msg {
-            DaemonMessage::AgentList { agents } => Ok(agents),
-            DaemonMessage::Error { message } => {
-                anyhow::bail!("list failed: {message}")
+        loop {
+            let msg: DaemonMessage = recv_message(&mut self.stream)?;
+            match msg {
+                DaemonMessage::AgentList { agents } => return Ok(agents),
+                DaemonMessage::Error { message } => {
+                    anyhow::bail!("list failed: {message}")
+                }
+                DaemonMessage::Output { .. } | DaemonMessage::Exited { .. } => continue,
+                other => anyhow::bail!("unexpected response: {other:?}"),
             }
-            other => anyhow::bail!("unexpected response: {other:?}"),
         }
     }
 
@@ -157,11 +160,14 @@ impl DaemonClient {
     }
 
     fn expect_ok(&mut self) -> Result<()> {
-        let msg: DaemonMessage = recv_message(&mut self.stream)?;
-        match msg {
-            DaemonMessage::Ok => Ok(()),
-            DaemonMessage::Error { message } => anyhow::bail!("{message}"),
-            other => anyhow::bail!("unexpected response: {other:?}"),
+        loop {
+            let msg: DaemonMessage = recv_message(&mut self.stream)?;
+            match msg {
+                DaemonMessage::Ok => return Ok(()),
+                DaemonMessage::Error { message } => anyhow::bail!("{message}"),
+                DaemonMessage::Output { .. } | DaemonMessage::Exited { .. } => continue,
+                other => anyhow::bail!("unexpected response: {other:?}"),
+            }
         }
     }
 }
