@@ -36,11 +36,15 @@ fn setup_test_env() -> PathBuf {
 }
 
 fn rand_suffix() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::SystemTime;
-    SystemTime::now()
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
-        .as_nanos() as u64
+        .as_nanos() as u64;
+    nanos.wrapping_add(count)
 }
 
 /// Kill any daemon and remove the temp directory.
