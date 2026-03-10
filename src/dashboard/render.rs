@@ -4,12 +4,14 @@ use chrono::Utc;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::agent::{Agent, AgentState};
 use crate::config::FleetConfig;
 use crate::pane;
+
+use super::input::PromptField;
 
 /// An agent prepared for display, with its assigned jump key and status flags.
 pub struct DisplayAgent<'a> {
@@ -23,7 +25,7 @@ pub enum Overlay<'a> {
     None,
     PendingKill,
     FolderPicker { folders: &'a [(String, String)] },
-    PromptInput { folder_name: &'a str, input: &'a str },
+    PromptInput { folder_name: &'a str, title: &'a str, prompt: &'a str, active_field: &'a PromptField },
     AdoptInput { input: &'a str },
     StaleAgents { count: usize },
     StaleAgent { description: &'a str },
@@ -71,8 +73,8 @@ pub fn render(
         Overlay::FolderPicker { folders } => {
             render_folder_popup(frame, area, folders);
         }
-        Overlay::PromptInput { folder_name, input } => {
-            render_prompt_popup(frame, area, folder_name, input);
+        Overlay::PromptInput { folder_name, title, prompt, active_field } => {
+            render_prompt_popup(frame, area, folder_name, title, prompt, active_field);
         }
         Overlay::AdoptInput { input } => {
             render_adopt_popup(frame, area, input);
@@ -437,35 +439,71 @@ fn render_folder_popup(frame: &mut Frame, area: Rect, folders: &[(String, String
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-fn render_prompt_popup(frame: &mut Frame, area: Rect, folder_name: &str, input: &str) {
-    let width = area.width.min(60);
-    let popup = popup_area(area, width, 4);
+fn render_prompt_popup(frame: &mut Frame, area: Rect, folder_name: &str, title_text: &str, prompt_text: &str, active_field: &PromptField) {
+    let width = area.width.min(70);
+    let height = (area.height * 2 / 5).clamp(10, 20);
+    let popup = popup_area(area, width, height);
     frame.render_widget(Clear, popup);
 
-    let title = format!(" {} ", folder_name);
+    let block_title = format!(" {} ", folder_name);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title(title);
+        .title(block_title);
 
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
 
-    let display = format!("{input}\u{258e}");
+    let cursor = "\u{258e}";
+    let (title_active, prompt_active) = match active_field {
+        PromptField::Title => (true, false),
+        PromptField::Prompt => (false, true),
+    };
+
+    let title_label_style = if title_active {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let prompt_label_style = if prompt_active {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let title_display = if title_active {
+        format!("{title_text}{cursor}")
+    } else {
+        title_text.to_string()
+    };
+    let prompt_display = if prompt_active {
+        format!("{prompt_text}{cursor}")
+    } else {
+        prompt_text.to_string()
+    };
+
     let lines = vec![
-        Line::from(Span::raw(display)),
+        Line::from(vec![
+            Span::styled("Title: ", title_label_style),
+            Span::raw(title_display),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled("Prompt:", prompt_label_style)),
+        Line::from(Span::raw(prompt_display)),
+        Line::from(""),
         Line::from(Span::styled(
-            "empty → interactive session",
+            "Tab switch \u{00b7} empty prompt \u{2192} uses title",
             Style::default().fg(Color::DarkGray),
         )),
     ];
-    let prompt = Paragraph::new(lines);
-    frame.render_widget(prompt, inner);
+
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, inner);
 }
 
 fn render_adopt_popup(frame: &mut Frame, area: Rect, input: &str) {
     let width = area.width.min(60);
-    let popup = popup_area(area, width, 3);
+    let popup = popup_area(area, width, 5);
     frame.render_widget(Clear, popup);
 
     let block = Block::default()
@@ -477,7 +515,8 @@ fn render_adopt_popup(frame: &mut Frame, area: Rect, input: &str) {
     frame.render_widget(block, popup);
 
     let display = format!("{input}\u{258e}");
-    let prompt = Paragraph::new(Line::from(Span::raw(display)));
+    let prompt = Paragraph::new(Line::from(Span::raw(display)))
+        .wrap(Wrap { trim: false });
     frame.render_widget(prompt, inner);
 }
 
@@ -557,7 +596,7 @@ fn render_confirm_empty_popup(frame: &mut Frame, area: Rect) {
 
 fn render_edit_popup(frame: &mut Frame, area: Rect, input: &str) {
     let width = area.width.min(60);
-    let popup = popup_area(area, width, 3);
+    let popup = popup_area(area, width, 5);
     frame.render_widget(Clear, popup);
 
     let block = Block::default()
@@ -569,6 +608,7 @@ fn render_edit_popup(frame: &mut Frame, area: Rect, input: &str) {
     frame.render_widget(block, popup);
 
     let display = format!("{input}\u{258e}");
-    let prompt = Paragraph::new(Line::from(Span::raw(display)));
+    let prompt = Paragraph::new(Line::from(Span::raw(display)))
+        .wrap(Wrap { trim: false });
     frame.render_widget(prompt, inner);
 }

@@ -2,6 +2,12 @@ use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+/// Which field is active in the two-field prompt popup.
+pub enum PromptField {
+    Title,
+    Prompt,
+}
+
 /// Actions the dashboard can take in response to keyboard input.
 pub enum DashboardAction {
     Attach(String),
@@ -16,6 +22,7 @@ pub enum DashboardAction {
     FolderPicked(usize),
     PromptSubmitted,
     PromptInput(PromptEdit),
+    PromptToggleField,
     AdoptStart,
     AdoptInput(PromptEdit),
     AdoptSubmitted,
@@ -31,6 +38,8 @@ pub enum DashboardAction {
 pub enum PromptEdit {
     Char(char),
     Backspace,
+    DeleteWord,
+    DeleteLine,
 }
 
 /// Dashboard input mode.
@@ -38,7 +47,7 @@ pub enum InputMode {
     Normal,
     WaitingKill,
     PickingFolder { folder_count: usize, for_editor: bool },
-    TypingPrompt { folder_name: String, folder_path: String, input: String },
+    TypingPrompt { folder_name: String, folder_path: String, title: String, prompt: String, active_field: PromptField },
     TypingAdopt { input: String },
     StalePrompt { count: usize },
     StaleAgent { agent_id: String },
@@ -111,6 +120,9 @@ fn handle_pending_edit(event: KeyEvent, key_map: &HashMap<char, String>) -> Dash
 }
 
 fn handle_edit_input(event: KeyEvent) -> DashboardAction {
+    if let Some(edit) = check_text_shortcut(&event) {
+        return DashboardAction::EditInput(edit);
+    }
     match event.code {
         KeyCode::Enter => DashboardAction::EditSubmitted,
         KeyCode::Esc => DashboardAction::Cancel,
@@ -136,9 +148,13 @@ fn handle_folder_pick(event: KeyEvent, folder_count: usize) -> DashboardAction {
 }
 
 fn handle_prompt_input(event: KeyEvent) -> DashboardAction {
+    if let Some(edit) = check_text_shortcut(&event) {
+        return DashboardAction::PromptInput(edit);
+    }
     match event.code {
         KeyCode::Enter => DashboardAction::PromptSubmitted,
         KeyCode::Esc => DashboardAction::Cancel,
+        KeyCode::Tab | KeyCode::BackTab => DashboardAction::PromptToggleField,
         KeyCode::Backspace => DashboardAction::PromptInput(PromptEdit::Backspace),
         KeyCode::Char(c) => DashboardAction::PromptInput(PromptEdit::Char(c)),
         _ => DashboardAction::Refresh,
@@ -146,6 +162,9 @@ fn handle_prompt_input(event: KeyEvent) -> DashboardAction {
 }
 
 fn handle_adopt_input(event: KeyEvent) -> DashboardAction {
+    if let Some(edit) = check_text_shortcut(&event) {
+        return DashboardAction::AdoptInput(edit);
+    }
     match event.code {
         KeyCode::Enter => DashboardAction::AdoptSubmitted,
         KeyCode::Esc => DashboardAction::Cancel,
@@ -168,5 +187,25 @@ fn handle_confirm_input(event: KeyEvent) -> DashboardAction {
         KeyCode::Char('y') => DashboardAction::ConfirmYes,
         KeyCode::Char('n') | KeyCode::Esc => DashboardAction::Cancel,
         _ => DashboardAction::Refresh,
+    }
+}
+
+/// Check for macOS-style text editing shortcuts.
+/// Ctrl+W / Alt+Backspace → delete word, Ctrl+U → delete line.
+fn check_text_shortcut(event: &KeyEvent) -> Option<PromptEdit> {
+    match event.code {
+        KeyCode::Char('w') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(PromptEdit::DeleteWord)
+        }
+        KeyCode::Char('u') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(PromptEdit::DeleteLine)
+        }
+        KeyCode::Backspace if event.modifiers.contains(KeyModifiers::ALT) => {
+            Some(PromptEdit::DeleteWord)
+        }
+        KeyCode::Backspace if event.modifiers.contains(KeyModifiers::SUPER) => {
+            Some(PromptEdit::DeleteLine)
+        }
+        _ => None,
     }
 }
