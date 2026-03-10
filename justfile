@@ -46,21 +46,33 @@ clean:
 # Build and install fleet binary to ~/.local/bin
 fleet-install:
     #!/usr/bin/env bash
+    FLEET_DIR="tools/fleet"
+    DAEMON_FILES="$FLEET_DIR/src/daemon.rs $FLEET_DIR/src/protocol.rs $FLEET_DIR/src/state.rs $FLEET_DIR/src/agent.rs $FLEET_DIR/Cargo.toml"
+    NEW_HASH=$(cat $DAEMON_FILES | shasum -a 256 | cut -d' ' -f1)
+    OLD_HASH=""
+    [[ -f ~/.fleet/daemon.hash ]] && OLD_HASH=$(cat ~/.fleet/daemon.hash)
+
     if [ -S ~/.fleet/fleet.sock ]; then
-        echo "Fleet daemon is running."
-        read -rp "Stop daemon and install? [y/N] " answer
-        if [[ "$answer" =~ ^[Yy]$ ]]; then
-            fleet stop 2>/dev/null || true
-            echo "Daemon stopped, installing..."
+        if [[ "$NEW_HASH" != "$OLD_HASH" ]]; then
+            echo "Fleet daemon code changed — restart required."
+            read -rp "Stop daemon and install? [y/N] " answer
+            if [[ "$answer" =~ ^[Yy]$ ]]; then
+                fleet stop 2>/dev/null || true
+                echo "Daemon stopped."
+            else
+                echo "Skipping install. Run 'just fleet-install' later when agents are done."
+                exit 0
+            fi
         else
-            echo "Make sure all agents finish, then you can safely install the newer version."
-            exit 0
+            echo "Daemon running — no daemon code changes, hot-swapping binary."
         fi
     fi
-    cargo build --release --manifest-path tools/fleet/Cargo.toml
-    mkdir -p ~/.local/bin
+
+    cargo build --release --manifest-path "$FLEET_DIR/Cargo.toml"
+    mkdir -p ~/.local/bin ~/.fleet
     rm -f ~/.local/bin/fleet
-    cp tools/fleet/target/release/fleet ~/.local/bin/fleet
+    cp "$FLEET_DIR/target/release/fleet" ~/.local/bin/fleet
+    echo "$NEW_HASH" > ~/.fleet/daemon.hash
     echo "fleet installed to ~/.local/bin/fleet"
 
 # Aliases
