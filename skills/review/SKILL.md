@@ -47,8 +47,8 @@ just -f <skill-path>/justfile launch --mode text --file "/path/to/file.txt" --me
 2. Tell the user the review URL
 3. **STOP. Do not read the output file yet.** The user has not submitted.
 4. Wait for the background task notification — it means the server exited because the user submitted.
-5. THEN read the latest `.md` file from `--save-dir`
-6. Act on the comments
+5. Read the task output file — look for a line starting with `saved: ` which contains the full path to the review file
+6. Read that file and act on the comments
 
 ## Important
 

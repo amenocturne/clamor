@@ -233,6 +233,7 @@ const startServer = (apiData: ApiData, args: CliArgs, bundledJs: string) => {
 				await Bun.write(savePath, formatted);
 				const saveLabel = apiData.mode === "annotate" ? "Annotation" : "Review";
 				console.error(`${saveLabel} saved to ${savePath}`);
+				console.log(`saved: ${savePath}`);
 
 				setTimeout(() => process.exit(0), 500);
 				return Response.json({ ok: true });
