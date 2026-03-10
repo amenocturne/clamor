@@ -80,12 +80,11 @@ struct AgentSlot {
 
 impl AgentSlot {
     fn push_output(&mut self, data: &[u8]) {
-        for &byte in data {
-            if self.ring_buffer.len() >= RING_BUFFER_CAP {
-                self.ring_buffer.pop_front();
-            }
-            self.ring_buffer.push_back(byte);
+        let overflow = (self.ring_buffer.len() + data.len()).saturating_sub(RING_BUFFER_CAP);
+        if overflow > 0 {
+            self.ring_buffer.drain(..overflow);
         }
+        self.ring_buffer.extend(data);
     }
 }
 
