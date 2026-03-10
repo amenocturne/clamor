@@ -4,9 +4,9 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Actions the dashboard can take in response to keyboard input.
 pub enum DashboardAction {
-    /// Switch to an agent's tmux session
+    /// Switch to terminal view for an agent
     Attach(String),
-    /// Start inline spawn flow (folder picker → text input popup)
+    /// Start inline spawn flow (folder picker -> text input popup)
     SpawnInline,
     /// Spawn via $EDITOR (suspend TUI)
     SpawnEditor,
@@ -20,17 +20,21 @@ pub enum DashboardAction {
     PromptSubmitted,
     /// Character typed in prompt input
     PromptInput(PromptEdit),
+    /// Start adopt flow
+    AdoptStart,
+    /// Typing session ID for adopt
+    AdoptInput(PromptEdit),
+    /// Session ID entered for adopt
+    AdoptSubmitted,
     /// Cancel current mode, return to normal
     Cancel,
     /// Exit the dashboard
     Quit,
-    /// Open the popup terminal (Ctrl+T)
-    OpenTerminal,
     /// Refresh the display (no-op action)
     Refresh,
 }
 
-/// Edits to the prompt text input.
+/// Edits to a text input.
 pub enum PromptEdit {
     Char(char),
     Backspace,
@@ -42,16 +46,14 @@ pub enum InputMode {
     WaitingKill,
     PickingFolder { folder_count: usize },
     TypingPrompt { folder_name: String, folder_path: String, input: String },
+    TypingAdopt { input: String },
 }
 
 /// Process a keyboard event and return the corresponding action.
 pub fn handle_input(event: KeyEvent, key_map: &HashMap<char, String>, mode: &InputMode) -> DashboardAction {
     if event.modifiers.contains(KeyModifiers::CONTROL) {
-        if matches!(event.code, KeyCode::Char('c') | KeyCode::Char('f')) {
+        if matches!(event.code, KeyCode::Char('c')) {
             return DashboardAction::Quit;
-        }
-        if event.code == KeyCode::Char('t') {
-            return DashboardAction::OpenTerminal;
         }
     }
 
@@ -60,6 +62,7 @@ pub fn handle_input(event: KeyEvent, key_map: &HashMap<char, String>, mode: &Inp
         InputMode::WaitingKill => handle_pending_kill(event, key_map),
         InputMode::PickingFolder { folder_count } => handle_folder_pick(event, *folder_count),
         InputMode::TypingPrompt { .. } => handle_prompt_input(event),
+        InputMode::TypingAdopt { .. } => handle_adopt_input(event),
     }
 }
 
@@ -73,6 +76,7 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
         KeyCode::Char('c') => DashboardAction::SpawnInline,
         KeyCode::Char('K') => DashboardAction::PendingKill,
         KeyCode::Char('k') if shift => DashboardAction::PendingKill,
+        KeyCode::Char('R') => DashboardAction::AdoptStart,
         KeyCode::Char(c) => match key_map.get(&c) {
             Some(agent_id) => DashboardAction::Attach(agent_id.clone()),
             None => DashboardAction::Refresh,
@@ -114,6 +118,16 @@ fn handle_prompt_input(event: KeyEvent) -> DashboardAction {
         KeyCode::Esc => DashboardAction::Cancel,
         KeyCode::Backspace => DashboardAction::PromptInput(PromptEdit::Backspace),
         KeyCode::Char(c) => DashboardAction::PromptInput(PromptEdit::Char(c)),
+        _ => DashboardAction::Refresh,
+    }
+}
+
+fn handle_adopt_input(event: KeyEvent) -> DashboardAction {
+    match event.code {
+        KeyCode::Enter => DashboardAction::AdoptSubmitted,
+        KeyCode::Esc => DashboardAction::Cancel,
+        KeyCode::Backspace => DashboardAction::AdoptInput(PromptEdit::Backspace),
+        KeyCode::Char(c) => DashboardAction::AdoptInput(PromptEdit::Char(c)),
         _ => DashboardAction::Refresh,
     }
 }
