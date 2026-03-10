@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 
 use anyhow::{bail, Context};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 
 use crate::agent::{generate_id, next_color_index, Agent, AgentState};
 use crate::client::DaemonClient;
@@ -294,7 +294,7 @@ pub fn list_agents() -> anyhow::Result<()> {
         .max(6);
 
     println!(
-        "{:<id_w$}  {:<state_w$}  {:<desc_w$}  {:<folder_w$}  {:>4}",
+        "{:<id_w$}  {:<state_w$}  {:<desc_w$}  {:<folder_w$}  {:>5}",
         "ID", "STATE", "DESCRIPTION", "FOLDER", "TIME",
     );
 
@@ -306,10 +306,10 @@ pub fn list_agents() -> anyhow::Result<()> {
             AgentState::Lost => "lost",
         };
         let desc = truncate(&agent.description, desc_w);
-        let time = format_duration(&agent.started_at);
+        let time = format_duration(agent.started_at);
 
         println!(
-            "{:<id_w$}  {:<state_w$}  {:<desc_w$}  {:<folder_w$}  {:>4}",
+            "{:<id_w$}  {:<state_w$}  {:<desc_w$}  {:<folder_w$}  {:>5}",
             agent.id, state_str, desc, agent.folder, time,
         );
     }
@@ -391,19 +391,7 @@ pub fn open_config() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Format duration since a timestamp as "Xm", "Xh", "Xd".
-pub fn format_duration(since: &DateTime<Utc>) -> String {
-    let delta = Utc::now() - *since;
-    let mins = delta.num_minutes();
-
-    if mins < 60 {
-        format!("{}m", mins.max(0))
-    } else if mins < 1440 {
-        format!("{}h", mins / 60)
-    } else {
-        format!("{}d", mins / 1440)
-    }
-}
+use crate::dashboard::render::format_duration;
 
 // ── Helpers ────────────────────────────────────────────────────────
 

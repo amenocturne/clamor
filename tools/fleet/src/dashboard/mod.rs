@@ -1,6 +1,6 @@
 mod input;
 pub(crate) mod keys;
-mod render;
+pub(crate) mod render;
 
 use std::collections::HashMap;
 use std::io;
