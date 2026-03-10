@@ -171,6 +171,7 @@ def fake_repo(tmp_path):
         patch.object(install, "HOOKS_DIR", hooks_dir),
         patch.object(install, "PIPELINES_DIR", pipelines_dir),
         patch.object(install, "COMMON_DIR", common_dir),
+        patch.object(install, "REGISTRY_PATH", tmp_path / "installations.yaml"),
     ):
         yield {
             "root": tmp_path,
@@ -1254,43 +1255,35 @@ class TestRegistry:
 
     def test_load_empty_registry(self, fake_repo):
         """Loading when no file exists returns empty list."""
-        with patch.object(install, "REGISTRY_PATH", fake_repo["root"] / "installations.yaml"):
-            result = install.load_registry()
-            assert result == []
+        result = install.load_registry()
+        assert result == []
 
     def test_update_registry_creates_file(self, fake_repo):
+        install.update_registry("dev-workspace", Path("/some/target"))
         registry_path = fake_repo["root"] / "installations.yaml"
-        with patch.object(install, "REGISTRY_PATH", registry_path):
-            install.update_registry("dev-workspace", Path("/some/target"))
-            assert registry_path.exists()
-            entries = install.load_registry()
-            assert len(entries) == 1
-            assert entries[0]["preset"] == "dev-workspace"
-            assert entries[0]["target"] == "/some/target"
+        assert registry_path.exists()
+        entries = install.load_registry()
+        assert len(entries) == 1
+        assert entries[0]["preset"] == "dev-workspace"
+        assert entries[0]["target"] == "/some/target"
 
     def test_update_registry_upserts_by_target(self, fake_repo):
-        registry_path = fake_repo["root"] / "installations.yaml"
-        with patch.object(install, "REGISTRY_PATH", registry_path):
-            install.update_registry("dev-workspace", Path("/some/target"))
-            install.update_registry("knowledge-base", Path("/some/target"))
-            entries = install.load_registry()
-            assert len(entries) == 1
-            assert entries[0]["preset"] == "knowledge-base"
+        install.update_registry("dev-workspace", Path("/some/target"))
+        install.update_registry("knowledge-base", Path("/some/target"))
+        entries = install.load_registry()
+        assert len(entries) == 1
+        assert entries[0]["preset"] == "knowledge-base"
 
     def test_update_registry_multiple_targets(self, fake_repo):
-        registry_path = fake_repo["root"] / "installations.yaml"
-        with patch.object(install, "REGISTRY_PATH", registry_path):
-            install.update_registry("dev-workspace", Path("/target/a"))
-            install.update_registry("knowledge-base", Path("/target/b"))
-            entries = install.load_registry()
-            assert len(entries) == 2
+        install.update_registry("dev-workspace", Path("/target/a"))
+        install.update_registry("knowledge-base", Path("/target/b"))
+        entries = install.load_registry()
+        assert len(entries) == 2
 
     def test_update_registry_with_knowledge_base(self, fake_repo):
-        registry_path = fake_repo["root"] / "installations.yaml"
-        with patch.object(install, "REGISTRY_PATH", registry_path):
-            install.update_registry("kb", Path("/target"), Path("/my/vault"))
-            entries = install.load_registry()
-            assert entries[0]["knowledge_base"] == "/my/vault"
+        install.update_registry("kb", Path("/target"), Path("/my/vault"))
+        entries = install.load_registry()
+        assert entries[0]["knowledge_base"] == "/my/vault"
 
     def test_install_updates_registry(self, fake_repo):
         """A successful install() call should auto-update the registry."""
@@ -1302,19 +1295,16 @@ class TestRegistry:
         )
         target = fake_repo["root"] / "my_project"
         target.mkdir()
-        registry_path = fake_repo["root"] / "installations.yaml"
-        with patch.object(install, "REGISTRY_PATH", registry_path):
-            install.install("test-preset", target)
-            entries = install.load_registry()
-            assert len(entries) == 1
-            assert entries[0]["preset"] == "test-preset"
-            assert entries[0]["target"] == str(target)
+        install.install("test-preset", target)
+        entries = install.load_registry()
+        assert len(entries) == 1
+        assert entries[0]["preset"] == "test-preset"
+        assert entries[0]["target"] == str(target)
 
     def test_install_all_empty_registry(self, fake_repo):
         """install_all with no registry prints message and returns 0."""
-        with patch.object(install, "REGISTRY_PATH", fake_repo["root"] / "installations.yaml"):
-            count = install.install_all()
-            assert count == 0
+        count = install.install_all()
+        assert count == 0
 
     def test_install_all_runs_all_entries(self, fake_repo):
         """install_all reinstalls each registered entry."""
@@ -1334,12 +1324,9 @@ class TestRegistry:
         t2 = fake_repo["root"] / "t2"
         t1.mkdir()
         t2.mkdir()
-        registry_path = fake_repo["root"] / "installations.yaml"
-        with patch.object(install, "REGISTRY_PATH", registry_path):
-            install.update_registry("p1", t1)
-            install.update_registry("p2", t2)
-            count = install.install_all()
-            assert count == 2
-            # Both targets should have .claude/CLAUDE.md
-            assert (t1 / ".claude" / "CLAUDE.md").exists()
-            assert (t2 / ".claude" / "CLAUDE.md").exists()
+        install.update_registry("p1", t1)
+        install.update_registry("p2", t2)
+        count = install.install_all()
+        assert count == 2
+        assert (t1 / ".claude" / "CLAUDE.md").exists()
+        assert (t2 / ".claude" / "CLAUDE.md").exists()
