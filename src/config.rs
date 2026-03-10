@@ -52,16 +52,15 @@ impl Default for FleetConfig {
 
 impl FleetConfig {
     /// Returns `~/.fleet/`.
-    pub fn config_dir() -> PathBuf {
-        std::env::var("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("/tmp"))
-            .join(".fleet")
+    pub fn config_dir() -> anyhow::Result<PathBuf> {
+        let home = std::env::var("HOME")
+            .context("HOME environment variable not set")?;
+        Ok(PathBuf::from(home).join(".fleet"))
     }
 
     /// Creates `~/.fleet/` if it doesn't exist.
     pub fn ensure_dir() -> anyhow::Result<()> {
-        let dir = Self::config_dir();
+        let dir = Self::config_dir()?;
         if !dir.exists() {
             std::fs::create_dir_all(&dir)
                 .with_context(|| format!("Failed to create config dir: {}", dir.display()))?;
@@ -73,7 +72,7 @@ impl FleetConfig {
     /// Creates a default config file if it doesn't exist.
     pub fn load() -> anyhow::Result<Self> {
         Self::ensure_dir()?;
-        let path = Self::config_dir().join("config.json");
+        let path = Self::config_dir()?.join("config.json");
 
         if !path.exists() {
             let config = Self::default();

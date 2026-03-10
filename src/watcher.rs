@@ -37,7 +37,7 @@ impl StateWatcher {
         let initial = FleetState::load(config)?;
         let cached = Arc::new(Mutex::new(initial));
 
-        let watch_dir = FleetConfig::config_dir();
+        let watch_dir = FleetConfig::config_dir()?;
         let state_path = watch_dir.join("state.json");
 
         let cached_clone = cached.clone();

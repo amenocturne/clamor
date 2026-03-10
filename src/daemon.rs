@@ -14,20 +14,21 @@ use crate::protocol::{ClientMessage, DaemonAgent, DaemonMessage};
 const RING_BUFFER_CAP: usize = 1024 * 1024;
 
 /// Path to the daemon's Unix domain socket.
-pub fn daemon_socket_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(home).join(".fleet").join("fleet.sock")
+pub fn daemon_socket_path() -> Result<PathBuf> {
+    Ok(crate::config::FleetConfig::config_dir()?.join("fleet.sock"))
 }
 
 /// Path to the daemon's PID file.
-pub fn daemon_pid_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(home).join(".fleet").join("fleet.pid")
+pub fn daemon_pid_path() -> Result<PathBuf> {
+    Ok(crate::config::FleetConfig::config_dir()?.join("fleet.pid"))
 }
 
 /// Check whether a daemon process is currently running.
 pub fn is_daemon_running() -> bool {
-    let pid_path = daemon_pid_path();
+    let pid_path = match daemon_pid_path() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
     let pid_str = match std::fs::read_to_string(&pid_path) {
         Ok(s) => s,
         Err(_) => return false,
@@ -128,8 +129,8 @@ fn send_to_client(stream: &mut UnixStream, msg: &DaemonMessage) -> bool {
 /// Listens on a Unix domain socket, manages PTYs, and forwards output
 /// to subscribed clients.
 pub fn run_daemon() -> Result<()> {
-    let sock_path = daemon_socket_path();
-    let pid_path = daemon_pid_path();
+    let sock_path = daemon_socket_path()?;
+    let pid_path = daemon_pid_path()?;
 
     // Ensure ~/.fleet/ directory exists
     if let Some(parent) = sock_path.parent() {
@@ -421,7 +422,7 @@ fn spawn_agent_pty(
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let mut cmd_builder = if cmd.is_empty() {
-        CommandBuilder::new("zsh")
+        CommandBuilder::new(std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()))
     } else {
         let mut cb = CommandBuilder::new(&cmd[0]);
         for arg in &cmd[1..] {
