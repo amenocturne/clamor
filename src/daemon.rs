@@ -198,11 +198,13 @@ pub fn run_daemon() -> Result<()> {
                     if let Some(slot) = agents.get_mut(&id) {
                         slot.alive = false;
                     }
-                    if let Some(ref mut stream) = client {
-                        let msg = DaemonMessage::Exited { id };
-                        if !send_to_client(stream, &msg) {
-                            client = None;
-                            subscriptions.clear();
+                    if subscriptions.contains(&id) {
+                        if let Some(ref mut stream) = client {
+                            let msg = DaemonMessage::Exited { id };
+                            if !send_to_client(stream, &msg) {
+                                client = None;
+                                subscriptions.clear();
+                            }
                         }
                     }
                 }
