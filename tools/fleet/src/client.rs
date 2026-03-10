@@ -29,12 +29,16 @@ impl DaemonClient {
         cwd: &str,
         cmd: &[String],
         env: &[(String, String)],
+        rows: u16,
+        cols: u16,
     ) -> Result<()> {
         self.send(ClientMessage::Spawn {
             id: id.to_string(),
             cwd: cwd.to_string(),
             cmd: cmd.to_vec(),
             env: env.to_vec(),
+            rows,
+            cols,
         })?;
         self.expect_ok()
     }
