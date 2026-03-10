@@ -98,7 +98,7 @@ pub fn render_terminal(
         AgentState::Done => "done",
     };
     let duration = format_duration(agent.started_at);
-    pane::render_title_bar(frame, chunks[0], &agent.folder, &agent.description, state_str, &duration, color, true);
+    pane::render_title_bar(frame, chunks[0], &agent.folder, &agent.description, state_str, &duration, color, true, Some("^F back"));
 
     let pseudo_term = tui_term::widget::PseudoTerminal::new(pane_view.screen());
     frame.render_widget(pseudo_term, chunks[1]);
