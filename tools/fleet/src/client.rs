@@ -76,17 +76,24 @@ impl DaemonClient {
     }
 
     /// Subscribe to output from an agent. Returns the catch-up buffer.
+    ///
+    /// Drains any stale messages (Output, Exited) that may be buffered
+    /// before the expected CatchUp response.
     pub fn subscribe(&mut self, id: &str) -> Result<Vec<u8>> {
         self.send(ClientMessage::Subscribe {
             id: id.to_string(),
         })?;
-        let msg: DaemonMessage = recv_message(&mut self.stream)?;
-        match msg {
-            DaemonMessage::CatchUp { data, .. } => Ok(data),
-            DaemonMessage::Error { message } => {
-                anyhow::bail!("subscribe failed: {message}")
+        loop {
+            let msg: DaemonMessage = recv_message(&mut self.stream)?;
+            match msg {
+                DaemonMessage::CatchUp { data, .. } => return Ok(data),
+                DaemonMessage::Error { message } => {
+                    anyhow::bail!("subscribe failed: {message}")
+                }
+                // Stale Output/Exited from previous subscriptions — skip
+                DaemonMessage::Output { .. } | DaemonMessage::Exited { .. } => continue,
+                other => anyhow::bail!("unexpected response: {other:?}"),
             }
-            other => anyhow::bail!("unexpected response: {other:?}"),
         }
     }
 
