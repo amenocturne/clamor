@@ -28,12 +28,14 @@ use crate::daemon;
 use crate::pane::{self, PaneView};
 use crate::protocol::DaemonMessage;
 use crate::state::{with_state, FleetState};
+use crate::watcher::StateSource;
 
 use input::{DashboardAction, InputMode, PromptEdit, PromptField};
 
 fn apply_edit(s: &mut String, edit: &PromptEdit) {
     match edit {
         PromptEdit::Char(c) => s.push(*c),
+        PromptEdit::Paste(text) => s.push_str(text),
         PromptEdit::Backspace => { s.pop(); }
         PromptEdit::DeleteWord => {
             let trimmed = s.trim_end_matches(|c: char| !c.is_alphanumeric());
@@ -88,11 +90,13 @@ pub fn run(config: &FleetConfig, attach_to: Option<String>) -> Result<()> {
     let lost_count = reconcile_state(config, &mut client)?;
     client.set_nonblocking(true)?;
 
+    let state_source = StateSource::new(config);
+
     install_panic_hook();
     let mut terminal = setup_terminal()?;
     execute!(io::stdout(), EnableBracketedPaste, EnableMouseCapture)?;
 
-    let result = main_loop(&mut terminal, config, &mut client, attach_to, lost_count);
+    let result = main_loop(&mut terminal, config, &mut client, attach_to, lost_count, &state_source);
 
     execute!(io::stdout(), DisableBracketedPaste, DisableMouseCapture)?;
     restore_terminal(&mut terminal)?;
@@ -137,6 +141,7 @@ fn main_loop(
     client: &mut DaemonClient,
     attach_to: Option<String>,
     lost_count: usize,
+    state_source: &StateSource,
 ) -> Result<()> {
     let mut input_mode = if lost_count > 0 && attach_to.is_none() {
         InputMode::StalePrompt { count: lost_count }
@@ -149,7 +154,7 @@ fn main_loop(
     let mut last_agent_id: Option<String> = None;
 
     let mut mode = if let Some(ref agent_id) = attach_to {
-        let state = FleetState::load(config)?;
+        let state = state_source.get(config);
         let is_lost = state.agents.get(agent_id)
             .map_or(true, |a| a.state == AgentState::Lost);
 
@@ -208,6 +213,7 @@ fn main_loop(
                                 agent.state = AgentState::Done;
                             }
                         });
+                        state_source.invalidate(config);
                     }
                     DaemonMessage::CatchUp { id, data } => {
                         if let Some(pv) = pane_views.get_mut(&id) {
@@ -226,7 +232,7 @@ fn main_loop(
                 let action = dashboard_iteration(
                     terminal, config, client, &mut input_mode,
                     &mut killed_at, &kill_linger, &sorted_folders,
-                    &mut pane_views, &last_agent_id,
+                    &mut pane_views, &last_agent_id, state_source,
                 )?;
 
                 match action {
@@ -263,7 +269,7 @@ fn main_loop(
                 let agent_id_clone = agent_id.clone();
                 let action = terminal_iteration(
                     terminal, config, client,
-                    &agent_id_clone, &mut pane_views,
+                    &agent_id_clone, &mut pane_views, state_source,
                 )?;
 
                 match action {
@@ -306,6 +312,7 @@ fn dashboard_iteration(
     sorted_folders: &[(String, String)],
     _pane_views: &mut HashMap<String, PaneView>,
     last_agent_id: &Option<String>,
+    state_source: &StateSource,
 ) -> Result<LoopAction> {
     // Expire killed agents that have lingered long enough
     let expired: Vec<String> = killed_at
@@ -319,12 +326,13 @@ fn dashboard_iteration(
                 state.agents.remove(id);
             }
         });
+        state_source.invalidate(config);
         for id in &expired {
             killed_at.remove(id);
         }
     }
 
-    let state = FleetState::load(config)?;
+    let state = state_source.get(config);
     let killed_ids: Vec<String> = killed_at.keys().cloned().collect();
 
     // Build key map from persistent Agent.key fields
@@ -377,7 +385,40 @@ fn dashboard_iteration(
 
     let poll_duration = Duration::from_millis(50);
     if event::poll(poll_duration).context("Failed to poll for events")? {
-        if let Event::Key(key_event) = event::read().context("Failed to read event")? {
+        let ev = event::read().context("Failed to read event")?;
+
+        if let Event::Paste(text) = &ev {
+            let action = match input_mode {
+                InputMode::TypingPrompt { .. } => DashboardAction::PromptInput(PromptEdit::Paste(text.clone())),
+                InputMode::TypingAdopt { .. } => DashboardAction::AdoptInput(PromptEdit::Paste(text.clone())),
+                InputMode::EditingDescription { .. } => DashboardAction::EditInput(PromptEdit::Paste(text.clone())),
+                _ => DashboardAction::Refresh,
+            };
+            match action {
+                DashboardAction::PromptInput(edit) => {
+                    if let InputMode::TypingPrompt { ref mut title, ref mut prompt, ref active_field, .. } = input_mode {
+                        let target = match active_field {
+                            PromptField::Title => title,
+                            PromptField::Prompt => prompt,
+                        };
+                        apply_edit(target, &edit);
+                    }
+                }
+                DashboardAction::AdoptInput(edit) => {
+                    if let InputMode::TypingAdopt { ref mut input } = input_mode {
+                        apply_edit(input, &edit);
+                    }
+                }
+                DashboardAction::EditInput(edit) => {
+                    if let InputMode::EditingDescription { ref mut input, .. } = input_mode {
+                        apply_edit(input, &edit);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if let Event::Key(key_event) = ev {
             // Ctrl+F: toggle back to last attached agent
             if matches!(input_mode, InputMode::Normal)
                 && key_event.modifiers.contains(KeyModifiers::CONTROL)
@@ -439,8 +480,8 @@ fn dashboard_iteration(
                         client.set_nonblocking(true)?;
                         match editor_result {
                             Some((description, prompt)) => {
-                                let state = FleetState::load(config)?;
-                                let _ = spawn_inline(config, client, &folder_name_owned, &folder_path_owned, &description, &prompt, &state);
+                                let state = state_source.get(config);
+                                let _ = spawn_inline(config, client, &folder_name_owned, &folder_path_owned, &description, &prompt, &state, state_source);
                             }
                             None => {
                                 *input_mode = InputMode::ConfirmEmptySpawn {
@@ -479,8 +520,8 @@ fn dashboard_iteration(
                             client.set_nonblocking(true)?;
                             match editor_result {
                                 Some((description, prompt)) => {
-                                    let state = FleetState::load(config)?;
-                                    let _ = spawn_inline(config, client, &folder_name_owned, &folder_path_owned, &description, &prompt, &state);
+                                    let state = state_source.get(config);
+                                    let _ = spawn_inline(config, client, &folder_name_owned, &folder_path_owned, &description, &prompt, &state, state_source);
                                     *input_mode = InputMode::Normal;
                                 }
                                 None => {
@@ -536,7 +577,7 @@ fn dashboard_iteration(
                             } else {
                                 &prompt_trimmed
                             };
-                            let _ = spawn_inline(config, client, folder_name, folder_path, &title_trimmed, effective_prompt, &state);
+                            let _ = spawn_inline(config, client, folder_name, folder_path, &title_trimmed, effective_prompt, &state, state_source);
                             submitted = true;
                         }
                     }
@@ -547,7 +588,7 @@ fn dashboard_iteration(
 
                 DashboardAction::ConfirmYes => {
                     if let InputMode::ConfirmEmptySpawn { folder_name, folder_path } = input_mode {
-                        let _ = spawn_inline(config, client, folder_name, folder_path, "interactive", "", &state);
+                        let _ = spawn_inline(config, client, folder_name, folder_path, "interactive", "", &state, state_source);
                     }
                     *input_mode = InputMode::Normal;
                 }
@@ -582,6 +623,7 @@ fn dashboard_iteration(
                                     agent.description = new_desc;
                                 }
                             });
+                            state_source.invalidate(config);
                         }
                     }
                     *input_mode = InputMode::Normal;
@@ -614,13 +656,13 @@ fn dashboard_iteration(
                             // Adopt needs a folder — use first folder if only one, else skip
                             if sorted_folders.len() == 1 {
                                 let (folder_name, folder_path) = &sorted_folders[0];
-                                let _ = adopt_inline(config, client, &session_id, folder_name, folder_path, &state);
+                                let _ = adopt_inline(config, client, &session_id, folder_name, folder_path, &state, state_source);
                             }
                             // If multiple folders, a more complex flow would be needed;
                             // for now just adopt with first folder or show error
                             else if !sorted_folders.is_empty() {
                                 let (folder_name, folder_path) = &sorted_folders[0];
-                                let _ = adopt_inline(config, client, &session_id, folder_name, folder_path, &state);
+                                let _ = adopt_inline(config, client, &session_id, folder_name, folder_path, &state, state_source);
                             }
                         }
                     }
@@ -638,6 +680,7 @@ fn dashboard_iteration(
                             state.agents.retain(|_, a| a.state != AgentState::Lost);
                         });
                     }
+                    state_source.invalidate(config);
                     *input_mode = InputMode::Normal;
                 }
 
@@ -663,9 +706,10 @@ fn terminal_iteration(
     client: &mut DaemonClient,
     agent_id: &str,
     pane_views: &mut HashMap<String, PaneView>,
+    state_source: &StateSource,
 ) -> Result<LoopAction> {
     // Load current agent state for title bar
-    let state = FleetState::load(config)?;
+    let state = state_source.get(config);
     let agent = match state.agents.get(agent_id) {
         Some(a) => a,
         None => {
@@ -795,6 +839,7 @@ fn spawn_inline(
     description: &str,
     prompt: &str,
     current_state: &FleetState,
+    state_source: &StateSource,
 ) -> Result<()> {
     let cwd = resolve_path(folder_path);
     let cwd_str = cwd.to_string_lossy().to_string();
@@ -823,6 +868,7 @@ fn spawn_inline(
     with_state(config, |state| {
         state.agents.insert(id.clone(), agent);
     })?;
+    state_source.invalidate(config);
 
     let cmd = crate::spawn::build_agent_cmd(prompt);
     let env = vec![("FLEET_AGENT_ID".to_string(), id.clone())];
@@ -843,6 +889,7 @@ fn adopt_inline(
     folder_name: &str,
     folder_path: &str,
     current_state: &FleetState,
+    state_source: &StateSource,
 ) -> Result<()> {
     let cwd = resolve_path(folder_path);
     let cwd_str = cwd.to_string_lossy().to_string();
@@ -871,6 +918,7 @@ fn adopt_inline(
     with_state(config, |state| {
         state.agents.insert(id.clone(), agent);
     })?;
+    state_source.invalidate(config);
 
     let cmd = crate::spawn::build_resume_cmd(session_id);
     let env = vec![("FLEET_AGENT_ID".to_string(), id.clone())];

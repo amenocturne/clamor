@@ -37,6 +37,7 @@ pub enum DashboardAction {
 /// Edits to a text input.
 pub enum PromptEdit {
     Char(char),
+    Paste(String),
     Backspace,
     DeleteWord,
     DeleteLine,

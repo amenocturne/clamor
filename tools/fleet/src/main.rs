@@ -11,6 +11,7 @@ mod picker;
 mod protocol;
 mod spawn;
 mod state;
+mod watcher;
 
 use anyhow::Result;
 use clap::Parser;

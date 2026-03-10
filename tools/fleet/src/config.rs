@@ -12,10 +12,20 @@ pub struct FleetConfig {
     pub dashboard: DashboardConfig,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum WatchMode {
+    #[default]
+    Fsevents,
+    Poll,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardConfig {
     #[serde(default = "default_refresh_interval")]
     pub refresh_interval: f64,
+    #[serde(default)]
+    pub watch_mode: WatchMode,
 }
 
 fn default_refresh_interval() -> f64 {
@@ -26,6 +36,7 @@ impl Default for DashboardConfig {
     fn default() -> Self {
         Self {
             refresh_interval: default_refresh_interval(),
+            watch_mode: WatchMode::default(),
         }
     }
 }
