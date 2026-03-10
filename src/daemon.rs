@@ -280,8 +280,10 @@ fn handle_client_message(
             cwd,
             cmd,
             env,
+            rows,
+            cols,
         } => {
-            match spawn_agent_pty(&id, &cwd, &cmd, &env, pty_tx) {
+            match spawn_agent_pty(&id, &cwd, &cmd, &env, rows, cols, pty_tx) {
                 Ok(slot) => {
                     agents.insert(id, slot);
                     let _ = send_to_client(stream, &DaemonMessage::Ok);
@@ -408,13 +410,15 @@ fn spawn_agent_pty(
     cwd: &str,
     cmd: &[String],
     env: &[(String, String)],
+    rows: u16,
+    cols: u16,
     pty_tx: &mpsc::Sender<PtyEvent>,
 ) -> Result<AgentSlot> {
     let pty_system = NativePtySystem::default();
     let pair = pty_system
         .openpty(PtySize {
-            rows: 24,
-            cols: 80,
+            rows,
+            cols,
             pixel_width: 0,
             pixel_height: 0,
         })

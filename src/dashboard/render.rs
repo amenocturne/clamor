@@ -335,7 +335,7 @@ fn render_agent_line(da: &DisplayAgent, width: usize) -> Line<'static> {
         .fg(Color::Cyan)
         .add_modifier(Modifier::BOLD);
 
-    let dimmed = da.killed || da.agent.state == AgentState::Done || da.agent.state == AgentState::Lost;
+    let dimmed = da.killed || da.agent.state == AgentState::Lost;
 
     // Use agent color for description text (unless dimmed)
     let desc_style = if dimmed {

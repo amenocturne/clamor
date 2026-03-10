@@ -3,6 +3,9 @@ use std::io::{Read, Write};
 use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+fn default_rows() -> u16 { 24 }
+fn default_cols() -> u16 { 80 }
+
 /// Messages sent from client to daemon over the Unix domain socket.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ClientMessage {
@@ -12,6 +15,10 @@ pub enum ClientMessage {
         cwd: String,
         cmd: Vec<String>,
         env: Vec<(String, String)>,
+        #[serde(default = "default_rows")]
+        rows: u16,
+        #[serde(default = "default_cols")]
+        cols: u16,
     },
     /// Kill a PTY process
     Kill { id: String },

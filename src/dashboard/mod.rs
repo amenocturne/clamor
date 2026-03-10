@@ -314,6 +314,12 @@ fn dashboard_iteration(
     last_agent_id: &Option<String>,
     state_source: &StateSource,
 ) -> Result<LoopAction> {
+    // Pre-compute PTY size for any agents spawned this iteration.
+    // Subtract 1 row for the title bar shown when attached.
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
+    let pty_rows = term_rows.saturating_sub(1);
+    let pty_cols = term_cols;
+
     // Expire killed agents that have lingered long enough
     let expired: Vec<String> = killed_at
         .iter()
@@ -481,7 +487,7 @@ fn dashboard_iteration(
                         match editor_result {
                             Some((title, prompt)) => {
                                 let state = state_source.get();
-                                let _ = spawn_inline(client, &folder_name_owned, &folder_path_owned, &title, Some(&prompt), &state, state_source);
+                                let _ = spawn_inline(client, &folder_name_owned, &folder_path_owned, &title, Some(&prompt), &state, state_source, pty_rows, pty_cols);
                             }
                             None => {
                                 *input_mode = InputMode::ConfirmEmptySpawn {
@@ -521,7 +527,7 @@ fn dashboard_iteration(
                             match editor_result {
                                 Some((title, prompt)) => {
                                     let state = state_source.get();
-                                    let _ = spawn_inline(client, &folder_name_owned, &folder_path_owned, &title, Some(&prompt), &state, state_source);
+                                    let _ = spawn_inline(client, &folder_name_owned, &folder_path_owned, &title, Some(&prompt), &state, state_source, pty_rows, pty_cols);
                                     *input_mode = InputMode::Normal;
                                 }
                                 None => {
@@ -577,7 +583,7 @@ fn dashboard_iteration(
                             } else {
                                 Some(format!("{title_trimmed}\n\n{desc_trimmed}"))
                             };
-                            let _ = spawn_inline(client, folder_name, folder_path, &title_trimmed, effective_prompt.as_deref(), &state, state_source);
+                            let _ = spawn_inline(client, folder_name, folder_path, &title_trimmed, effective_prompt.as_deref(), &state, state_source, pty_rows, pty_cols);
                             submitted = true;
                         }
                     }
@@ -588,7 +594,7 @@ fn dashboard_iteration(
 
                 DashboardAction::ConfirmYes => {
                     if let InputMode::ConfirmEmptySpawn { folder_name, folder_path } = input_mode {
-                        let _ = spawn_inline(client, folder_name, folder_path, "interactive", None, &state, state_source);
+                        let _ = spawn_inline(client, folder_name, folder_path, "interactive", None, &state, state_source, pty_rows, pty_cols);
                     }
                     *input_mode = InputMode::Normal;
                 }
@@ -656,13 +662,13 @@ fn dashboard_iteration(
                             // Adopt needs a folder — use first folder if only one, else skip
                             if sorted_folders.len() == 1 {
                                 let (folder_name, folder_path) = &sorted_folders[0];
-                                let _ = adopt_inline(client, &session_id, folder_name, folder_path, &state, state_source);
+                                let _ = adopt_inline(client, &session_id, folder_name, folder_path, &state, state_source, pty_rows, pty_cols);
                             }
                             // If multiple folders, a more complex flow would be needed;
                             // for now just adopt with first folder or show error
                             else if !sorted_folders.is_empty() {
                                 let (folder_name, folder_path) = &sorted_folders[0];
-                                let _ = adopt_inline(client, &session_id, folder_name, folder_path, &state, state_source);
+                                let _ = adopt_inline(client, &session_id, folder_name, folder_path, &state, state_source, pty_rows, pty_cols);
                             }
                         }
                     }
@@ -838,6 +844,8 @@ fn spawn_inline(
     prompt: Option<&str>,
     current_state: &FleetState,
     state_source: &StateSource,
+    pty_rows: u16,
+    pty_cols: u16,
 ) -> Result<()> {
     let cwd = resolve_path(folder_path);
     let cwd_str = cwd.to_string_lossy().to_string();
@@ -876,7 +884,7 @@ fn spawn_inline(
 
     // Switch to blocking for the spawn handshake
     client.set_nonblocking(false)?;
-    client.spawn_agent(&id, &cwd_str, &cmd, &env)?;
+    client.spawn_agent(&id, &cwd_str, &cmd, &env, pty_rows, pty_cols)?;
     client.set_nonblocking(true)?;
 
     Ok(())
@@ -890,6 +898,8 @@ fn adopt_inline(
     folder_path: &str,
     current_state: &FleetState,
     state_source: &StateSource,
+    pty_rows: u16,
+    pty_cols: u16,
 ) -> Result<()> {
     let cwd = resolve_path(folder_path);
     let cwd_str = cwd.to_string_lossy().to_string();
@@ -925,7 +935,7 @@ fn adopt_inline(
     let env = vec![("FLEET_AGENT_ID".to_string(), id.clone())];
 
     client.set_nonblocking(false)?;
-    client.spawn_agent(&id, &cwd_str, &cmd, &env)?;
+    client.spawn_agent(&id, &cwd_str, &cmd, &env, pty_rows, pty_cols)?;
     client.set_nonblocking(true)?;
 
     Ok(())

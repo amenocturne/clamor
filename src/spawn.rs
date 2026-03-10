@@ -128,8 +128,9 @@ pub fn spawn_agent(description: Option<String>, folder_override: Option<String>,
     // Spawn via daemon
     let cmd = build_agent_cmd(prompt.as_deref());
     let env = vec![("FLEET_AGENT_ID".to_string(), id.clone())];
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
     let mut client = DaemonClient::connect()?;
-    client.spawn_agent(&id, &cwd_str, &cmd, &env)?;
+    client.spawn_agent(&id, &cwd_str, &cmd, &env, term_rows, term_cols)?;
 
     println!("Spawned agent {id}: {title}");
 
@@ -201,8 +202,9 @@ pub fn adopt_session(session_id: &str, description: Option<String>, folder_overr
 
     let cmd = build_resume_cmd(session_id);
     let env = vec![("FLEET_AGENT_ID".to_string(), id.clone())];
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
     let mut client = DaemonClient::connect()?;
-    client.spawn_agent(&id, &cwd_str, &cmd, &env)?;
+    client.spawn_agent(&id, &cwd_str, &cmd, &env, term_rows, term_cols)?;
 
     println!("Adopted session {session_id} as agent {id}: {title}");
 
