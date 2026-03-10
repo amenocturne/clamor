@@ -55,7 +55,8 @@ fleet-install:
     fi
     cargo build --release --manifest-path tools/fleet/Cargo.toml
     mkdir -p ~/.local/bin
-    cp -f tools/fleet/target/release/fleet ~/.local/bin/fleet
+    rm -f ~/.local/bin/fleet
+    cp tools/fleet/target/release/fleet ~/.local/bin/fleet
     echo "fleet installed to ~/.local/bin/fleet"
 
 # Aliases
