@@ -1,6 +1,6 @@
 # Fleet
 
-Orchestrate multiple Claude Code instances through tmux with a live dashboard.
+Terminal multiplexer for Claude Code agents. Manages multiple instances with a live dashboard, persistent PTYs (agents survive client crashes), and color-coded sessions.
 
 ## Setup
 
@@ -23,69 +23,49 @@ fleet config
 {
   "folders": {
     "my-app": "~/projects/my-app"
-  },
-  "pinned_sessions": {
-    "editor": "main"
   }
 }
 ```
-
-`pinned_sessions` maps a label to a tmux session name — these appear at the top of the dashboard with number keys for quick switching.
-
-### 3. Tmux keybinding
-
-Add to your tmux config (`~/.config/tmux/tmux.conf` or `~/.tmux.conf`):
-
-```tmux
-bind-key -n 'C-f' run-shell -b "fleet popup"
-```
-
-Reload: `tmux source-file ~/.config/tmux/tmux.conf`
-
-This opens the fleet dashboard as a popup overlay. `fleet popup` handles edge cases automatically (e.g. dismissing the popup terminal first if it's open).
-
-### 4. Claude Code keybindings
-
-Claude Code captures `Ctrl+F` and `Ctrl+T` by default. Unbind them so tmux can intercept — create `~/.claude/keybindings.json`:
-
-```json
-{
-  "bindings": [
-    {
-      "context": "Global",
-      "bindings": {
-        "ctrl+f": null,
-        "ctrl+t": null
-      }
-    }
-  ]
-}
-```
-
-Fleet warns on startup if this isn't configured.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
 | `fleet` | Open the live TUI dashboard |
-| `fleet popup` | Open dashboard in a tmux popup (bind to Ctrl+F) |
 | `fleet ls` | One-shot status table |
 | `fleet new` | Spawn a new agent |
-| `fleet attach <ref>` | Switch to an agent's tmux session |
+| `fleet adopt <session-id>` | Resume an external Claude Code session inside fleet |
 | `fleet edit <ref>` | Update an agent's description |
 | `fleet kill <ref>` | Terminate an agent |
 | `fleet kill --all` | Terminate all agents |
 | `fleet clean` | Remove done agents |
+| `fleet stop` | Stop the fleet daemon |
 | `fleet config` | Open config in $EDITOR |
-| `fleet pick` | Lightweight session picker |
 | `fleet hook` | Process hook event (internal) |
 
-## Popup workflow
+## Dashboard keys
 
-1. Press `Ctrl+F` from any tmux session (including inside Claude Code agents)
-2. Fleet dashboard opens as a popup overlay
-3. Press a jump key to switch to an agent, or `c` to spawn a new one
-4. Popup closes automatically after switching
+| Key | Action |
+|-----|--------|
+| Jump key (a/s/d/f/j/k/l/g/h) | Attach to agent |
+| `c` | Create new agent (inline) |
+| `C` | Create new agent (via $EDITOR) |
+| `R` | Adopt external Claude Code session |
+| `K` + jump key | Kill agent |
+| `q` / `Esc` | Quit dashboard |
 
-If a popup terminal is open (`Ctrl+T`), fleet dismisses it first (detach, not kill — running processes are preserved), then opens the dashboard.
+## Terminal view keys
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+F` | Return to dashboard |
+| `Ctrl+C` | Send SIGINT to agent |
+| All other keys | Forwarded to agent PTY |
+
+## Architecture
+
+Fleet uses a client-server model (like tmux). A background daemon holds all PTYs — agents survive if the dashboard crashes or is closed. The daemon starts automatically and can be stopped with `fleet stop`.
+
+## Debug mode
+
+Set `FLEET_DEBUG=1` to substitute `fleet mock-agent` for `claude`, enabling testing without real Claude instances.
