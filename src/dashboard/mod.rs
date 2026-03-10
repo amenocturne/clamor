@@ -169,9 +169,8 @@ fn main_loop(
                                     pv.process_output(&catch_up);
                                 }
                             }
-                            Err(e) => {
+                            Err(_) => {
                                 client.set_nonblocking(true)?;
-                                eprintln!("subscribe failed: {e}");
                                 continue;
                             }
                         }
