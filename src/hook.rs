@@ -2,7 +2,6 @@ use chrono::Utc;
 use serde::Deserialize;
 
 use crate::agent::AgentState;
-use crate::config::FleetConfig;
 use crate::state::try_with_state;
 
 #[derive(Debug, Deserialize)]
@@ -34,9 +33,8 @@ fn run_inner() -> anyhow::Result<()> {
     };
 
     let event: HookEvent = serde_json::from_str(&input)?;
-    let config = FleetConfig::load()?;
 
-    try_with_state(&config, |state| {
+    try_with_state(|state| {
         let agent = match state.agents.get_mut(&agent_id) {
             Some(a) => a,
             None => return,

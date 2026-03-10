@@ -34,7 +34,7 @@ pub(crate) struct StateWatcher {
 
 impl StateWatcher {
     fn new(config: &FleetConfig) -> Result<Self> {
-        let initial = FleetState::load(config)?;
+        let initial = FleetState::load()?;
         let cached = Arc::new(Mutex::new(initial));
 
         let watch_dir = FleetConfig::config_dir()?;
@@ -89,8 +89,8 @@ impl StateWatcher {
         self.cached.lock().unwrap().clone()
     }
 
-    fn invalidate(&self, config: &FleetConfig) {
-        if let Ok(state) = FleetState::load(config) {
+    fn invalidate(&self) {
+        if let Ok(state) = FleetState::load() {
             *self.cached.lock().unwrap() = state;
         }
     }
@@ -113,17 +113,17 @@ impl StateSource {
     }
 
     /// Get the current state (from cache or disk).
-    pub fn get(&self, config: &FleetConfig) -> FleetState {
+    pub fn get(&self) -> FleetState {
         match self {
             Self::Watched(w) => w.get(),
-            Self::Direct => FleetState::load(config).unwrap_or_default(),
+            Self::Direct => FleetState::load().unwrap_or_default(),
         }
     }
 
     /// Refresh the cache after a local `with_state` mutation.
-    pub fn invalidate(&self, config: &FleetConfig) {
+    pub fn invalidate(&self) {
         if let Self::Watched(w) = self {
-            w.invalidate(config);
+            w.invalidate();
         }
     }
 }
