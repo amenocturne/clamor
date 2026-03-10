@@ -213,6 +213,70 @@ pub fn adopt_session(session_id: &str, description: Option<String>, folder_overr
     Ok(())
 }
 
+/// Check sessions, warn user, stop daemon if confirmed.
+/// Returns Ok(true) if user confirmed (or no agents), Ok(false) if declined.
+pub fn pre_upgrade() -> anyhow::Result<bool> {
+    if !daemon::is_daemon_running() {
+        return Ok(true);
+    }
+
+    let state = FleetState::load()?;
+    let total = state.agents.len();
+
+    if total > 0 {
+        let resumable: Vec<&Agent> = state
+            .agents
+            .values()
+            .filter(|a| a.session_id.is_some())
+            .collect();
+        let lost: Vec<&Agent> = state
+            .agents
+            .values()
+            .filter(|a| a.session_id.is_none())
+            .collect();
+
+        println!();
+        if lost.is_empty() {
+            println!("{total} session(s) — all will auto-resume after upgrade.");
+        } else if resumable.is_empty() {
+            println!("{total} session(s) will be lost (no claude session ID captured):");
+            for a in &lost {
+                println!("    {} {}", a.id, a.title);
+            }
+        } else {
+            println!(
+                "{} of {total} session(s) will auto-resume after upgrade.",
+                resumable.len()
+            );
+            println!();
+            println!(
+                "{} will be lost (no claude session ID captured):",
+                lost.len()
+            );
+            for a in &lost {
+                println!("    {} {}", a.id, a.title);
+            }
+        }
+        println!();
+    }
+
+    print!("Proceed? [y/N] ");
+    io::stdout().flush()?;
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+
+    if !answer.trim().eq_ignore_ascii_case("y") {
+        println!("Skipping. Run 'just fleet-install' later.");
+        return Ok(false);
+    }
+
+    let mut client = DaemonClient::connect()?;
+    client.shutdown()?;
+    println!("Daemon stopped.");
+
+    Ok(true)
+}
+
 /// Resume all agents from a previous daemon session.
 ///
 /// Reads state.json, finds agents with session_ids,

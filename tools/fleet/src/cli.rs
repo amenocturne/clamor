@@ -64,6 +64,9 @@ pub enum Command {
     /// Internal: called by Claude Code hooks (reads stdin JSON)
     Hook,
 
+    /// Check sessions, warn user, stop daemon if confirmed (exit 1 = declined)
+    PreUpgrade,
+
     /// Resume agents from a previous daemon session
     Resume,
 

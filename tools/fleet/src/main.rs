@@ -76,6 +76,11 @@ fn main() -> Result<()> {
         Some(Command::Hook) => {
             hook::run();
         }
+        Some(Command::PreUpgrade) => {
+            if !spawn::pre_upgrade()? {
+                std::process::exit(1);
+            }
+        }
         Some(Command::Resume) => {
             spawn::resume_agents()?;
         }

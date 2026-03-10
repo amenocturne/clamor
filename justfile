@@ -52,57 +52,13 @@ fleet-install:
     OLD_HASH=""
     [[ -f ~/.fleet/daemon.hash ]] && OLD_HASH=$(cat ~/.fleet/daemon.hash)
 
-    NEED_RESTART=false
     NEED_RESUME=false
 
     if [ -S ~/.fleet/fleet.sock ]; then
         if [[ "$NEW_HASH" != "$OLD_HASH" ]]; then
             echo "Fleet daemon code changed — restart required."
-
-            TOTAL=0
-            RESUMABLE=0
-            LOST_NAMES=""
-            if [[ -f ~/.fleet/state.json ]]; then
-                TOTAL=$(jq '[.agents // {} | to_entries[]] | length' ~/.fleet/state.json 2>/dev/null || echo 0)
-                RESUMABLE=$(jq '[.agents // {} | to_entries[] | select(.value.session_id != null)] | length' ~/.fleet/state.json 2>/dev/null || echo 0)
-                LOST_NAMES=$(jq -r '[.agents // {} | to_entries[] | select(.value.session_id == null) | "    \(.value.id) \(.value.title)"] | join("\n")' ~/.fleet/state.json 2>/dev/null || echo "")
-            fi
-
-            if [[ "$TOTAL" -gt 0 ]]; then
-                echo ""
-                LOST=$((TOTAL - RESUMABLE))
-                if [[ "$LOST" -eq 0 ]]; then
-                    echo "$TOTAL session(s) — all will auto-resume after upgrade."
-                elif [[ "$RESUMABLE" -eq 0 ]]; then
-                    echo "$TOTAL session(s) will be lost (no claude session ID captured):"
-                    echo "$LOST_NAMES"
-                else
-                    echo "$RESUMABLE of $TOTAL session(s) will auto-resume after upgrade."
-                    echo ""
-                    echo "$LOST will be lost (no claude session ID captured):"
-                    echo "$LOST_NAMES"
-                fi
-                echo ""
-                read -rp "Proceed? [y/N] " answer
-                if [[ "$answer" =~ ^[Yy]$ ]]; then
-                    NEED_RESTART=true
-                    [[ "$RESUMABLE" -gt 0 ]] && NEED_RESUME=true
-                else
-                    echo "Skipping install. Run 'just fleet-install' later."
-                    exit 0
-                fi
-            else
-                read -rp "Stop daemon and install? [y/N] " answer
-                if [[ "$answer" =~ ^[Yy]$ ]]; then
-                    NEED_RESTART=true
-                else
-                    echo "Skipping install. Run 'just fleet-install' later."
-                    exit 0
-                fi
-            fi
-
-            fleet stop 2>/dev/null || true
-            echo "Daemon stopped."
+            fleet pre-upgrade || exit 0
+            NEED_RESUME=true
         else
             echo "Daemon running — no daemon code changes, hot-swapping binary."
         fi
