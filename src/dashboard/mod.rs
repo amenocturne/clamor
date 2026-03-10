@@ -356,10 +356,10 @@ fn dashboard_iteration(
         InputMode::PickingFolder { .. } => render::Overlay::FolderPicker {
             folders: sorted_folders,
         },
-        InputMode::TypingPrompt { folder_name, title, prompt, active_field, .. } => render::Overlay::PromptInput {
+        InputMode::TypingPrompt { folder_name, title, description, active_field, .. } => render::Overlay::PromptInput {
             folder_name,
             title,
-            prompt,
+            description,
             active_field,
         },
         InputMode::TypingAdopt { input } => render::Overlay::AdoptInput {
@@ -370,7 +370,7 @@ fn dashboard_iteration(
         },
         InputMode::StaleAgent { ref agent_id } => {
             let desc = state.agents.get(agent_id)
-                .map(|a| a.description.as_str())
+                .map(|a| a.title.as_str())
                 .unwrap_or("unknown");
             render::Overlay::StaleAgent { description: desc }
         }
@@ -396,10 +396,10 @@ fn dashboard_iteration(
             };
             match action {
                 DashboardAction::PromptInput(edit) => {
-                    if let InputMode::TypingPrompt { ref mut title, ref mut prompt, ref active_field, .. } = input_mode {
+                    if let InputMode::TypingPrompt { ref mut title, ref mut description, ref active_field, .. } = input_mode {
                         let target = match active_field {
                             PromptField::Title => title,
-                            PromptField::Prompt => prompt,
+                            PromptField::Description => description,
                         };
                         apply_edit(target, &edit);
                     }
@@ -452,7 +452,7 @@ fn dashboard_iteration(
                             folder_name: name.clone(),
                             folder_path: path.clone(),
                             title: String::new(),
-                            prompt: String::new(),
+                            description: String::new(),
                             active_field: PromptField::Title,
                         };
                     } else if sorted_folders.is_empty() {
@@ -479,9 +479,9 @@ fn dashboard_iteration(
                         *client = DaemonClient::connect()?;
                         client.set_nonblocking(true)?;
                         match editor_result {
-                            Some((description, prompt)) => {
+                            Some((title, prompt)) => {
                                 let state = state_source.get();
-                                let _ = spawn_inline(client, &folder_name_owned, &folder_path_owned, &description, &prompt, &state, state_source);
+                                let _ = spawn_inline(client, &folder_name_owned, &folder_path_owned, &title, Some(&prompt), &state, state_source);
                             }
                             None => {
                                 *input_mode = InputMode::ConfirmEmptySpawn {
@@ -519,9 +519,9 @@ fn dashboard_iteration(
                             *client = DaemonClient::connect()?;
                             client.set_nonblocking(true)?;
                             match editor_result {
-                                Some((description, prompt)) => {
+                                Some((title, prompt)) => {
                                     let state = state_source.get();
-                                    let _ = spawn_inline(client, &folder_name_owned, &folder_path_owned, &description, &prompt, &state, state_source);
+                                    let _ = spawn_inline(client, &folder_name_owned, &folder_path_owned, &title, Some(&prompt), &state, state_source);
                                     *input_mode = InputMode::Normal;
                                 }
                                 None => {
@@ -536,7 +536,7 @@ fn dashboard_iteration(
                                 folder_name: name.clone(),
                                 folder_path: path.clone(),
                                 title: String::new(),
-                                prompt: String::new(),
+                                description: String::new(),
                                 active_field: PromptField::Title,
                             };
                         }
@@ -548,17 +548,17 @@ fn dashboard_iteration(
                 DashboardAction::PromptToggleField => {
                     if let InputMode::TypingPrompt { ref mut active_field, .. } = input_mode {
                         *active_field = match active_field {
-                            PromptField::Title => PromptField::Prompt,
-                            PromptField::Prompt => PromptField::Title,
+                            PromptField::Title => PromptField::Description,
+                            PromptField::Description => PromptField::Title,
                         };
                     }
                 }
 
                 DashboardAction::PromptInput(edit) => {
-                    if let InputMode::TypingPrompt { ref mut title, ref mut prompt, ref active_field, .. } = input_mode {
+                    if let InputMode::TypingPrompt { ref mut title, ref mut description, ref active_field, .. } = input_mode {
                         let target = match active_field {
                             PromptField::Title => title,
-                            PromptField::Prompt => prompt,
+                            PromptField::Description => description,
                         };
                         apply_edit(target, &edit);
                     }
@@ -566,18 +566,18 @@ fn dashboard_iteration(
 
                 DashboardAction::PromptSubmitted => {
                     let mut submitted = false;
-                    if let InputMode::TypingPrompt { folder_name, folder_path, title, prompt, active_field } = input_mode {
+                    if let InputMode::TypingPrompt { folder_name, folder_path, title, description, active_field } = input_mode {
                         let title_trimmed = title.trim().to_string();
                         if title_trimmed.is_empty() {
                             *active_field = PromptField::Title;
                         } else {
-                            let prompt_trimmed = prompt.trim().to_string();
-                            let effective_prompt = if prompt_trimmed.is_empty() {
-                                &title_trimmed
+                            let desc_trimmed = description.trim().to_string();
+                            let effective_prompt = if desc_trimmed.is_empty() {
+                                None
                             } else {
-                                &prompt_trimmed
+                                Some(format!("{title_trimmed}\n\n{desc_trimmed}"))
                             };
-                            let _ = spawn_inline(client, folder_name, folder_path, &title_trimmed, effective_prompt, &state, state_source);
+                            let _ = spawn_inline(client, folder_name, folder_path, &title_trimmed, effective_prompt.as_deref(), &state, state_source);
                             submitted = true;
                         }
                     }
@@ -588,7 +588,7 @@ fn dashboard_iteration(
 
                 DashboardAction::ConfirmYes => {
                     if let InputMode::ConfirmEmptySpawn { folder_name, folder_path } = input_mode {
-                        let _ = spawn_inline(client, folder_name, folder_path, "interactive", "", &state, state_source);
+                        let _ = spawn_inline(client, folder_name, folder_path, "interactive", None, &state, state_source);
                     }
                     *input_mode = InputMode::Normal;
                 }
@@ -598,12 +598,12 @@ fn dashboard_iteration(
                 }
 
                 DashboardAction::EditAgent(agent_id) => {
-                    let current_desc = state.agents.get(&agent_id)
-                        .map(|a| a.description.clone())
+                    let current_title = state.agents.get(&agent_id)
+                        .map(|a| a.title.clone())
                         .unwrap_or_default();
                     *input_mode = InputMode::EditingDescription {
                         agent_id,
-                        input: current_desc,
+                        input: current_title,
                     };
                 }
 
@@ -615,12 +615,12 @@ fn dashboard_iteration(
 
                 DashboardAction::EditSubmitted => {
                     if let InputMode::EditingDescription { agent_id, input } = input_mode {
-                        let new_desc = input.trim().to_string();
-                        if !new_desc.is_empty() {
+                        let new_title = input.trim().to_string();
+                        if !new_title.is_empty() {
                             let id = agent_id.clone();
                             let _ = with_state(|state| {
                                 if let Some(agent) = state.agents.get_mut(&id) {
-                                    agent.description = new_desc;
+                                    agent.title = new_title;
                                 }
                             });
                             state_source.invalidate();
@@ -834,8 +834,8 @@ fn spawn_inline(
     client: &mut DaemonClient,
     folder_name: &str,
     folder_path: &str,
-    description: &str,
-    prompt: &str,
+    title: &str,
+    prompt: Option<&str>,
     current_state: &FleetState,
     state_source: &StateSource,
 ) -> Result<()> {
@@ -850,13 +850,15 @@ fn spawn_inline(
     let key = keys::next_available_key(&existing);
     let color_index = next_color_index(&existing);
 
+    let initial_state = if prompt.is_some() { AgentState::Working } else { AgentState::Input };
+
     let agent = Agent {
         id: id.clone(),
-        description: description.to_string(),
+        title: title.to_string(),
         folder: folder_name.to_string(),
         cwd: cwd_str.clone(),
-        initial_prompt: prompt.to_string(),
-        state: AgentState::Working,
+        initial_prompt: prompt.map(|s| s.to_string()),
+        state: initial_state,
         started_at: now,
         last_activity_at: now,
         last_tool: None,
@@ -902,10 +904,10 @@ fn adopt_inline(
 
     let agent = Agent {
         id: id.clone(),
-        description: format!("adopted: {session_id}"),
+        title: format!("adopted: {session_id}"),
         folder: folder_name.to_string(),
         cwd: cwd_str.clone(),
-        initial_prompt: format!("--resume {session_id}"),
+        initial_prompt: Some(format!("--resume {session_id}")),
         state: AgentState::Working,
         started_at: now,
         last_activity_at: now,

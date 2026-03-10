@@ -21,10 +21,10 @@ mod tests {
         let now = Utc::now();
         Agent {
             id: String::new(),
-            description: String::new(),
+            title: String::new(),
             folder: String::new(),
             cwd: String::new(),
-            initial_prompt: String::new(),
+            initial_prompt: None,
             state: AgentState::Working,
             started_at: now,
             last_activity_at: now,

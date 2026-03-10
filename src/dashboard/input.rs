@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-/// Which field is active in the two-field prompt popup.
+/// Which field is active in the two-field spawn popup.
 pub enum PromptField {
     Title,
-    Prompt,
+    Description,
 }
 
 /// Actions the dashboard can take in response to keyboard input.
@@ -48,7 +48,7 @@ pub enum InputMode {
     Normal,
     WaitingKill,
     PickingFolder { folder_count: usize, for_editor: bool },
-    TypingPrompt { folder_name: String, folder_path: String, title: String, prompt: String, active_field: PromptField },
+    TypingPrompt { folder_name: String, folder_path: String, title: String, description: String, active_field: PromptField },
     TypingAdopt { input: String },
     StalePrompt { count: usize },
     StaleAgent { agent_id: String },

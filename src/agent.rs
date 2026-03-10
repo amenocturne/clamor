@@ -13,10 +13,14 @@ pub enum AgentState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
     pub id: String,
-    pub description: String,
+    /// Display name shown in dashboard. Renamed from `description`.
+    #[serde(alias = "description")]
+    pub title: String,
     pub folder: String,
     pub cwd: String,
-    pub initial_prompt: String,
+    /// Prompt sent to claude. None = interactive (bare `claude`).
+    #[serde(default)]
+    pub initial_prompt: Option<String>,
     pub state: AgentState,
     pub started_at: DateTime<Utc>,
     pub last_activity_at: DateTime<Utc>,

@@ -14,6 +14,10 @@ pub enum Command {
 
     /// Spawn a new agent
     New {
+        /// Agent title (shown in dashboard). Also used as prompt if no --description.
+        title: Option<String>,
+        /// Detailed prompt sent to claude (combined with title)
+        #[arg(short, long)]
         description: Option<String>,
         #[arg(long)]
         folder: Option<String>,
