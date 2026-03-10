@@ -25,6 +25,9 @@ pub struct Agent {
     pub started_at: DateTime<Utc>,
     pub last_activity_at: DateTime<Utc>,
     pub last_tool: Option<String>,
+    /// Claude Code session ID, captured from hooks. Used to resume sessions.
+    #[serde(default)]
+    pub session_id: Option<String>,
     #[serde(default)]
     pub key: Option<char>,
     #[serde(default)]

@@ -116,6 +116,7 @@ pub fn spawn_agent(description: Option<String>, folder_override: Option<String>,
         started_at: now,
         last_activity_at: now,
         last_tool: None,
+        session_id: None,
         key,
         color_index,
     };
@@ -192,6 +193,7 @@ pub fn adopt_session(session_id: &str, description: Option<String>, folder_overr
         started_at: now,
         last_activity_at: now,
         last_tool: None,
+        session_id: Some(session_id.to_string()),
         key,
         color_index,
     };
@@ -207,6 +209,61 @@ pub fn adopt_session(session_id: &str, description: Option<String>, folder_overr
     client.spawn_agent(&id, &cwd_str, &cmd, &env, term_rows, term_cols)?;
 
     println!("Adopted session {session_id} as agent {id}: {title}");
+
+    Ok(())
+}
+
+/// Resume all agents from a previous daemon session.
+///
+/// Reads state.json, finds agents with session_ids,
+/// and respawns them via `claude --resume <session_id>`.
+pub fn resume_agents() -> anyhow::Result<()> {
+    let state = FleetState::load()?;
+
+    let resumable: Vec<&Agent> = state
+        .agents
+        .values()
+        .filter(|a| a.session_id.is_some())
+        .collect();
+
+    if resumable.is_empty() {
+        println!("No agents to resume.");
+        return Ok(());
+    }
+
+    ensure_daemon()?;
+
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
+    let mut client = DaemonClient::connect()?;
+    let mut count = 0;
+
+    for agent in &resumable {
+        let session_id = agent.session_id.as_ref().unwrap();
+        let cmd = build_resume_cmd(session_id);
+        let env = vec![("FLEET_AGENT_ID".to_string(), agent.id.clone())];
+
+        match client.spawn_agent(&agent.id, &agent.cwd, &cmd, &env, term_rows, term_cols) {
+            Ok(()) => {
+                count += 1;
+                println!("  Resumed {}: {}", agent.id, agent.title);
+            }
+            Err(e) => {
+                eprintln!("  Failed to resume {}: {e:#}", agent.id);
+            }
+        }
+    }
+
+    // Mark resumed agents as Working
+    with_state(|state| {
+        for agent in &resumable {
+            if let Some(a) = state.agents.get_mut(&agent.id) {
+                a.state = AgentState::Working;
+                a.last_activity_at = chrono::Utc::now();
+            }
+        }
+    })?;
+
+    println!("Resumed {count}/{} agent(s).", resumable.len());
 
     Ok(())
 }
