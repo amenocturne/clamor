@@ -31,7 +31,7 @@ pub fn build_agent_cmd(prompt: &str) -> Vec<String> {
             .unwrap_or_else(|_| "fleet".into());
         vec![
             exe.to_string_lossy().to_string(),
-            "_mock-agent".to_string(),
+            "mock-agent".to_string(),
             "--description".to_string(),
             prompt.to_string(),
         ]
@@ -47,7 +47,7 @@ pub fn build_resume_cmd(session_id: &str) -> Vec<String> {
             .unwrap_or_else(|_| "fleet".into());
         vec![
             exe.to_string_lossy().to_string(),
-            "_mock-agent".to_string(),
+            "mock-agent".to_string(),
             "--description".to_string(),
             format!("resumed: {session_id}"),
         ]
