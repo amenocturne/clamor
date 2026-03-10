@@ -51,14 +51,14 @@ When the user says "continue working on X", "pick up X", or similar:
 
 ### Project Navigation
 
-WORKSPACE.yaml at workspace root is the source of truth for project locations, tech stacks, and commands. It's small — read it directly, never spawn an agent for it.
+WORKSPACE.yaml is the source of truth for project locations, tech stacks, commands, and routing keywords. See "FIRST STEP: Route the Request" above — that section governs how every request starts.
 
-When user mentions a project:
-1. Read WORKSPACE.yaml directly (not via agent)
-2. Load `<project>/CLAUDE.md` if exists
-3. Check `{knowledge_base}/projects/` for project notes (if configured)
+**`explore_when` field**: Each project in WORKSPACE.yaml can have an `explore_when` list of keywords/topics. When the user's request mentions one of these keywords, route to that project — even if they don't name the project explicitly.
 
-Run commands from the project directory, not workspace root.
+After identifying the project:
+1. Load `<project>/CLAUDE.md` if exists
+2. Check `{knowledge_base}/projects/` for project notes (if configured)
+3. Run all commands from the project directory, not workspace root
 
 ### Documentation
 
