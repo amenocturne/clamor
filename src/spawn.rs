@@ -251,7 +251,7 @@ pub fn clean_agents() -> anyhow::Result<()> {
         let done_ids: Vec<String> = state
             .agents
             .iter()
-            .filter(|(_, a)| a.state == AgentState::Done)
+            .filter(|(_, a)| a.state == AgentState::Done || a.state == AgentState::Lost)
             .map(|(id, _)| id.clone())
             .collect();
 
@@ -262,7 +262,7 @@ pub fn clean_agents() -> anyhow::Result<()> {
         count
     })?;
 
-    println!("Removed {removed} done agent(s).");
+    println!("Removed {removed} finished agent(s).");
 
     Ok(())
 }
@@ -300,6 +300,7 @@ pub fn list_agents() -> anyhow::Result<()> {
             AgentState::Working => "work",
             AgentState::Input => "input",
             AgentState::Done => "done",
+            AgentState::Lost => "lost",
         };
         let desc = truncate(&agent.description, desc_w);
         let time = format_duration(&agent.started_at);

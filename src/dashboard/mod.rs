@@ -43,10 +43,26 @@ fn ensure_daemon() -> Result<()> {
     Ok(())
 }
 
+fn reconcile_state(config: &FleetConfig, client: &mut DaemonClient) -> Result<()> {
+    let daemon_agents = client.list_agents()?;
+    let daemon_ids: std::collections::HashSet<String> = daemon_agents.iter().map(|a| a.id.clone()).collect();
+
+    with_state(config, |state| {
+        for (id, agent) in state.agents.iter_mut() {
+            if agent.state != AgentState::Lost && agent.state != AgentState::Done && !daemon_ids.contains(id) {
+                agent.state = AgentState::Lost;
+            }
+        }
+    })?;
+    Ok(())
+}
+
 /// Run the interactive dashboard.
 pub fn run(config: &FleetConfig, attach_to: Option<String>) -> Result<()> {
     ensure_daemon()?;
     let mut client = DaemonClient::connect()?;
+
+    reconcile_state(config, &mut client)?;
     client.set_nonblocking(true)?;
 
     install_panic_hook();

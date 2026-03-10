@@ -96,6 +96,7 @@ pub fn render_terminal(
         AgentState::Working => "working",
         AgentState::Input => "input",
         AgentState::Done => "done",
+        AgentState::Lost => "lost",
     };
     let duration = format_duration(agent.started_at);
     pane::render_title_bar(frame, chunks[0], &agent.folder, &agent.description, state_str, &duration, color, true, Some("^F back"));
@@ -286,6 +287,7 @@ fn render_agent_line(da: &DisplayAgent, width: usize, pending_kill: bool) -> Lin
             ),
             AgentState::Working => ("work ", Style::default().fg(Color::Green)),
             AgentState::Done => ("done ", Style::default().fg(Color::DarkGray)),
+            AgentState::Lost => ("lost ", Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM)),
         }
     };
 
@@ -313,7 +315,7 @@ fn render_agent_line(da: &DisplayAgent, width: usize, pending_kill: bool) -> Lin
             .add_modifier(Modifier::BOLD)
     };
 
-    let dimmed = da.killed || da.agent.state == AgentState::Done;
+    let dimmed = da.killed || da.agent.state == AgentState::Done || da.agent.state == AgentState::Lost;
 
     // Use agent color for description text (unless dimmed)
     let desc_style = if dimmed {
