@@ -127,6 +127,7 @@ fn main_loop(
     let mut killed_at: HashMap<String, Instant> = HashMap::new();
     let kill_linger = Duration::from_secs(3);
     let mut pane_views: HashMap<String, PaneView> = HashMap::new();
+    let mut last_agent_id: Option<String> = None;
 
     let mut mode = if let Some(ref agent_id) = attach_to {
         let state = FleetState::load(config)?;
@@ -207,7 +208,7 @@ fn main_loop(
                 let action = dashboard_iteration(
                     terminal, config, client, &mut input_mode,
                     &mut killed_at, &kill_linger, &sorted_folders,
-                    &mut pane_views,
+                    &mut pane_views, &last_agent_id,
                 )?;
 
                 match action {
@@ -257,6 +258,7 @@ fn main_loop(
                     LoopAction::Continue => {}
                     LoopAction::Quit => break,
                     LoopAction::SwitchToDashboard => {
+                        last_agent_id = Some(agent_id_clone.clone());
                         mode = AppMode::Dashboard;
                         input_mode = InputMode::Normal;
                     }
@@ -291,6 +293,7 @@ fn dashboard_iteration(
     kill_linger: &Duration,
     sorted_folders: &[(String, String)],
     _pane_views: &mut HashMap<String, PaneView>,
+    last_agent_id: &Option<String>,
 ) -> Result<LoopAction> {
     // Expire killed agents that have lingered long enough
     let expired: Vec<String> = killed_at
@@ -358,6 +361,18 @@ fn dashboard_iteration(
     let poll_duration = Duration::from_millis(50);
     if event::poll(poll_duration).context("Failed to poll for events")? {
         if let Event::Key(key_event) = event::read().context("Failed to read event")? {
+            // Ctrl+F: toggle back to last attached agent
+            if matches!(input_mode, InputMode::Normal)
+                && key_event.modifiers.contains(KeyModifiers::CONTROL)
+                && key_event.code == KeyCode::Char('f')
+            {
+                if let Some(ref id) = last_agent_id {
+                    if state.agents.contains_key(id) {
+                        return Ok(LoopAction::SwitchToTerminal(id.clone()));
+                    }
+                }
+            }
+
             match input::handle_input(key_event, &key_map, input_mode) {
                 DashboardAction::Quit => return Ok(LoopAction::Quit),
 
