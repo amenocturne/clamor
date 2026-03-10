@@ -27,6 +27,7 @@ pub enum Overlay<'a> {
     AdoptInput { input: &'a str },
     StaleAgents { count: usize },
     StaleAgent { description: &'a str },
+    ConfirmEmptySpawn,
 }
 
 /// Render the full dashboard frame.
@@ -81,6 +82,9 @@ pub fn render(
         }
         Overlay::StaleAgent { description } => {
             render_stale_agent_popup(frame, area, description);
+        }
+        Overlay::ConfirmEmptySpawn => {
+            render_confirm_empty_popup(frame, area);
         }
         _ => {}
     }
@@ -168,6 +172,8 @@ fn render_footer(frame: &mut Frame, area: Rect, pending_kill: bool) {
             Span::raw(" attach  "),
             Span::styled("[c]", Style::default().fg(Color::Cyan)),
             Span::raw("reate  "),
+            Span::styled("[C]", Style::default().fg(Color::Cyan)),
+            Span::raw(" $EDITOR  "),
             Span::styled("[R]", Style::default().fg(Color::Cyan)),
             Span::raw(" adopt  "),
             Span::styled("[K", Style::default().fg(Color::Cyan)),
@@ -435,11 +441,10 @@ fn render_prompt_popup(frame: &mut Frame, area: Rect, folder_name: &str, input: 
     let display = format!("{input}\u{258e}");
     let lines = vec![
         Line::from(Span::raw(display)),
-        Line::from(vec![
-            Span::styled("Empty → $EDITOR", Style::default().fg(Color::DarkGray)),
-            Span::styled("  Tab → ", Style::default().fg(Color::DarkGray)),
-            Span::styled("empty session", Style::default().fg(Color::DarkGray)),
-        ]),
+        Line::from(Span::styled(
+            "empty → interactive session",
+            Style::default().fg(Color::DarkGray),
+        )),
     ];
     let prompt = Paragraph::new(lines);
     frame.render_widget(prompt, inner);
@@ -512,6 +517,27 @@ fn render_stale_agent_popup(frame: &mut Frame, area: Rect, description: &str) {
         )),
         Line::from(""),
         Line::from(" [y] remove    [n] keep"),
+    ];
+    frame.render_widget(Paragraph::new(text), inner);
+}
+
+fn render_confirm_empty_popup(frame: &mut Frame, area: Rect) {
+    let width = area.width.min(48);
+    let popup = popup_area(area, width, 5);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(" Empty prompt ");
+
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let text = vec![
+        Line::from(" Spawn an interactive session?"),
+        Line::from(""),
+        Line::from(" [y] yes    [n] cancel"),
     ];
     frame.render_widget(Paragraph::new(text), inner);
 }
