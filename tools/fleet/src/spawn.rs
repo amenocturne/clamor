@@ -216,9 +216,7 @@ pub fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
     ensure_daemon()?;
     let state = FleetState::load()?;
 
-    let agent = resolve_agent(&state, agent_ref)
-        .with_context(|| format!("No agent matching '{agent_ref}'"))?
-        .clone();
+    let agent = resolve_agent(&state, agent_ref)?.clone();
 
     let mut client = DaemonClient::connect()?;
     // Ignore errors — agent may not exist in daemon if already dead
@@ -321,22 +319,21 @@ pub fn list_agents() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Resolve an agent reference by ID prefix match.
-pub fn resolve_agent<'a>(state: &'a FleetState, agent_ref: &str) -> Option<&'a Agent> {
-    if agent_ref.len() == 1 && agent_ref.chars().next().map_or(false, |c| c.is_alphabetic()) {
-        return None;
-    }
-
+/// Resolve an agent reference by unique ID prefix (git-style).
+pub fn resolve_agent<'a>(state: &'a FleetState, agent_ref: &str) -> anyhow::Result<&'a Agent> {
     let matches: Vec<&Agent> = state
         .agents
         .values()
         .filter(|a| a.id.starts_with(agent_ref))
         .collect();
 
-    if matches.len() == 1 {
-        Some(matches[0])
-    } else {
-        None
+    match matches.len() {
+        0 => bail!("no agent matching '{agent_ref}'"),
+        1 => Ok(matches[0]),
+        _ => {
+            let ids: Vec<&str> = matches.iter().map(|a| a.id.as_str()).collect();
+            bail!("ambiguous prefix '{agent_ref}' — matches: {}", ids.join(", "))
+        }
     }
 }
 
@@ -344,10 +341,7 @@ pub fn resolve_agent<'a>(state: &'a FleetState, agent_ref: &str) -> Option<&'a A
 pub fn edit_agent(agent_ref: &str, description: Option<String>) -> anyhow::Result<()> {
     let state = FleetState::load()?;
 
-    let agent_id = resolve_agent(&state, agent_ref)
-        .with_context(|| format!("No agent matching '{agent_ref}'"))?
-        .id
-        .clone();
+    let agent_id = resolve_agent(&state, agent_ref)?.id.clone();
 
     let new_title = match description {
         Some(d) => d,
