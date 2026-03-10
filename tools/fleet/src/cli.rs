@@ -64,6 +64,9 @@ pub enum Command {
     /// Internal: called by Claude Code hooks (reads stdin JSON)
     Hook,
 
+    /// Resume agents from a previous daemon session
+    Resume,
+
     /// Stop the fleet daemon
     Stop,
 

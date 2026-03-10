@@ -76,6 +76,9 @@ fn main() -> Result<()> {
         Some(Command::Hook) => {
             hook::run();
         }
+        Some(Command::Resume) => {
+            spawn::resume_agents()?;
+        }
         Some(Command::Stop) => {
             let mut client = client::DaemonClient::connect()?;
             client.shutdown()?;

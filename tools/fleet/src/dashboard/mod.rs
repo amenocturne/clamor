@@ -870,6 +870,7 @@ fn spawn_inline(
         started_at: now,
         last_activity_at: now,
         last_tool: None,
+        session_id: None,
         key,
         color_index,
     };
@@ -922,6 +923,7 @@ fn adopt_inline(
         started_at: now,
         last_activity_at: now,
         last_tool: None,
+        session_id: Some(session_id.to_string()),
         key,
         color_index,
     };

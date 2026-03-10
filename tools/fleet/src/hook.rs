@@ -8,6 +8,8 @@ use crate::state::try_with_state;
 struct HookEvent {
     hook_event_name: String,
     #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
     tool_name: Option<String>,
     #[serde(default)]
     tool_input: Option<serde_json::Value>,
@@ -39,6 +41,12 @@ fn run_inner() -> anyhow::Result<()> {
             Some(a) => a,
             None => return,
         };
+
+        if let Some(ref sid) = event.session_id {
+            if agent.session_id.as_ref() != Some(sid) {
+                agent.session_id = Some(sid.clone());
+            }
+        }
 
         match event.hook_event_name.as_str() {
             "UserPromptSubmit" => {
