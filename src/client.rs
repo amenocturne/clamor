@@ -98,7 +98,7 @@ impl DaemonClient {
         self.expect_ok()
     }
 
-    /// List all agents managed by the daemon.
+    #[allow(dead_code)]
     pub fn list_agents(&mut self) -> Result<Vec<DaemonAgent>> {
         self.send(ClientMessage::List)?;
         let msg: DaemonMessage = recv_message(&mut self.stream)?;

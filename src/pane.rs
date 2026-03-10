@@ -30,14 +30,12 @@ pub fn agent_color(color_index: u8) -> Color {
 /// that processes output bytes received from the daemon, and tracks scroll state.
 pub struct PaneView {
     pub parser: vt100::Parser,
-    pub scroll_offset: usize,
 }
 
 impl PaneView {
     pub fn new(rows: u16, cols: u16) -> Self {
         Self {
             parser: vt100::Parser::new(rows, cols, 10000),
-            scroll_offset: 0,
         }
     }
 
@@ -54,17 +52,6 @@ impl PaneView {
     /// Access the parsed terminal screen (immutable).
     pub fn screen(&self) -> &vt100::Screen {
         self.parser.screen()
-    }
-
-    /// Access the parsed terminal screen (mutable).
-    pub fn screen_mut(&mut self) -> &mut vt100::Screen {
-        self.parser.screen_mut()
-    }
-
-    /// Set scrollback offset (clamped by the parser).
-    pub fn set_scrollback(&mut self, offset: usize) {
-        self.parser.screen_mut().set_scrollback(offset);
-        self.scroll_offset = self.parser.screen().scrollback();
     }
 }
 
@@ -190,6 +177,7 @@ pub fn render_title_bar(
     duration: &str,
     color: Color,
     focused: bool,
+    hint: Option<&str>,
 ) {
     let bg = if focused {
         color
@@ -204,7 +192,10 @@ pub fn render_title_bar(
     let style = Style::default().bg(bg).fg(fg);
 
     let left = format!(" {} | {}", folder, description);
-    let right = format!(" {} {} ", state, duration);
+    let right = match hint {
+        Some(h) => format!(" {} {}  {} ", state, duration, h),
+        None => format!(" {} {} ", state, duration),
+    };
     let padding_len = (area.width as usize).saturating_sub(left.len() + right.len());
     let padding = " ".repeat(padding_len);
 

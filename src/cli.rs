@@ -54,6 +54,9 @@ pub enum Command {
     /// Internal: called by Claude Code hooks (reads stdin JSON)
     Hook,
 
+    /// Stop the fleet daemon
+    Stop,
+
     /// Run the fleet daemon (usually started automatically)
     Daemon,
 

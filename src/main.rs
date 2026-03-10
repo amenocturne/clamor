@@ -58,6 +58,11 @@ fn main() -> Result<()> {
         Some(Command::Hook) => {
             hook::run();
         }
+        Some(Command::Stop) => {
+            let mut client = client::DaemonClient::connect()?;
+            client.shutdown()?;
+            println!("Fleet daemon stopped");
+        }
         Some(Command::Daemon) => {
             daemon::run_daemon()?;
         }
