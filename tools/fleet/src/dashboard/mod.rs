@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{
     self, EnterAlternateScreen, LeaveAlternateScreen,
 };
@@ -44,7 +44,7 @@ fn ensure_daemon() -> Result<()> {
 }
 
 /// Run the interactive dashboard.
-pub fn run(config: &FleetConfig) -> Result<()> {
+pub fn run(config: &FleetConfig, attach_to: Option<String>) -> Result<()> {
     ensure_daemon()?;
     let mut client = DaemonClient::connect()?;
     client.set_nonblocking(true)?;
@@ -53,7 +53,7 @@ pub fn run(config: &FleetConfig) -> Result<()> {
     let mut terminal = setup_terminal()?;
     execute!(io::stdout(), EnableBracketedPaste, EnableMouseCapture)?;
 
-    let result = main_loop(&mut terminal, config, &mut client);
+    let result = main_loop(&mut terminal, config, &mut client, attach_to);
 
     execute!(io::stdout(), DisableBracketedPaste, DisableMouseCapture)?;
     restore_terminal(&mut terminal)?;
@@ -96,12 +96,36 @@ fn main_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     config: &FleetConfig,
     client: &mut DaemonClient,
+    attach_to: Option<String>,
 ) -> Result<()> {
-    let mut mode = AppMode::Dashboard;
     let mut input_mode = InputMode::Normal;
     let mut killed_at: HashMap<String, Instant> = HashMap::new();
     let kill_linger = Duration::from_secs(3);
     let mut pane_views: HashMap<String, PaneView> = HashMap::new();
+
+    let mut mode = if let Some(ref agent_id) = attach_to {
+        let (term_cols, term_rows) = crossterm::terminal::size()?;
+        let content_rows = term_rows.saturating_sub(1);
+        let pv = pane_views.entry(agent_id.clone())
+            .or_insert_with(|| PaneView::new(content_rows, term_cols));
+        client.set_nonblocking(false)?;
+        match client.subscribe(agent_id) {
+            Ok(catch_up) => {
+                if !catch_up.is_empty() {
+                    pv.process_output(&catch_up);
+                }
+            }
+            Err(_) => {
+                client.set_nonblocking(true)?;
+                anyhow::bail!("agent {} not found on daemon", agent_id);
+            }
+        }
+        let _ = client.resize(agent_id, content_rows, term_cols);
+        client.set_nonblocking(true)?;
+        AppMode::Terminal { agent_id: agent_id.clone() }
+    } else {
+        AppMode::Dashboard
+    };
 
     // Pre-sort folders for picker
     let mut sorted_folders: Vec<(String, String)> = config.folders.iter()
@@ -440,7 +464,7 @@ fn terminal_iteration(
     let poll_duration = Duration::from_millis(5);
     if event::poll(poll_duration).context("Failed to poll for events")? {
         match event::read().context("Failed to read event")? {
-            Event::Key(key_event) => {
+            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 // Ctrl+F -> back to dashboard
                 if key_event.modifiers.contains(KeyModifiers::CONTROL)
                     && key_event.code == KeyCode::Char('f')

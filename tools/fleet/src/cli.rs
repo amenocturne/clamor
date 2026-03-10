@@ -19,6 +19,12 @@ pub enum Command {
         folder: Option<String>,
     },
 
+    /// Attach to an agent's terminal
+    Attach {
+        #[arg(name = "ref")]
+        agent_ref: String,
+    },
+
     /// Adopt an external Claude Code session into fleet
     Adopt {
         /// Claude Code session ID

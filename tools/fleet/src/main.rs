@@ -23,10 +23,17 @@ fn main() -> Result<()> {
     match cli.command {
         None => {
             let config = FleetConfig::load()?;
-            dashboard::run(&config)?;
+            dashboard::run(&config, None)?;
         }
         Some(Command::Ls) => {
             spawn::list_agents()?;
+        }
+        Some(Command::Attach { agent_ref }) => {
+            let config = FleetConfig::load()?;
+            let state = state::FleetState::load(&config)?;
+            let agent = spawn::resolve_agent(&state, &agent_ref)
+                .ok_or_else(|| anyhow::anyhow!("no agent matching '{agent_ref}'"))?;
+            dashboard::run(&config, Some(agent.id.clone()))?;
         }
         Some(Command::New { description, folder }) => {
             spawn::spawn_agent(description, folder, false)?;
