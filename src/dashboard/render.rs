@@ -9,7 +9,7 @@ use ratatui::Frame;
 
 use crate::agent::{Agent, AgentState};
 use crate::config::FleetConfig;
-use crate::pane::{self, PaneView};
+use crate::pane;
 
 /// An agent prepared for display, with its assigned jump key and status flags.
 pub struct DisplayAgent<'a> {
@@ -28,6 +28,8 @@ pub enum Overlay<'a> {
     StaleAgents { count: usize },
     StaleAgent { description: &'a str },
     ConfirmEmptySpawn,
+    PendingEdit,
+    EditInput { input: &'a str },
 }
 
 /// Render the full dashboard frame.
@@ -39,8 +41,6 @@ pub fn render(
     overlay: &Overlay,
 ) {
     let area = frame.area();
-
-    let pending_kill = matches!(overlay, Overlay::PendingKill);
 
     // Build display agents grouped by folder
     let groups = build_groups(config, agents, killed_ids);
@@ -64,7 +64,7 @@ pub fn render(
     render_header(frame, chunks[0], total, needs_input);
     render_separator(frame, chunks[1]);
     render_body(frame, chunks[2], &groups);
-    render_footer(frame, chunks[3], pending_kill);
+    render_footer(frame, chunks[3], overlay);
 
     // Render overlay popups on top
     match overlay {
@@ -86,6 +86,9 @@ pub fn render(
         Overlay::ConfirmEmptySpawn => {
             render_confirm_empty_popup(frame, area);
         }
+        Overlay::EditInput { input } => {
+            render_edit_popup(frame, area, input);
+        }
         _ => {}
     }
 }
@@ -93,7 +96,7 @@ pub fn render(
 /// Render the terminal view for an agent (title bar + PseudoTerminal).
 pub fn render_terminal(
     frame: &mut Frame,
-    pane_view: &PaneView,
+    screen: &vt100::Screen,
     agent: &Agent,
 ) {
     let area = frame.area();
@@ -113,7 +116,7 @@ pub fn render_terminal(
     let duration = format_duration(agent.started_at);
     pane::render_title_bar(frame, chunks[0], &agent.folder, &agent.description, state_str, &duration, color, true, Some("^F back"));
 
-    let pseudo_term = tui_term::widget::PseudoTerminal::new(pane_view.screen());
+    let pseudo_term = tui_term::widget::PseudoTerminal::new(screen);
     frame.render_widget(pseudo_term, chunks[1]);
 }
 
@@ -154,9 +157,9 @@ fn render_separator(frame: &mut Frame, area: Rect) {
     frame.render_widget(sep, area);
 }
 
-fn render_footer(frame: &mut Frame, area: Rect, pending_kill: bool) {
-    let footer = if pending_kill {
-        Paragraph::new(Line::from(vec![
+fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay) {
+    let footer = match overlay {
+        Overlay::PendingKill => Paragraph::new(Line::from(vec![
             Span::raw(" "),
             Span::styled(
                 "Kill: press agent key (Esc to cancel)",
@@ -164,9 +167,17 @@ fn render_footer(frame: &mut Frame, area: Rect, pending_kill: bool) {
                     .fg(Color::Red)
                     .add_modifier(Modifier::BOLD),
             ),
-        ]))
-    } else {
-        Paragraph::new(Line::from(vec![
+        ])),
+        Overlay::PendingEdit => Paragraph::new(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                "Edit: press agent key (Esc to cancel)",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ])),
+        _ => Paragraph::new(Line::from(vec![
             Span::raw(" "),
             Span::styled("[key]", Style::default().fg(Color::Cyan)),
             Span::raw(" attach  "),
@@ -174,6 +185,8 @@ fn render_footer(frame: &mut Frame, area: Rect, pending_kill: bool) {
             Span::raw("reate  "),
             Span::styled("[C]", Style::default().fg(Color::Cyan)),
             Span::raw(" $EDITOR  "),
+            Span::styled("[e]", Style::default().fg(Color::Cyan)),
+            Span::raw("dit  "),
             Span::styled("[R]", Style::default().fg(Color::Cyan)),
             Span::raw(" adopt  "),
             Span::styled("[K", Style::default().fg(Color::Cyan)),
@@ -182,7 +195,7 @@ fn render_footer(frame: &mut Frame, area: Rect, pending_kill: bool) {
             Span::raw(" kill  "),
             Span::styled("[q]", Style::default().fg(Color::Cyan)),
             Span::raw("uit"),
-        ]))
+        ])),
     };
     frame.render_widget(footer, area);
 }
@@ -540,4 +553,22 @@ fn render_confirm_empty_popup(frame: &mut Frame, area: Rect) {
         Line::from(" [y] yes    [n] cancel"),
     ];
     frame.render_widget(Paragraph::new(text), inner);
+}
+
+fn render_edit_popup(frame: &mut Frame, area: Rect, input: &str) {
+    let width = area.width.min(60);
+    let popup = popup_area(area, width, 3);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(" Edit description ");
+
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let display = format!("{input}\u{258e}");
+    let prompt = Paragraph::new(Line::from(Span::raw(display)));
+    frame.render_widget(prompt, inner);
 }
