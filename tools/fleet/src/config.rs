@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Context;
@@ -9,19 +9,7 @@ pub struct FleetConfig {
     #[serde(default)]
     pub folders: HashMap<String, String>,
     #[serde(default)]
-    pub tmux: TmuxConfig,
-    #[serde(default)]
     pub dashboard: DashboardConfig,
-    #[serde(default)]
-    pub pinned_sessions: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TmuxConfig {
-    #[serde(default = "default_session_prefix")]
-    pub session_prefix: String,
-    #[serde(default = "default_return_key")]
-    pub return_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,25 +18,8 @@ pub struct DashboardConfig {
     pub refresh_interval: f64,
 }
 
-fn default_session_prefix() -> String {
-    "fleet-".into()
-}
-
-fn default_return_key() -> String {
-    "f".into()
-}
-
 fn default_refresh_interval() -> f64 {
     1.0
-}
-
-impl Default for TmuxConfig {
-    fn default() -> Self {
-        Self {
-            session_prefix: default_session_prefix(),
-            return_key: default_return_key(),
-        }
-    }
 }
 
 impl Default for DashboardConfig {
@@ -63,9 +34,7 @@ impl Default for FleetConfig {
     fn default() -> Self {
         Self {
             folders: HashMap::new(),
-            tmux: TmuxConfig::default(),
             dashboard: DashboardConfig::default(),
-            pinned_sessions: BTreeMap::new(),
         }
     }
 }

@@ -3,16 +3,63 @@ use std::io::{self, Write};
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 
-use crate::agent::{generate_id, Agent, AgentState};
+use crate::agent::{generate_id, next_color_index, Agent, AgentState};
+use crate::client::DaemonClient;
 use crate::config::{resolve_path, FleetConfig};
+use crate::daemon;
+use crate::dashboard::keys;
 use crate::picker;
 use crate::state::{with_state, FleetState};
-use crate::tmux;
+
+fn ensure_daemon() -> anyhow::Result<()> {
+    if !daemon::is_daemon_running() {
+        daemon::start_daemon_background()?;
+    }
+    Ok(())
+}
+
+/// Check if debug mode is active.
+pub fn is_debug_mode() -> bool {
+    std::env::var("FLEET_DEBUG").is_ok()
+}
+
+/// Build the command to spawn for an agent.
+/// In debug mode, spawns `fleet _mock-agent` instead of `claude`.
+pub fn build_agent_cmd(prompt: &str) -> Vec<String> {
+    if is_debug_mode() {
+        let exe = std::env::current_exe()
+            .unwrap_or_else(|_| "fleet".into());
+        vec![
+            exe.to_string_lossy().to_string(),
+            "_mock-agent".to_string(),
+            "--description".to_string(),
+            prompt.to_string(),
+        ]
+    } else {
+        vec!["claude".to_string(), prompt.to_string()]
+    }
+}
+
+/// Build the command for adopting/resuming a session.
+pub fn build_resume_cmd(session_id: &str) -> Vec<String> {
+    if is_debug_mode() {
+        let exe = std::env::current_exe()
+            .unwrap_or_else(|_| "fleet".into());
+        vec![
+            exe.to_string_lossy().to_string(),
+            "_mock-agent".to_string(),
+            "--description".to_string(),
+            format!("resumed: {session_id}"),
+        ]
+    } else {
+        vec!["claude".to_string(), "--resume".to_string(), session_id.to_string()]
+    }
+}
 
 /// Interactive agent spawn flow.
 /// If `force_editor` is true, open $EDITOR directly instead of showing a text prompt.
 pub fn spawn_agent(description: Option<String>, folder_override: Option<String>, force_editor: bool) -> anyhow::Result<()> {
-    tmux::require_tmux()?;
+    ensure_daemon()?;
     let config = FleetConfig::load()?;
 
     if config.folders.is_empty() {
@@ -41,39 +88,120 @@ pub fn spawn_agent(description: Option<String>, folder_override: Option<String>,
         None => read_task_description()?,
     };
 
-    // Generate agent
     let id = generate_id();
-    let session = tmux::session_name(&config.tmux.session_prefix, &id);
     let now = Utc::now();
+
+    // Determine key and color from existing agents
+    let state = FleetState::load(&config)?;
+    let existing: Vec<&Agent> = state.agents.values().collect();
+    let key = keys::next_available_key(&existing);
+    let color_index = next_color_index(&existing);
 
     let agent = Agent {
         id: id.clone(),
         description: desc.clone(),
         folder: folder_name,
         cwd: cwd_str.clone(),
-        tmux_session: session.clone(),
         initial_prompt: prompt.clone(),
         state: AgentState::Working,
         started_at: now,
         last_activity_at: now,
         last_tool: None,
+        key,
+        color_index,
     };
 
-    // Save state
+    // Save state first
     with_state(&config, |state| {
         state.agents.insert(id.clone(), agent);
     })?;
 
-    // Create tmux session
-    tmux::create_session(&session, &cwd_str, &prompt, &id)?;
+    // Spawn via daemon
+    let cmd = build_agent_cmd(&prompt);
+    let env = vec![("FLEET_AGENT_ID".to_string(), id.clone())];
+    let mut client = DaemonClient::connect()?;
+    client.spawn_agent(&id, &cwd_str, &cmd, &env)?;
 
     println!("Spawned agent {id}: {desc}");
 
     Ok(())
 }
 
+/// Adopt an external Claude Code session into fleet.
+pub fn adopt_session(session_id: &str, description: Option<String>, folder_override: Option<String>) -> anyhow::Result<()> {
+    ensure_daemon()?;
+    let config = FleetConfig::load()?;
+
+    if config.folders.is_empty() {
+        bail!("No folders configured. Run `fleet config` to add folders.");
+    }
+
+    let (folder_name, folder_path) = match folder_override {
+        Some(ref name) => {
+            let path = config
+                .folders
+                .get(name)
+                .with_context(|| format!("Unknown folder: {name}"))?;
+            (name.clone(), path.clone())
+        }
+        None => select_folder(&config)?,
+    };
+
+    let cwd = resolve_path(&folder_path);
+    let cwd_str = cwd.to_string_lossy().to_string();
+
+    let desc = match description {
+        Some(d) => d,
+        None => {
+            print!("Description: ");
+            io::stdout().flush()?;
+            let input = read_line()?.trim().to_string();
+            if input.is_empty() {
+                bail!("Empty description, aborting.");
+            }
+            input
+        }
+    };
+
+    let id = generate_id();
+    let now = Utc::now();
+
+    let state = FleetState::load(&config)?;
+    let existing: Vec<&Agent> = state.agents.values().collect();
+    let key = keys::next_available_key(&existing);
+    let color_index = next_color_index(&existing);
+
+    let agent = Agent {
+        id: id.clone(),
+        description: desc.clone(),
+        folder: folder_name,
+        cwd: cwd_str.clone(),
+        initial_prompt: format!("--resume {session_id}"),
+        state: AgentState::Working,
+        started_at: now,
+        last_activity_at: now,
+        last_tool: None,
+        key,
+        color_index,
+    };
+
+    with_state(&config, |state| {
+        state.agents.insert(id.clone(), agent);
+    })?;
+
+    let cmd = build_resume_cmd(session_id);
+    let env = vec![("FLEET_AGENT_ID".to_string(), id.clone())];
+    let mut client = DaemonClient::connect()?;
+    client.spawn_agent(&id, &cwd_str, &cmd, &env)?;
+
+    println!("Adopted session {session_id} as agent {id}: {desc}");
+
+    Ok(())
+}
+
 /// Kill an agent by ID prefix.
 pub fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
+    ensure_daemon()?;
     let config = FleetConfig::load()?;
     let state = FleetState::load(&config)?;
 
@@ -81,9 +209,9 @@ pub fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
         .with_context(|| format!("No agent matching '{agent_ref}'"))?
         .clone();
 
-    if tmux::session_exists(&agent.tmux_session) {
-        tmux::kill_session(&agent.tmux_session)?;
-    }
+    let mut client = DaemonClient::connect()?;
+    // Ignore errors — agent may not exist in daemon if already dead
+    let _ = client.kill_agent(&agent.id);
 
     with_state(&config, |state| {
         state.agents.remove(&agent.id);
@@ -94,16 +222,16 @@ pub fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Kill all agents: terminate tmux sessions and clear state.
+/// Kill all agents: terminate PTYs and clear state.
 pub fn kill_all_agents() -> anyhow::Result<()> {
+    ensure_daemon()?;
     let config = FleetConfig::load()?;
     let state = FleetState::load(&config)?;
 
     let count = state.agents.len();
+    let mut client = DaemonClient::connect()?;
     for agent in state.agents.values() {
-        if tmux::session_exists(&agent.tmux_session) {
-            let _ = tmux::kill_session(&agent.tmux_session);
-        }
+        let _ = client.kill_agent(&agent.id);
     }
 
     with_state(&config, |state| {
@@ -113,40 +241,6 @@ pub fn kill_all_agents() -> anyhow::Result<()> {
     println!("Killed {count} agent(s).");
 
     Ok(())
-}
-
-/// Respawn agents whose tmux sessions no longer exist.
-/// Silently re-creates sessions using the stored prompt and cwd.
-pub fn respawn_dead() -> anyhow::Result<usize> {
-    let config = FleetConfig::load()?;
-    let state = FleetState::load(&config)?;
-
-    let dead: Vec<&Agent> = state
-        .agents
-        .values()
-        .filter(|a| {
-            !matches!(a.state, AgentState::Done) && !tmux::session_exists(&a.tmux_session)
-        })
-        .collect();
-
-    let count = dead.len();
-    for agent in &dead {
-        tmux::create_session(&agent.tmux_session, &agent.cwd, &agent.initial_prompt, &agent.id)?;
-    }
-
-    // Reset their state to working
-    if count > 0 {
-        with_state(&config, |state| {
-            for agent in &dead {
-                if let Some(a) = state.agents.get_mut(&agent.id) {
-                    a.state = AgentState::Working;
-                    a.last_activity_at = chrono::Utc::now();
-                }
-            }
-        })?;
-    }
-
-    Ok(count)
 }
 
 /// Remove all done agents from state.
@@ -220,7 +314,7 @@ pub fn list_agents() -> anyhow::Result<()> {
 }
 
 /// Resolve an agent reference by ID prefix match.
-fn resolve_agent<'a>(state: &'a FleetState, agent_ref: &str) -> Option<&'a Agent> {
+pub fn resolve_agent<'a>(state: &'a FleetState, agent_ref: &str) -> Option<&'a Agent> {
     if agent_ref.len() == 1 && agent_ref.chars().next().map_or(false, |c| c.is_alphabetic()) {
         return None;
     }
@@ -236,36 +330,6 @@ fn resolve_agent<'a>(state: &'a FleetState, agent_ref: &str) -> Option<&'a Agent
     } else {
         None
     }
-}
-
-/// Format duration since a timestamp as "Xm", "Xh", "Xd".
-fn format_duration(since: &DateTime<Utc>) -> String {
-    let delta = Utc::now() - *since;
-    let mins = delta.num_minutes();
-
-    if mins < 60 {
-        format!("{}m", mins.max(0))
-    } else if mins < 1440 {
-        format!("{}h", mins / 60)
-    } else {
-        format!("{}d", mins / 1440)
-    }
-}
-
-/// Attach to an agent's tmux session.
-pub fn attach_agent(agent_ref: &str) -> anyhow::Result<()> {
-    tmux::require_tmux()?;
-    let config = FleetConfig::load()?;
-    let state = FleetState::load(&config)?;
-
-    let agent = resolve_agent(&state, agent_ref)
-        .with_context(|| format!("No agent matching '{agent_ref}'"))?;
-
-    if !tmux::session_exists(&agent.tmux_session) {
-        bail!("Agent {}'s tmux session no longer exists", agent.id);
-    }
-
-    tmux::switch_to(&agent.tmux_session)
 }
 
 /// Edit an agent's description.
@@ -321,6 +385,20 @@ pub fn open_config() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Format duration since a timestamp as "Xm", "Xh", "Xd".
+pub fn format_duration(since: &DateTime<Utc>) -> String {
+    let delta = Utc::now() - *since;
+    let mins = delta.num_minutes();
+
+    if mins < 60 {
+        format!("{}m", mins.max(0))
+    } else if mins < 1440 {
+        format!("{}h", mins / 60)
+    } else {
+        format!("{}d", mins / 1440)
+    }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────

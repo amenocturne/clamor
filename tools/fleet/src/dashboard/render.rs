@@ -9,12 +9,12 @@ use ratatui::Frame;
 
 use crate::agent::{Agent, AgentState};
 use crate::config::FleetConfig;
+use crate::pane::{self, PaneView};
 
 /// An agent prepared for display, with its assigned jump key and status flags.
 pub struct DisplayAgent<'a> {
     pub agent: &'a Agent,
     pub key: Option<char>,
-    pub stale: bool,
     pub killed: bool,
 }
 
@@ -24,6 +24,7 @@ pub enum Overlay<'a> {
     PendingKill,
     FolderPicker { folders: &'a [(String, String)] },
     PromptInput { folder_name: &'a str, input: &'a str },
+    AdoptInput { input: &'a str },
 }
 
 /// Render the full dashboard frame.
@@ -31,24 +32,15 @@ pub fn render(
     frame: &mut Frame,
     config: &FleetConfig,
     agents: &HashMap<String, &Agent>,
-    key_assignments: &[(String, char)],
-    stale_ids: &[String],
     killed_ids: &[String],
-    pinned: &[(char, String, String)],
     overlay: &Overlay,
 ) {
     let area = frame.area();
 
-    // Build key lookup: agent_id -> char
-    let id_to_key: HashMap<&str, char> = key_assignments
-        .iter()
-        .map(|(id, k)| (id.as_str(), *k))
-        .collect();
-
     let pending_kill = matches!(overlay, Overlay::PendingKill);
 
     // Build display agents grouped by folder
-    let groups = build_groups(config, agents, &id_to_key, stale_ids, killed_ids);
+    let groups = build_groups(config, agents, killed_ids);
 
     // Count stats (exclude killed from count)
     let total = agents.len() - killed_ids.iter().filter(|id| agents.contains_key(*id)).count();
@@ -68,7 +60,7 @@ pub fn render(
 
     render_header(frame, chunks[0], total, needs_input);
     render_separator(frame, chunks[1]);
-    render_body(frame, chunks[2], &groups, pinned, pending_kill);
+    render_body(frame, chunks[2], &groups, pending_kill);
     render_footer(frame, chunks[3], pending_kill);
 
     // Render overlay popups on top
@@ -79,8 +71,37 @@ pub fn render(
         Overlay::PromptInput { folder_name, input } => {
             render_prompt_popup(frame, area, folder_name, input);
         }
+        Overlay::AdoptInput { input } => {
+            render_adopt_popup(frame, area, input);
+        }
         _ => {}
     }
+}
+
+/// Render the terminal view for an agent (title bar + PseudoTerminal).
+pub fn render_terminal(
+    frame: &mut Frame,
+    pane_view: &PaneView,
+    agent: &Agent,
+) {
+    let area = frame.area();
+    let chunks = Layout::vertical([
+        Constraint::Length(1), // title bar
+        Constraint::Min(1),   // terminal content
+    ])
+    .split(area);
+
+    let color = pane::agent_color(agent.color_index);
+    let state_str = match agent.state {
+        AgentState::Working => "working",
+        AgentState::Input => "input",
+        AgentState::Done => "done",
+    };
+    let duration = format_duration(agent.started_at);
+    pane::render_title_bar(frame, chunks[0], &agent.folder, &agent.description, state_str, &duration, color, true);
+
+    let pseudo_term = tui_term::widget::PseudoTerminal::new(pane_view.screen());
+    frame.render_widget(pseudo_term, chunks[1]);
 }
 
 fn render_header(frame: &mut Frame, area: Rect, total: usize, needs_input: usize) {
@@ -112,7 +133,7 @@ fn render_header(frame: &mut Frame, area: Rect, total: usize, needs_input: usize
 }
 
 fn render_separator(frame: &mut Frame, area: Rect) {
-    let line = "─".repeat(area.width as usize);
+    let line = "\u{2500}".repeat(area.width as usize);
     let sep = Paragraph::new(Line::from(Span::styled(
         line,
         Style::default().fg(Color::DarkGray),
@@ -140,6 +161,8 @@ fn render_footer(frame: &mut Frame, area: Rect, pending_kill: bool) {
             Span::raw("reate  "),
             Span::styled("[C]", Style::default().fg(Color::Cyan)),
             Span::raw(" $EDITOR  "),
+            Span::styled("[R]", Style::default().fg(Color::Cyan)),
+            Span::raw(" adopt  "),
             Span::styled("[K", Style::default().fg(Color::Cyan)),
             Span::raw("+"),
             Span::styled("key]", Style::default().fg(Color::Cyan)),
@@ -160,8 +183,6 @@ struct AgentGroup<'a> {
 fn build_groups<'a>(
     config: &FleetConfig,
     agents: &HashMap<String, &'a Agent>,
-    id_to_key: &HashMap<&str, char>,
-    stale_ids: &[String],
     killed_ids: &[String],
 ) -> Vec<AgentGroup<'a>> {
     // Collect folder names from config, sorted
@@ -187,7 +208,6 @@ fn build_groups<'a>(
         .collect();
 
     for folder_key in &all_folder_keys {
-        // Get agents for this folder, sorted by start time
         let mut folder_agents: Vec<(&String, &&Agent)> = agents
             .iter()
             .filter(|(_, a)| a.folder == *folder_key)
@@ -203,8 +223,7 @@ fn build_groups<'a>(
             .iter()
             .map(|(id, agent)| DisplayAgent {
                 agent,
-                key: id_to_key.get(id.as_str()).copied(),
-                stale: stale_ids.contains(id),
+                key: agent.key,
                 killed: killed_ids.contains(id),
             })
             .collect();
@@ -220,37 +239,9 @@ fn build_groups<'a>(
     groups
 }
 
-fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup], pinned: &[(char, String, String)], pending_kill: bool) {
+fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup], pending_kill: bool) {
     let mut lines: Vec<Line> = Vec::new();
     let width = area.width as usize;
-
-    // Pinned sessions
-    for (key, label, session) in pinned {
-        let key_str = format!("[{}]", key);
-        let available = width.saturating_sub(key_str.len() + 6);
-        let session_len = session.len();
-        let label_max = available.saturating_sub(session_len + 2);
-        let label_display = if label.len() > label_max {
-            format!("{}\u{2026}", &label[..label_max.saturating_sub(1)])
-        } else {
-            label.clone()
-        };
-        let padding = available.saturating_sub(label_display.len() + session_len);
-
-        lines.push(Line::from(vec![
-            Span::raw(" "),
-            Span::styled(key_str, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::raw("   "),
-            Span::raw(label_display),
-            Span::raw(" ".repeat(padding)),
-            Span::styled(session.clone(), Style::default().fg(Color::DarkGray)),
-        ]));
-    }
-
-    if !pinned.is_empty() && !groups.is_empty() {
-        let sep = "\u{2500}".repeat(width.saturating_sub(1));
-        lines.push(Line::from(Span::styled(sep, Style::default().fg(Color::DarkGray))));
-    }
 
     for (i, group) in groups.iter().enumerate() {
         if i > 0 {
@@ -299,22 +290,19 @@ fn render_agent_line(da: &DisplayAgent, width: usize, pending_kill: bool) -> Lin
     };
 
     let duration = format_duration(da.agent.started_at);
-    let stale_suffix = if da.stale && !da.killed { " ?" } else { "" };
-    let duration_with_stale = format!("{}{}", duration, stale_suffix);
 
     // state_label is 5 or 6 chars — normalize to 6 for "killed"
     let state_display = format!("{:<6}", state_label);
 
     // Calculate available space for description:
     // key(5) + state(6) + spacing(4) + duration(~8) + padding(2)
-    let overhead = key_str.len() + 6 + 4 + duration_with_stale.len() + 2;
+    let overhead = key_str.len() + 6 + 4 + duration.len() + 2;
     let desc_width = width.saturating_sub(overhead);
     let description = truncate(&da.agent.description, desc_width);
 
-    // Pad description to fill available width
     let padded_desc = format!("{:<width$}", description, width = desc_width);
 
-    // In kill mode, highlight keys in red to indicate they're killable
+    // In kill mode, highlight keys in red
     let key_style = if pending_kill && da.key.is_some() && !da.killed {
         Style::default()
             .fg(Color::Red)
@@ -327,10 +315,12 @@ fn render_agent_line(da: &DisplayAgent, width: usize, pending_kill: bool) -> Lin
 
     let dimmed = da.killed || da.agent.state == AgentState::Done;
 
+    // Use agent color for description text (unless dimmed)
     let desc_style = if dimmed {
         Style::default().fg(Color::DarkGray)
     } else {
-        Style::default()
+        let color = pane::agent_color(da.agent.color_index);
+        Style::default().fg(color)
     };
 
     let duration_style = Style::default().fg(Color::DarkGray);
@@ -341,11 +331,11 @@ fn render_agent_line(da: &DisplayAgent, width: usize, pending_kill: bool) -> Lin
         Span::raw("  "),
         Span::styled(padded_desc, desc_style),
         Span::raw("  "),
-        Span::styled(duration_with_stale, duration_style),
+        Span::styled(duration, duration_style),
     ])
 }
 
-fn format_duration(started_at: chrono::DateTime<Utc>) -> String {
+pub fn format_duration(started_at: chrono::DateTime<Utc>) -> String {
     let elapsed = Utc::now().signed_duration_since(started_at);
     let total_secs = elapsed.num_seconds().max(0);
 
@@ -441,7 +431,25 @@ fn render_prompt_popup(frame: &mut Frame, area: Rect, folder_name: &str, input: 
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
 
-    let display = format!("{input}▎");
+    let display = format!("{input}\u{258e}");
+    let prompt = Paragraph::new(Line::from(Span::raw(display)));
+    frame.render_widget(prompt, inner);
+}
+
+fn render_adopt_popup(frame: &mut Frame, area: Rect, input: &str) {
+    let width = area.width.min(60);
+    let popup = popup_area(area, width, 3);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(" Adopt session ");
+
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let display = format!("{input}\u{258e}");
     let prompt = Paragraph::new(Line::from(Span::raw(display)));
     frame.render_widget(prompt, inner);
 }
