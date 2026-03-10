@@ -16,14 +16,14 @@ pub struct FleetState {
 }
 
 impl FleetState {
-    fn state_path(_config: &FleetConfig) -> anyhow::Result<std::path::PathBuf> {
+    fn state_path() -> anyhow::Result<std::path::PathBuf> {
         Ok(FleetConfig::config_dir()?.join("state.json"))
     }
 
     /// Reads state from `~/.fleet/state.json` with a shared (read) lock.
     /// Returns empty state if the file doesn't exist.
-    pub fn load(config: &FleetConfig) -> anyhow::Result<Self> {
-        let path = Self::state_path(config)?;
+    pub fn load() -> anyhow::Result<Self> {
+        let path = Self::state_path()?;
 
         if !path.exists() {
             return Ok(Self::default());
@@ -52,9 +52,9 @@ impl FleetState {
 
     /// Writes state to `~/.fleet/state.json` with an exclusive file lock.
     #[allow(dead_code)]
-    pub fn save(&self, config: &FleetConfig) -> anyhow::Result<()> {
+    pub fn save(&self) -> anyhow::Result<()> {
         FleetConfig::ensure_dir()?;
-        let path = Self::state_path(config)?;
+        let path = Self::state_path()?;
 
         let file = OpenOptions::new()
             .write(true)
@@ -83,7 +83,7 @@ impl FleetState {
 ///
 /// Acquires an exclusive lock, reads current state, applies `f`, writes back,
 /// and releases the lock. Returns whatever `f` returns.
-pub fn with_state<F, R>(_config: &FleetConfig, f: F) -> anyhow::Result<R>
+pub fn with_state<F, R>(f: F) -> anyhow::Result<R>
 where
     F: FnOnce(&mut FleetState) -> R,
 {
@@ -92,7 +92,7 @@ where
 
 /// Like `with_state`, but non-blocking: returns Ok(None) if the lock can't be acquired.
 /// Used by hooks to avoid blocking Claude Code.
-pub fn try_with_state<F, R>(_config: &FleetConfig, f: F) -> anyhow::Result<Option<R>>
+pub fn try_with_state<F, R>(f: F) -> anyhow::Result<Option<R>>
 where
     F: FnOnce(&mut FleetState) -> R,
 {

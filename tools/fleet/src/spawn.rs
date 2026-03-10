@@ -90,7 +90,7 @@ pub fn spawn_agent(description: Option<String>, folder_override: Option<String>,
         None => read_task_description()?,
     };
 
-    let state = FleetState::load(&config)?;
+    let state = FleetState::load()?;
     let existing_ids: std::collections::HashSet<String> = state.agents.keys().cloned().collect();
     let id = generate_id(&existing_ids);
     let now = Utc::now();
@@ -114,7 +114,7 @@ pub fn spawn_agent(description: Option<String>, folder_override: Option<String>,
     };
 
     // Save state first
-    with_state(&config, |state| {
+    with_state(|state| {
         state.agents.insert(id.clone(), agent);
     })?;
 
@@ -165,7 +165,7 @@ pub fn adopt_session(session_id: &str, description: Option<String>, folder_overr
         }
     };
 
-    let state = FleetState::load(&config)?;
+    let state = FleetState::load()?;
     let existing_ids: std::collections::HashSet<String> = state.agents.keys().cloned().collect();
     let id = generate_id(&existing_ids);
     let now = Utc::now();
@@ -188,7 +188,7 @@ pub fn adopt_session(session_id: &str, description: Option<String>, folder_overr
         color_index,
     };
 
-    with_state(&config, |state| {
+    with_state(|state| {
         state.agents.insert(id.clone(), agent);
     })?;
 
@@ -205,8 +205,7 @@ pub fn adopt_session(session_id: &str, description: Option<String>, folder_overr
 /// Kill an agent by ID prefix.
 pub fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
     ensure_daemon()?;
-    let config = FleetConfig::load()?;
-    let state = FleetState::load(&config)?;
+    let state = FleetState::load()?;
 
     let agent = resolve_agent(&state, agent_ref)
         .with_context(|| format!("No agent matching '{agent_ref}'"))?
@@ -216,7 +215,7 @@ pub fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
     // Ignore errors — agent may not exist in daemon if already dead
     let _ = client.kill_agent(&agent.id);
 
-    with_state(&config, |state| {
+    with_state(|state| {
         state.agents.remove(&agent.id);
     })?;
 
@@ -228,8 +227,7 @@ pub fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
 /// Kill all agents: terminate PTYs and clear state.
 pub fn kill_all_agents() -> anyhow::Result<()> {
     ensure_daemon()?;
-    let config = FleetConfig::load()?;
-    let state = FleetState::load(&config)?;
+    let state = FleetState::load()?;
 
     let count = state.agents.len();
     let mut client = DaemonClient::connect()?;
@@ -237,7 +235,7 @@ pub fn kill_all_agents() -> anyhow::Result<()> {
         let _ = client.kill_agent(&agent.id);
     }
 
-    with_state(&config, |state| {
+    with_state(|state| {
         state.agents.clear();
     })?;
 
@@ -248,9 +246,7 @@ pub fn kill_all_agents() -> anyhow::Result<()> {
 
 /// Remove all done agents from state.
 pub fn clean_agents() -> anyhow::Result<()> {
-    let config = FleetConfig::load()?;
-
-    let removed = with_state(&config, |state| {
+    let removed = with_state(|state| {
         let done_ids: Vec<String> = state
             .agents
             .iter()
@@ -272,8 +268,7 @@ pub fn clean_agents() -> anyhow::Result<()> {
 
 /// Print one-shot status table to stdout.
 pub fn list_agents() -> anyhow::Result<()> {
-    let config = FleetConfig::load()?;
-    let state = FleetState::load(&config)?;
+    let state = FleetState::load()?;
 
     if state.agents.is_empty() {
         println!("No agents.");
@@ -338,8 +333,7 @@ pub fn resolve_agent<'a>(state: &'a FleetState, agent_ref: &str) -> Option<&'a A
 
 /// Edit an agent's description.
 pub fn edit_agent(agent_ref: &str, description: Option<String>) -> anyhow::Result<()> {
-    let config = FleetConfig::load()?;
-    let state = FleetState::load(&config)?;
+    let state = FleetState::load()?;
 
     let agent_id = resolve_agent(&state, agent_ref)
         .with_context(|| format!("No agent matching '{agent_ref}'"))?
@@ -359,7 +353,7 @@ pub fn edit_agent(agent_ref: &str, description: Option<String>) -> anyhow::Resul
         bail!("Empty description, aborting.");
     }
 
-    with_state(&config, |state| {
+    with_state(|state| {
         if let Some(agent) = state.agents.get_mut(&agent_id) {
             agent.description = new_desc.clone();
         }
