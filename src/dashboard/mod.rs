@@ -25,6 +25,7 @@ use crate::agent::{generate_id, next_color_index, Agent, AgentState};
 use crate::client::DaemonClient;
 use crate::config::{resolve_path, FleetConfig};
 use crate::daemon;
+use crate::log;
 use crate::pane::{self, PaneView};
 use crate::protocol::DaemonMessage;
 use crate::state::{with_state, FleetState};
@@ -128,25 +129,35 @@ fn main_loop(
     let mut pane_views: HashMap<String, PaneView> = HashMap::new();
 
     let mut mode = if let Some(ref agent_id) = attach_to {
-        let (term_cols, term_rows) = crossterm::terminal::size()?;
-        let content_rows = term_rows.saturating_sub(1);
-        let pv = pane_views.entry(agent_id.clone())
-            .or_insert_with(|| PaneView::new(content_rows, term_cols));
-        client.set_nonblocking(false)?;
-        match client.subscribe(agent_id) {
-            Ok(catch_up) => {
-                if !catch_up.is_empty() {
-                    pv.process_output(&catch_up);
+        let state = FleetState::load(config)?;
+        let is_lost = state.agents.get(agent_id)
+            .map_or(true, |a| a.state == AgentState::Lost);
+
+        if is_lost {
+            input_mode = InputMode::StaleAgent { agent_id: agent_id.clone() };
+            AppMode::Dashboard
+        } else {
+            let (term_cols, term_rows) = crossterm::terminal::size()?;
+            let content_rows = term_rows.saturating_sub(1);
+            let pv = pane_views.entry(agent_id.clone())
+                .or_insert_with(|| PaneView::new(content_rows, term_cols));
+            client.set_nonblocking(false)?;
+            match client.subscribe(agent_id) {
+                Ok(catch_up) => {
+                    if !catch_up.is_empty() {
+                        pv.process_output(&catch_up);
+                    }
+                    let _ = client.resize(agent_id, content_rows, term_cols);
+                    client.set_nonblocking(true)?;
+                    AppMode::Terminal { agent_id: agent_id.clone() }
+                }
+                Err(e) => {
+                    log::log(&format!("attach_to subscribe failed: {e:#}"));
+                    client.set_nonblocking(true)?;
+                    AppMode::Dashboard
                 }
             }
-            Err(_) => {
-                client.set_nonblocking(true)?;
-                anyhow::bail!("agent {} not found on daemon", agent_id);
-            }
         }
-        let _ = client.resize(agent_id, content_rows, term_cols);
-        client.set_nonblocking(true)?;
-        AppMode::Terminal { agent_id: agent_id.clone() }
     } else {
         AppMode::Dashboard
     };
@@ -203,28 +214,32 @@ fn main_loop(
                     LoopAction::Continue | LoopAction::SwitchToDashboard => {}
                     LoopAction::Quit => break,
                     LoopAction::SwitchToTerminal(agent_id) => {
-                        // Create PaneView if not exists, subscribe, resize
+                        log::log(&format!("SwitchToTerminal: {agent_id}"));
                         let (term_cols, term_rows) = crossterm::terminal::size()?;
                         let content_rows = term_rows.saturating_sub(1);
                         let pv = pane_views.entry(agent_id.clone())
                             .or_insert_with(|| PaneView::new(content_rows, term_cols));
 
-                        // Set socket to blocking briefly for subscribe handshake
                         client.set_nonblocking(false)?;
+                        log::log(&format!("subscribing to {agent_id}..."));
                         match client.subscribe(&agent_id) {
                             Ok(catch_up) => {
+                                log::log(&format!("subscribe ok, catch_up={} bytes", catch_up.len()));
                                 if !catch_up.is_empty() {
                                     pv.process_output(&catch_up);
                                 }
                             }
-                            Err(_) => {
+                            Err(e) => {
+                                log::log(&format!("subscribe FAILED: {e:#}"));
                                 client.set_nonblocking(true)?;
                                 continue;
                             }
                         }
 
+                        log::log("resizing...");
                         let _ = client.resize(&agent_id, content_rows, term_cols);
                         client.set_nonblocking(true)?;
+                        log::log("entering terminal mode");
 
                         mode = AppMode::Terminal { agent_id };
                     }
@@ -349,11 +364,14 @@ fn dashboard_iteration(
                 DashboardAction::Attach(ref agent_id) => {
                     *input_mode = InputMode::Normal;
                     if let Some(agent) = state.agents.get(agent_id) {
+                        log::log(&format!("Attach: id={} state={:?}", agent_id, agent.state));
                         if agent.state == AgentState::Lost {
                             *input_mode = InputMode::StaleAgent { agent_id: agent_id.clone() };
                         } else {
                             return Ok(LoopAction::SwitchToTerminal(agent_id.clone()));
                         }
+                    } else {
+                        log::log(&format!("Attach: id={} NOT FOUND in state", agent_id));
                     }
                 }
 
