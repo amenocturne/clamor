@@ -113,8 +113,14 @@ fn send_sigint(child_pid: u32) {
 }
 
 /// Send a DaemonMessage to a client, returning false if the write fails.
+///
+/// Temporarily sets the socket to blocking mode to ensure large messages
+/// (like CatchUp with kilobytes of terminal output) are written completely.
 fn send_to_client(stream: &mut UnixStream, msg: &DaemonMessage) -> bool {
-    crate::protocol::send_message(stream, msg).is_ok()
+    let _ = stream.set_nonblocking(false);
+    let result = crate::protocol::send_message(stream, msg).is_ok();
+    let _ = stream.set_nonblocking(true);
+    result
 }
 
 /// Main daemon entry point. Blocks until shutdown.
