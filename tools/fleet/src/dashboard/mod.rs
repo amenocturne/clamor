@@ -43,18 +43,21 @@ fn ensure_daemon() -> Result<()> {
     Ok(())
 }
 
-fn reconcile_state(config: &FleetConfig, client: &mut DaemonClient) -> Result<()> {
+fn reconcile_state(config: &FleetConfig, client: &mut DaemonClient) -> Result<usize> {
     let daemon_agents = client.list_agents()?;
     let daemon_ids: std::collections::HashSet<String> = daemon_agents.iter().map(|a| a.id.clone()).collect();
 
-    with_state(config, |state| {
+    let lost_count = with_state(config, |state| {
+        let mut count = 0;
         for (id, agent) in state.agents.iter_mut() {
             if agent.state != AgentState::Lost && agent.state != AgentState::Done && !daemon_ids.contains(id) {
                 agent.state = AgentState::Lost;
+                count += 1;
             }
         }
+        count
     })?;
-    Ok(())
+    Ok(lost_count)
 }
 
 /// Run the interactive dashboard.
@@ -62,14 +65,14 @@ pub fn run(config: &FleetConfig, attach_to: Option<String>) -> Result<()> {
     ensure_daemon()?;
     let mut client = DaemonClient::connect()?;
 
-    reconcile_state(config, &mut client)?;
+    let lost_count = reconcile_state(config, &mut client)?;
     client.set_nonblocking(true)?;
 
     install_panic_hook();
     let mut terminal = setup_terminal()?;
     execute!(io::stdout(), EnableBracketedPaste, EnableMouseCapture)?;
 
-    let result = main_loop(&mut terminal, config, &mut client, attach_to);
+    let result = main_loop(&mut terminal, config, &mut client, attach_to, lost_count);
 
     execute!(io::stdout(), DisableBracketedPaste, DisableMouseCapture)?;
     restore_terminal(&mut terminal)?;
@@ -113,8 +116,13 @@ fn main_loop(
     config: &FleetConfig,
     client: &mut DaemonClient,
     attach_to: Option<String>,
+    lost_count: usize,
 ) -> Result<()> {
-    let mut input_mode = InputMode::Normal;
+    let mut input_mode = if lost_count > 0 && attach_to.is_none() {
+        InputMode::StalePrompt { count: lost_count }
+    } else {
+        InputMode::Normal
+    };
     let mut killed_at: HashMap<String, Instant> = HashMap::new();
     let kill_linger = Duration::from_secs(3);
     let mut pane_views: HashMap<String, PaneView> = HashMap::new();
@@ -317,6 +325,9 @@ fn dashboard_iteration(
         InputMode::TypingAdopt { input } => render::Overlay::AdoptInput {
             input,
         },
+        InputMode::StalePrompt { count } => render::Overlay::StaleAgents {
+            count: *count,
+        },
     };
 
     terminal.draw(|frame| {
@@ -434,6 +445,17 @@ fn dashboard_iteration(
                             }
                         }
                     }
+                    *input_mode = InputMode::Normal;
+                }
+
+                DashboardAction::CleanStale => {
+                    let _ = with_state(config, |state| {
+                        state.agents.retain(|_, a| a.state != AgentState::Lost);
+                    });
+                    *input_mode = InputMode::Normal;
+                }
+
+                DashboardAction::DismissStale => {
                     *input_mode = InputMode::Normal;
                 }
 
