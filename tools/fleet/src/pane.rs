@@ -125,6 +125,7 @@ pub fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
         KeyCode::Enter => Some(vec![0x0d]),
         KeyCode::Backspace => Some(vec![0x7f]),
         KeyCode::Tab => Some(vec![0x09]),
+        KeyCode::BackTab => Some(b"\x1b[Z".to_vec()),
         KeyCode::Esc => Some(vec![0x1b]),
         KeyCode::Up => Some(b"\x1b[A".to_vec()),
         KeyCode::Down => Some(b"\x1b[B".to_vec()),
