@@ -80,28 +80,22 @@ impl DaemonClient {
     /// Drains any stale messages (Output, Exited) that may be buffered
     /// before the expected CatchUp response.
     pub fn subscribe(&mut self, id: &str) -> Result<Vec<u8>> {
-        crate::log::log(&format!("client: sending Subscribe id={id}"));
         self.send(ClientMessage::Subscribe {
             id: id.to_string(),
         })?;
-        crate::log::log("client: waiting for CatchUp...");
         loop {
             let msg: DaemonMessage = recv_message(&mut self.stream)?;
             match &msg {
                 DaemonMessage::CatchUp { data, .. } => {
-                    crate::log::log(&format!("client: got CatchUp {} bytes", data.len()));
                     return Ok(data.clone());
                 }
                 DaemonMessage::Error { message } => {
-                    crate::log::log(&format!("client: got Error: {message}"));
                     anyhow::bail!("subscribe failed: {message}")
                 }
                 DaemonMessage::Output { .. } | DaemonMessage::Exited { .. } => {
-                    crate::log::log(&format!("client: draining {:?}", std::mem::discriminant(&msg)));
                     continue;
                 }
                 other => {
-                    crate::log::log(&format!("client: unexpected: {other:?}"));
                     anyhow::bail!("unexpected response: {other:?}")
                 }
             }
