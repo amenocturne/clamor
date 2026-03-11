@@ -899,6 +899,12 @@ fn terminal_iteration(
             }
 
             Event::Paste(text) => {
+                // Snap to live view (same as key input)
+                if let Some(pv) = pane_views.get_mut(agent_id) {
+                    pv.clear_selection();
+                    pv.snap_to_bottom();
+                }
+
                 // Only wrap in bracketed paste if the inner app enabled it
                 let use_bracket = pane_views.get(agent_id)
                     .map_or(false, |pv| pv.parser.screen().bracketed_paste());
@@ -913,6 +919,10 @@ fn terminal_iteration(
                     text.into_bytes()
                 };
                 let _ = client.send_input(agent_id, &data);
+
+                // Force full redraw — the multiline paste echo from the
+                // inner app can desync ratatui's diff-based rendering.
+                terminal.clear()?;
             }
 
             Event::Resize(cols, rows) => {
