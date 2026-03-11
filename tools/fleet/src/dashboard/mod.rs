@@ -809,6 +809,19 @@ fn terminal_iteration(
                         }
                         MouseEventKind::Down(MouseButton::Left) => {
                             if let Some(pv) = pane_views.get_mut(agent_id) {
+                                // If there's a completed selection, copy it before starting new one
+                                // (fallback in case Up event didn't fire)
+                                if let Some(ref sel) = pv.selection {
+                                    if !sel.active && sel.start != sel.end {
+                                        let sel = sel.clone();
+                                        let screen = pv.scrolled_screen();
+                                        let text = pane::extract_selected_text(screen, &sel, pane_area.width);
+                                        if !text.is_empty() {
+                                            pane::copy_to_clipboard(&text);
+                                        }
+                                    }
+                                }
+
                                 let col = mouse_event.column.saturating_sub(pane_area.x);
                                 let row = mouse_event.row.saturating_sub(pane_area.y);
                                 if col < pane_area.width && row < pane_area.height {
@@ -860,11 +873,9 @@ fn terminal_iteration(
                         }
                         MouseEventKind::Up(MouseButton::Left) => {
                             if let Some(pv) = pane_views.get_mut(agent_id) {
-                                let should_copy = pv.selection.as_ref().map_or(false, |s| s.active);
+                                let should_copy = pv.selection.as_ref()
+                                    .map_or(false, |s| s.active && s.start != s.end);
                                 if should_copy {
-                                    if let Some(ref mut sel) = pv.selection {
-                                        sel.active = false;
-                                    }
                                     let sel = pv.selection.clone().unwrap();
                                     let screen = pv.scrolled_screen();
                                     let text = pane::extract_selected_text(screen, &sel, pane_area.width);
@@ -872,6 +883,8 @@ fn terminal_iteration(
                                         pane::copy_to_clipboard(&text);
                                     }
                                 }
+                                // Clear selection on release (tmux behavior)
+                                pv.selection = None;
                             }
                         }
                         _ => {}
