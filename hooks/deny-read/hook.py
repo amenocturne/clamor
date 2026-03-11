@@ -12,11 +12,16 @@ This lets deny rules live with the project and work regardless of CWD.
 
 import json
 import glob as globmod
+import re
 import sys
 from fnmatch import fnmatch
 from pathlib import Path
 
 SETTINGS_CACHE: dict[str, dict | None] = {}
+
+# Max directory depth to search for .claude/settings.json (avoids rglob into
+# node_modules, .git, venvs, etc.)
+_MAX_PROJECT_DEPTH = 3
 
 
 def find_project_settings(file_path: str) -> tuple[Path | None, dict | None]:
@@ -155,6 +160,49 @@ def check_bash_command(command: str, project_root: Path, patterns: list[str]) ->
     return None
 
 
+def is_git_only_command(command: str) -> bool:
+    """Check if every sub-command in a shell chain is a git operation.
+
+    Git porcelain/plumbing commands manage the index and working tree without
+    printing file contents to stdout (which is what the deny-read hook cares
+    about).  Direct file reads are still guarded by the Read/Edit/Write
+    handlers, so allowing git here doesn't weaken protection.
+    """
+    parts = re.split(r"\s*(?:&&|\|\||;)\s*", command)
+    for part in parts:
+        tokens = part.strip().split()
+        if not tokens:
+            continue
+        # Skip env-var assignments (FOO=bar) and cd
+        idx = 0
+        while idx < len(tokens):
+            if tokens[idx] == "cd" and idx + 1 < len(tokens):
+                idx += 2
+            elif "=" in tokens[idx] and not tokens[idx].startswith("-"):
+                idx += 1
+            else:
+                break
+        if idx >= len(tokens):
+            continue
+        if tokens[idx] != "git":
+            return False
+    return True
+
+
+def find_project_settings_bounded(root: Path) -> list[Path]:
+    """Find .claude/settings.json files up to _MAX_PROJECT_DEPTH levels deep.
+
+    Avoids Path.rglob which traverses every subdirectory (node_modules, .git,
+    venvs) and can easily exceed the hook timeout on large workspaces.
+    """
+    results: list[Path] = []
+    for depth in range(_MAX_PROJECT_DEPTH + 1):
+        prefix = "/".join(["*"] * depth) if depth else ""
+        pattern = f"{prefix}/.claude/settings.json" if prefix else ".claude/settings.json"
+        results.extend(root.glob(pattern))
+    return results
+
+
 def block(reason: str) -> None:
     print(json.dumps({"decision": "block", "reason": reason}))
     sys.exit(0)
@@ -174,11 +222,17 @@ if __name__ == "__main__":
         if not command:
             sys.exit(0)
 
+        # Git commands manage the index/working tree — they don't print file
+        # contents.  Direct reads are still guarded by Read/Edit/Write handlers.
+        if is_git_only_command(command):
+            sys.exit(0)
+
+        # Bounded depth search instead of rglob (avoids node_modules, .git, etc.)
         cwd = Path.cwd()
-        for child in cwd.rglob(".claude/settings.json"):
-            project_root = child.parent.parent
+        for settings_file in find_project_settings_bounded(cwd):
+            project_root = settings_file.parent.parent
             try:
-                with open(child) as f:
+                with open(settings_file) as f:
                     settings = json.load(f)
             except (json.JSONDecodeError, OSError):
                 continue
