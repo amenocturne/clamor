@@ -2,7 +2,7 @@ use chrono::Utc;
 use serde::Deserialize;
 
 use crate::agent::AgentState;
-use crate::state::try_with_state;
+use crate::state::{try_with_state, with_state};
 
 #[derive(Debug, Deserialize)]
 struct HookEvent {
@@ -36,7 +36,12 @@ fn run_inner() -> anyhow::Result<()> {
 
     let event: HookEvent = serde_json::from_str(&input)?;
 
-    try_with_state(|state| {
+    // Stop fires at process exit — use blocking lock so the Done transition
+    // is never silently dropped. Other events use non-blocking to avoid
+    // slowing down Claude Code mid-session.
+    let is_stop = event.hook_event_name == "Stop";
+
+    let update = |state: &mut crate::state::FleetState| {
         let agent = match state.agents.get_mut(&agent_id) {
             Some(a) => a,
             None => return,
@@ -66,7 +71,13 @@ fn run_inner() -> anyhow::Result<()> {
             }
             _ => {}
         }
-    })?;
+    };
+
+    if is_stop {
+        with_state(update)?;
+    } else {
+        try_with_state(update)?;
+    }
 
     Ok(())
 }

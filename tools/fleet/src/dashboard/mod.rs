@@ -65,6 +65,12 @@ fn ensure_daemon() -> Result<()> {
     Ok(())
 }
 
+/// Recover from daemon restarts: mark agents whose PTYs no longer exist as Lost.
+///
+/// Only checks ID presence, not the `alive` flag — agents that exited normally
+/// still have a slot in the daemon (for ring-buffer catch-up). Normal exits are
+/// handled by the Stop hook (blocking) and DaemonMessage::Exited (broadcast).
+/// This function only runs at dashboard startup, which is intentional.
 fn reconcile_state(client: &mut DaemonClient) -> Result<usize> {
     let daemon_agents = client.list_agents()?;
     let daemon_ids: std::collections::HashSet<String> = daemon_agents.iter().map(|a| a.id.clone()).collect();
