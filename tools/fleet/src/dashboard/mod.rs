@@ -880,11 +880,19 @@ fn terminal_iteration(
             }
 
             Event::Paste(text) => {
-                // Bracketed paste: wrap in bracketed paste sequences
-                let mut data = Vec::new();
-                data.extend_from_slice(b"\x1b[200~");
-                data.extend_from_slice(text.as_bytes());
-                data.extend_from_slice(b"\x1b[201~");
+                // Only wrap in bracketed paste if the inner app enabled it
+                let use_bracket = pane_views.get(agent_id)
+                    .map_or(false, |pv| pv.parser.screen().bracketed_paste());
+
+                let data = if use_bracket {
+                    let mut buf = Vec::with_capacity(text.len() + 14);
+                    buf.extend_from_slice(b"\x1b[200~");
+                    buf.extend_from_slice(text.as_bytes());
+                    buf.extend_from_slice(b"\x1b[201~");
+                    buf
+                } else {
+                    text.into_bytes()
+                };
                 let _ = client.send_input(agent_id, &data);
             }
 
