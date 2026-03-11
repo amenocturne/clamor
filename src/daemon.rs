@@ -204,13 +204,13 @@ pub fn run_daemon() -> Result<()> {
                     if let Some(slot) = agents.get_mut(&id) {
                         slot.alive = false;
                     }
-                    if subscriptions.contains(&id) {
-                        if let Some(ref mut stream) = client {
-                            let msg = DaemonMessage::Exited { id };
-                            if !send_to_client(stream, &msg) {
-                                client = None;
-                                subscriptions.clear();
-                            }
+                    // Always notify the client so the dashboard can mark
+                    // the agent as Done — not just when subscribed.
+                    if let Some(ref mut stream) = client {
+                        let msg = DaemonMessage::Exited { id };
+                        if !send_to_client(stream, &msg) {
+                            client = None;
+                            subscriptions.clear();
                         }
                     }
                 }
