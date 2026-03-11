@@ -24,12 +24,17 @@ Track progress on multi-session work using markdown task files in `.claude/tasks
 
 ## Directory Structure
 
+Tasks live in the **working directory's** `.claude/tasks/` — that's the directory where Claude was launched, NOT inside individual project directories.
+
 ```
-.claude/tasks/
-└── <project-name>/
-    ├── feature-a.md
-    └── feature-b.md
+<working-directory>/
+└── .claude/tasks/
+    └── <project-name>/
+        ├── feature-a.md
+        └── feature-b.md
 ```
+
+In a multi-project workspace, this means all projects share one `.claude/tasks/` at the workspace root. Do NOT create `.claude/tasks/` inside project subdirectories.
 
 - Agent must specify the project name when creating tasks
 - One file per spec/feature/work stream
@@ -37,10 +42,10 @@ Track progress on multi-session work using markdown task files in `.claude/tasks
 
 ## Setup
 
-When creating `.claude/tasks/` for the first time in a project:
+When creating `.claude/tasks/` for the first time:
 
-1. Create the directory: `.claude/tasks/<project>/`
-2. Add `.claude/tasks/` to `.gitignore` if not already there
+1. Create the directory: `.claude/tasks/<project>/` in the **working directory** (workspace root)
+2. Add `.claude/tasks/` to the working directory's `.gitignore` if not already there
 
 ## Task File Format
 
@@ -94,7 +99,7 @@ What's done, what's blocked, where to pick up next.
 
 When the user says something like "continue working on X" or "pick up project Y":
 
-1. Check `.claude/tasks/` for matching task files
+1. Check `.claude/tasks/<project>/` in the **working directory** for matching task files
 2. Read the relevant file(s)
 3. Start from where Current State indicates
 4. If multiple task files exist and it's unclear which one, ask the user
