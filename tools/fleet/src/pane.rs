@@ -24,6 +24,14 @@ pub fn agent_color(color_index: u8) -> Color {
     AGENT_COLORS[color_index as usize % AGENT_COLORS.len()]
 }
 
+/// Mouse text selection state (pane-relative coordinates).
+#[derive(Clone)]
+pub struct Selection {
+    pub start: (u16, u16), // (col, row)
+    pub end: (u16, u16),   // (col, row)
+    pub active: bool,      // true while mouse button is held
+}
+
 /// Client-side view of a single PTY pane.
 ///
 /// Does NOT own a PTY -- the daemon does. This struct maintains a vt100 parser
@@ -31,6 +39,7 @@ pub fn agent_color(color_index: u8) -> Color {
 pub struct PaneView {
     pub parser: vt100::Parser,
     pub scroll_offset: usize,
+    pub selection: Option<Selection>,
 }
 
 impl PaneView {
@@ -38,6 +47,7 @@ impl PaneView {
         Self {
             parser: vt100::Parser::new(rows, cols, 10000),
             scroll_offset: 0,
+            selection: None,
         }
     }
 
@@ -85,9 +95,15 @@ impl PaneView {
         len
     }
 
+    /// Clear any active text selection.
+    pub fn clear_selection(&mut self) {
+        self.selection = None;
+    }
+
     /// Snap back to live view (scroll_offset = 0).
     pub fn snap_to_bottom(&mut self) {
         self.scroll_offset = 0;
+        self.clear_selection();
     }
 }
 
@@ -241,6 +257,59 @@ pub fn render_title_bar(
         style,
     )]);
     frame.render_widget(Paragraph::new(line), area);
+}
+
+/// Extract the text covered by a selection from the vt100 screen.
+///
+/// Normalizes start/end so the earlier position comes first,
+/// reads cells row-by-row, trims trailing whitespace per line,
+/// and strips empty trailing lines.
+pub fn extract_selected_text(screen: &vt100::Screen, sel: &Selection, cols: u16) -> String {
+    let (start, end) = if sel.start.1 < sel.end.1
+        || (sel.start.1 == sel.end.1 && sel.start.0 <= sel.end.0)
+    {
+        (sel.start, sel.end)
+    } else {
+        (sel.end, sel.start)
+    };
+
+    let (start_col, start_row) = start;
+    let (end_col, end_row) = end;
+
+    let mut lines: Vec<String> = Vec::new();
+
+    for row in start_row..=end_row {
+        let from = if row == start_row { start_col } else { 0 };
+        let to = if row == end_row { end_col } else { cols - 1 };
+
+        let mut line = String::new();
+        for col in from..=to {
+            if let Some(cell) = screen.cell(row, col) {
+                line.push_str(cell.contents());
+            }
+        }
+
+        lines.push(line.trim_end().to_string());
+    }
+
+    // Strip empty trailing lines
+    while lines.last().map_or(false, |l| l.is_empty()) {
+        lines.pop();
+    }
+
+    lines.join("\n")
+}
+
+/// Copy text to the macOS clipboard via pbcopy.
+pub fn copy_to_clipboard(text: &str) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    if let Ok(mut child) = Command::new("pbcopy").stdin(Stdio::piped()).spawn() {
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(text.as_bytes());
+        }
+        let _ = child.wait();
+    }
 }
 
 /// Dim a color for unfocused pane title bars.
