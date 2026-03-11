@@ -28,6 +28,7 @@ hooks:
   - notification
   - workflow-check
   - fleet
+  - deny-read
 pipelines: []
 external:
   - github.com/anthropics/skills/skill-creator

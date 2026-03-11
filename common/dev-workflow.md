@@ -67,6 +67,22 @@ Update before committing features that change behavior:
 - **README.md** = human context (setup, overview)
 - Keep high-level — code is the source of truth for details
 
+### Secret Files
+
+A PreToolUse hook enforces per-project deny rules from `<project>/.claude/settings.json`. When you discover or create files containing secrets (API keys, credentials, connection strings), add them to the project's deny list:
+
+```json
+{
+  "sandbox": {
+    "filesystem": {
+      "denyRead": [".env", "secrets.yml", "credentials/**"]
+    }
+  }
+}
+```
+
+Patterns are relative to the project root. Commit the settings.json change so the rules persist.
+
 ### Temporary Files
 
 Never use system `/tmp` — create a local `tmp/` directory in the project. Add `tmp/` to `.gitignore` for personal projects (ask user first for work projects).

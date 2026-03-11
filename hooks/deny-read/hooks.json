@@ -1,0 +1,14 @@
+{
+  "PreToolUse": [
+    {
+      "matcher": "Read|Edit|Write|Grep|Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "{hook_dir}/hook.py",
+          "timeout": 5
+        }
+      ]
+    }
+  ]
+}

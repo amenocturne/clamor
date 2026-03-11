@@ -25,5 +25,6 @@ hooks:
   - notification
   - link-proxy
   - workflow-check
+  - deny-read
 pipelines: []
 external: []

@@ -35,5 +35,6 @@ hooks:
   - save-conversation
   - graph-colors
   - fleet
+  - deny-read
 pipelines: []
 external: []
