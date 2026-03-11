@@ -7,11 +7,14 @@ Personal toolkit for Claude Code: skills, hooks, pipelines, and composable prese
 Run `just` to see available commands. Key ones:
 
 ```bash
-just install                    # Install preset interactively
+just install                       # Reinstall all registered targets (run after any change)
+just install-interactive           # Install preset interactively (first-time setup)
 just install-to <target> <preset>  # Install to specific directory
-just test                       # Run tests
-just fmt && just lint           # Format and lint
+just test                          # Run tests
+just fmt && just lint              # Format and lint
 ```
+
+**After modifying skills, presets, hooks, or common files:** run `just install` to propagate changes to all targets.
 
 ## Testing
 
