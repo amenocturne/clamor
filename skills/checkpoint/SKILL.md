@@ -44,9 +44,14 @@ Stage and commit the changes:
 Invoke the `review` skill:
 
 1. Determine the commit range (usually `HEAD~1..HEAD` for a single commit, or `HEAD~N..HEAD` if multiple commits were made during this task)
-2. Launch the review server
-3. **STOP and wait for review feedback**
-4. Address any review comments before reporting completion
+2. Write a **descriptive `--message`** for the review. This is what the reviewer sees as context — it must be specific enough to understand what to check. Include:
+   - What was changed and why (not just "Fix" — say what was fixed and where)
+   - Key files or areas affected
+   - Anything non-obvious the reviewer should pay attention to
+   - Example: "Refactor parser to handle nested blocks; added edge case tests in parser_test.py" — NOT "Fix parser"
+3. Launch the review server
+4. **STOP and wait for review feedback**
+5. Address any review comments before reporting completion
 
 ## Important
 
