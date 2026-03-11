@@ -69,3 +69,7 @@ Config is a simple JSON file mapping names to paths:
 Then just run `fleet` to open the dashboard. Create agents, monitor them, switch between them — all from one screen.
 
 Run `fleet --help` for the full command list.
+
+## Troubleshooting
+
+**Agent terminal rendering breaks after attaching** — Some tools (e.g. Claude Code) use non-standard terminal rendering that can leave the attached terminal in a broken state. Double `Ctrl+F` fixes it — the first detaches to the dashboard, the second re-attaches to the last agent, resetting the terminal.
