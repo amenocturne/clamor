@@ -285,7 +285,14 @@ pub fn extract_selected_text(screen: &vt100::Screen, sel: &Selection, cols: u16)
         let mut line = String::new();
         for col in from..=to {
             if let Some(cell) = screen.cell(row, col) {
-                line.push_str(cell.contents());
+                let contents = cell.contents();
+                if contents.is_empty() {
+                    line.push(' ');
+                } else {
+                    line.push_str(contents);
+                }
+            } else {
+                line.push(' ');
             }
         }
 
