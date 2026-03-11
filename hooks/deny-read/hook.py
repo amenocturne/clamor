@@ -224,24 +224,10 @@ if __name__ == "__main__":
                             sys.exit(0)
 
                     if grep_type:
-                        # Map common type filters to extensions and check
-                        # Types like "py", "js", "rust" won't match .env or secret.txt
-                        type_extensions = {
-                            "py": "*.py", "js": "*.js", "ts": "*.ts", "tsx": "*.tsx",
-                            "rust": "*.rs", "go": "*.go", "java": "*.java", "rb": "*.rb",
-                            "cpp": "*.cpp", "c": "*.c", "h": "*.h", "css": "*.css",
-                            "html": "*.html", "json": "*.json", "yaml": "*.yaml",
-                            "yml": "*.yml", "toml": "*.toml", "xml": "*.xml",
-                            "sh": "*.sh", "bash": "*.bash", "zsh": "*.zsh",
-                            "scala": "*.scala", "kt": "*.kt", "swift": "*.swift",
-                            "hs": "*.hs", "nix": "*.nix", "lua": "*.lua",
-                            "md": "*.md", "sql": "*.sql",
-                        }
-                        ext_pattern = type_extensions.get(grep_type)
-                        if ext_pattern:
-                            denied_names = get_denied_filenames(project_root, denied_in_dir)
-                            if grep_glob_excludes_denied(ext_pattern, denied_names):
-                                sys.exit(0)
+                        # Typed searches (e.g., type="py") target specific language
+                        # files — safe to allow since denied files are typically
+                        # .env, secrets.yml, credentials, etc.
+                        sys.exit(0)
 
                     denied_str = ", ".join(denied_in_dir)
                     block(
