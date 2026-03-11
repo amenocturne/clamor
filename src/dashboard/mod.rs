@@ -728,9 +728,10 @@ fn terminal_iteration(
 
     // Render
     if let Some(pv) = pane_views.get_mut(agent_id) {
+        let sel = pv.selection.clone();
         let screen = pv.scrolled_screen();
         terminal.draw(|frame| {
-            render::render_terminal(frame, screen, agent);
+            render::render_terminal(frame, screen, agent, &sel);
         })?;
     }
 
@@ -759,8 +760,9 @@ fn terminal_iteration(
                     return Ok(LoopAction::Continue);
                 }
 
-                // Any keyboard input snaps scrollback to live view
+                // Any keyboard input clears selection and snaps to live view
                 if let Some(pv) = pane_views.get_mut(agent_id) {
+                    pv.clear_selection();
                     pv.snap_to_bottom();
                 }
 
@@ -784,9 +786,10 @@ fn terminal_iteration(
                         let _ = client.send_input(agent_id, &bytes);
                     }
                 } else {
-                    // No mouse mode — handle scroll locally
+                    // No mouse mode — handle scroll and text selection locally
+                    use crossterm::event::{MouseEventKind, MouseButton};
                     match mouse_event.kind {
-                        crossterm::event::MouseEventKind::ScrollUp => {
+                        MouseEventKind::ScrollUp => {
                             if let Some(pv) = pane_views.get_mut(agent_id) {
                                 if pv.alternate_screen() {
                                     let _ = client.send_input(agent_id, b"\x1b[A\x1b[A\x1b[A");
@@ -795,12 +798,79 @@ fn terminal_iteration(
                                 }
                             }
                         }
-                        crossterm::event::MouseEventKind::ScrollDown => {
+                        MouseEventKind::ScrollDown => {
                             if let Some(pv) = pane_views.get_mut(agent_id) {
                                 if pv.alternate_screen() {
                                     let _ = client.send_input(agent_id, b"\x1b[B\x1b[B\x1b[B");
                                 } else {
                                     pv.scroll_offset = pv.scroll_offset.saturating_sub(3);
+                                }
+                            }
+                        }
+                        MouseEventKind::Down(MouseButton::Left) => {
+                            if let Some(pv) = pane_views.get_mut(agent_id) {
+                                let col = mouse_event.column.saturating_sub(pane_area.x);
+                                let row = mouse_event.row.saturating_sub(pane_area.y);
+                                if col < pane_area.width && row < pane_area.height {
+                                    pv.selection = Some(pane::Selection {
+                                        start: (col, row),
+                                        end: (col, row),
+                                        active: true,
+                                    });
+                                }
+                            }
+                        }
+                        MouseEventKind::Drag(MouseButton::Left) => {
+                            if let Some(pv) = pane_views.get_mut(agent_id) {
+                                if pv.selection.as_ref().map_or(false, |s| s.active) {
+                                    let col = mouse_event.column.saturating_sub(pane_area.x)
+                                        .min(pane_area.width.saturating_sub(1));
+                                    let row = mouse_event.row.saturating_sub(pane_area.y)
+                                        .min(pane_area.height.saturating_sub(1));
+
+                                    if let Some(ref mut sel) = pv.selection {
+                                        sel.end = (col, row);
+                                    }
+
+                                    // Edge-scroll when dragging near top/bottom
+                                    if !pv.alternate_screen() {
+                                        if mouse_event.row <= pane_area.y + 1 {
+                                            let old = pv.scroll_offset;
+                                            pv.scroll_offset = pv.scroll_offset.saturating_add(1);
+                                            let delta = (pv.scroll_offset - old) as u16;
+                                            if delta > 0 {
+                                                if let Some(ref mut sel) = pv.selection {
+                                                    sel.start.1 = sel.start.1.saturating_add(delta)
+                                                        .min(pane_area.height.saturating_sub(1));
+                                                }
+                                            }
+                                        } else if mouse_event.row >= pane_area.y + pane_area.height.saturating_sub(2) {
+                                            let old = pv.scroll_offset;
+                                            pv.scroll_offset = pv.scroll_offset.saturating_sub(1);
+                                            let delta = (old - pv.scroll_offset) as u16;
+                                            if delta > 0 {
+                                                if let Some(ref mut sel) = pv.selection {
+                                                    sel.start.1 = sel.start.1.saturating_sub(delta);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        MouseEventKind::Up(MouseButton::Left) => {
+                            if let Some(pv) = pane_views.get_mut(agent_id) {
+                                let should_copy = pv.selection.as_ref().map_or(false, |s| s.active);
+                                if should_copy {
+                                    if let Some(ref mut sel) = pv.selection {
+                                        sel.active = false;
+                                    }
+                                    let sel = pv.selection.clone().unwrap();
+                                    let screen = pv.scrolled_screen();
+                                    let text = pane::extract_selected_text(screen, &sel, pane_area.width);
+                                    if !text.is_empty() {
+                                        pane::copy_to_clipboard(&text);
+                                    }
                                 }
                             }
                         }

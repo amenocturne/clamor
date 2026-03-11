@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use chrono::Utc;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
+use ratatui::layout::Position;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
@@ -9,7 +10,7 @@ use ratatui::Frame;
 
 use crate::agent::{Agent, AgentState};
 use crate::config::FleetConfig;
-use crate::pane;
+use crate::pane::{self, Selection};
 
 use super::input::PromptField;
 
@@ -100,6 +101,7 @@ pub fn render_terminal(
     frame: &mut Frame,
     screen: &vt100::Screen,
     agent: &Agent,
+    selection: &Option<Selection>,
 ) {
     let area = frame.area();
     let chunks = Layout::vertical([
@@ -120,6 +122,12 @@ pub fn render_terminal(
 
     let pseudo_term = tui_term::widget::PseudoTerminal::new(screen);
     frame.render_widget(pseudo_term, chunks[1]);
+
+    // Overlay selection highlight
+    if let Some(sel) = selection {
+        let pane = chunks[1];
+        render_selection(frame, pane, sel);
+    }
 }
 
 fn render_header(frame: &mut Frame, area: Rect, total: usize, needs_input: usize) {
@@ -611,4 +619,35 @@ fn render_edit_popup(frame: &mut Frame, area: Rect, input: &str) {
     let prompt = Paragraph::new(Line::from(Span::raw(display)))
         .wrap(Wrap { trim: false });
     frame.render_widget(prompt, inner);
+}
+
+/// Render selection highlight by flipping selected cells to REVERSED style.
+fn render_selection(frame: &mut Frame, pane: Rect, sel: &Selection) {
+    // Normalize so start is before end
+    let (start, end) = if sel.start.1 < sel.end.1
+        || (sel.start.1 == sel.end.1 && sel.start.0 <= sel.end.0)
+    {
+        (sel.start, sel.end)
+    } else {
+        (sel.end, sel.start)
+    };
+
+    let (start_col, start_row) = start;
+    let (end_col, end_row) = end;
+
+    let buf = frame.buffer_mut();
+
+    for row in start_row..=end_row {
+        let from = if row == start_row { start_col } else { 0 };
+        let to = if row == end_row { end_col } else { pane.width.saturating_sub(1) };
+
+        for col in from..=to {
+            let x = pane.x + col;
+            let y = pane.y + row;
+            if let Some(cell) = buf.cell_mut(Position::new(x, y)) {
+                let style = cell.style().add_modifier(Modifier::REVERSED);
+                cell.set_style(style);
+            }
+        }
+    }
 }
