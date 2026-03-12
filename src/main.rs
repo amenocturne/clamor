@@ -101,7 +101,7 @@ async fn main() -> Result<()> {
             println!("Fleet daemon stopped");
         }
         Some(Command::Daemon) => {
-            daemon::run_daemon()?;
+            daemon::run_daemon().await?;
         }
         Some(Command::MockAgent {
             description,

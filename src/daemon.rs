@@ -1,29 +1,25 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::mpsc;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use tokio::net::UnixListener;
+use tokio::sync::mpsc;
 
-use crate::protocol::{ClientMessage, DaemonAgent, DaemonMessage};
+use crate::protocol::{recv_message_async, send_message_async, ClientMessage, DaemonAgent, DaemonMessage};
 
-/// Max ring buffer size per agent (~1MB).
 const RING_BUFFER_CAP: usize = 1024 * 1024;
 
-/// Path to the daemon's Unix domain socket.
 pub fn daemon_socket_path() -> Result<PathBuf> {
     Ok(crate::config::FleetConfig::config_dir()?.join("fleet.sock"))
 }
 
-/// Path to the daemon's PID file.
 pub fn daemon_pid_path() -> Result<PathBuf> {
     Ok(crate::config::FleetConfig::config_dir()?.join("fleet.pid"))
 }
 
-/// Check whether a daemon process is currently running.
 pub fn is_daemon_running() -> bool {
     let pid_path = match daemon_pid_path() {
         Ok(p) => p,
@@ -37,14 +33,9 @@ pub fn is_daemon_running() -> bool {
         Ok(p) => p,
         Err(_) => return false,
     };
-    // Signal 0 checks if process exists without actually sending a signal
     unsafe { libc::kill(pid, 0) == 0 }
 }
 
-/// Start the daemon as a detached background process.
-///
-/// Spawns `fleet daemon` and returns once the child is launched.
-/// The daemon will continue running after this process exits.
 pub fn start_daemon_background() -> Result<()> {
     let exe = std::env::current_exe().context("resolving fleet executable path")?;
     std::process::Command::new(exe)
@@ -55,20 +46,15 @@ pub fn start_daemon_background() -> Result<()> {
         .spawn()
         .context("spawning daemon process")?;
 
-    // Brief wait for daemon to start listening
     std::thread::sleep(Duration::from_millis(200));
     Ok(())
 }
 
-/// Internal message from PTY reader threads to the main daemon loop.
 enum PtyEvent {
-    /// Output bytes from a PTY
     Output { id: String, data: Vec<u8> },
-    /// PTY reader hit EOF (process exited)
     Exited { id: String },
 }
 
-/// Per-agent state tracked by the daemon.
 struct AgentSlot {
     #[allow(dead_code)]
     master: Box<dyn portable_pty::MasterPty + Send>,
@@ -88,10 +74,6 @@ impl AgentSlot {
     }
 }
 
-/// Send SIGINT to the foreground process group of a PTY child.
-///
-/// Finds children of the shell process and signals their process group.
-/// Falls back to signaling the shell's own process group.
 fn send_sigint(child_pid: u32) {
     if let Ok(output) = std::process::Command::new("pgrep")
         .args(["-P", &child_pid.to_string()])
@@ -108,172 +90,135 @@ fn send_sigint(child_pid: u32) {
             }
         }
     }
-    // Fallback: signal the shell's process group
     unsafe { libc::kill(-(child_pid as i32), libc::SIGINT) };
 }
 
-/// Send a DaemonMessage to a client, returning false if the write fails.
-///
-/// Temporarily sets the socket to blocking mode to ensure large messages
-/// (like CatchUp with kilobytes of terminal output) are written completely.
-fn send_to_client(stream: &mut UnixStream, msg: &DaemonMessage) -> bool {
-    let _ = stream.set_nonblocking(false);
-    let result = crate::protocol::send_message(stream, msg).is_ok();
-    let _ = stream.set_nonblocking(true);
-    result
+async fn send_to_client(stream: &mut tokio::net::UnixStream, msg: &DaemonMessage) -> bool {
+    tokio::time::timeout(Duration::from_secs(5), send_message_async(stream, msg))
+        .await
+        .map_or(false, |r| r.is_ok())
 }
 
-/// Main daemon entry point. Blocks until shutdown.
-///
-/// Listens on a Unix domain socket, manages PTYs, and forwards output
-/// to subscribed clients.
-pub fn run_daemon() -> Result<()> {
+pub async fn run_daemon() -> Result<()> {
     let sock_path = daemon_socket_path()?;
     let pid_path = daemon_pid_path()?;
 
-    // Ensure ~/.fleet/ directory exists
     if let Some(parent) = sock_path.parent() {
         std::fs::create_dir_all(parent).context("creating ~/.fleet directory")?;
     }
 
-    // Check for existing daemon
     if sock_path.exists() {
         if is_daemon_running() {
             bail!("daemon already running (socket exists and PID is alive)");
         }
-        // Stale socket — remove it
         let _ = std::fs::remove_file(&sock_path);
     }
 
-    // Write PID file
     std::fs::write(&pid_path, std::process::id().to_string()).context("writing PID file")?;
 
     let listener = UnixListener::bind(&sock_path).context("binding Unix domain socket")?;
-    listener
-        .set_nonblocking(true)
-        .context("setting listener to non-blocking")?;
 
-    let (pty_tx, pty_rx) = mpsc::channel::<PtyEvent>();
+    let (pty_tx, mut pty_rx) = mpsc::channel::<PtyEvent>(1024);
 
     let mut agents: HashMap<String, AgentSlot> = HashMap::new();
-    let mut client: Option<UnixStream> = None;
-    let mut subscriptions: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut shutdown = false;
+    let mut client: Option<tokio::net::UnixStream> = None;
+    let mut subscriptions: HashSet<String> = HashSet::new();
+    let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(30));
 
-    while !shutdown {
-        // Accept new connections (non-blocking)
-        match listener.accept() {
-            Ok((stream, _)) => {
-                // Replace existing client — single-user model
-                stream.set_nonblocking(true).ok();
-                subscriptions.clear();
-                client = Some(stream);
+    loop {
+        // Build a future that reads one client message, or pends forever if no client
+        let client_read = async {
+            match client {
+                Some(ref mut stream) => recv_message_async::<ClientMessage, _>(stream).await,
+                None => std::future::pending().await,
             }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-            Err(e) => {
-                eprintln!("fleet-daemon: accept error: {e}");
-            }
-        }
+        };
 
-        // Drain PTY events from reader threads
-        while let Ok(evt) = pty_rx.try_recv() {
-            match evt {
-                PtyEvent::Output { id, data } => {
-                    if let Some(slot) = agents.get_mut(&id) {
-                        slot.push_output(&data);
+        tokio::select! {
+            result = listener.accept() => {
+                match result {
+                    Ok((stream, _)) => {
+                        subscriptions.clear();
+                        client = Some(stream);
                     }
-                    if subscriptions.contains(&id) {
-                        if let Some(ref mut stream) = client {
-                            let msg = DaemonMessage::Output {
-                                id: id.clone(),
-                                data,
-                            };
-                            if !send_to_client(stream, &msg) {
+                    Err(e) => {
+                        eprintln!("fleet-daemon: accept error: {e}");
+                    }
+                }
+            }
+
+            Some(evt) = pty_rx.recv() => {
+                match evt {
+                    PtyEvent::Output { id, data } => {
+                        if let Some(slot) = agents.get_mut(&id) {
+                            slot.push_output(&data);
+                        }
+                        if subscriptions.contains(&id) {
+                            let mut disconnect = false;
+                            if let Some(ref mut stream) = client {
+                                let msg = DaemonMessage::Output { id, data };
+                                if !send_to_client(stream, &msg).await {
+                                    disconnect = true;
+                                }
+                            }
+                            if disconnect {
                                 client = None;
                                 subscriptions.clear();
                             }
                         }
                     }
-                }
-                PtyEvent::Exited { id } => {
-                    if let Some(slot) = agents.get_mut(&id) {
-                        slot.alive = false;
-                    }
-                    // Always notify the client so the dashboard can mark
-                    // the agent as Done — not just when subscribed.
-                    if let Some(ref mut stream) = client {
-                        let msg = DaemonMessage::Exited { id };
-                        if !send_to_client(stream, &msg) {
-                            client = None;
-                            subscriptions.clear();
+                    PtyEvent::Exited { id } => {
+                        if let Some(slot) = agents.get_mut(&id) {
+                            slot.alive = false;
                         }
-                    }
-                }
-            }
-        }
-
-        // Read client messages.
-        // Two-phase read: length prefix in non-blocking mode, then body in
-        // blocking mode. This prevents partial-read corruption when large
-        // messages (e.g. paste input) span multiple kernel buffer fills.
-        if let Some(ref mut stream) = client {
-            loop {
-                // Phase 1: read 4-byte length prefix (non-blocking).
-                // Writes ≤ PIPE_BUF are atomic on Unix sockets, so 4 bytes
-                // either arrive in full or not at all.
-                let mut len_buf = [0u8; 4];
-                match Read::read_exact(stream, &mut len_buf) {
-                    Ok(()) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
-                    Err(_) => {
-                        client = None;
-                        subscriptions.clear();
-                        break;
-                    }
-                }
-                let len = u32::from_be_bytes(len_buf) as usize;
-
-                // Phase 2: switch to blocking to read the full body reliably.
-                let _ = stream.set_nonblocking(false);
-                let mut buf = vec![0u8; len];
-                let body_result = Read::read_exact(stream, &mut buf);
-                let _ = stream.set_nonblocking(true);
-
-                match body_result {
-                    Ok(()) => match serde_json::from_slice::<ClientMessage>(&buf) {
-                        Ok(msg) => match handle_client_message(
-                            msg,
-                            &mut agents,
-                            &mut subscriptions,
-                            stream,
-                            &pty_tx,
-                        ) {
-                            HandleResult::Continue => {}
-                            HandleResult::Shutdown => {
-                                shutdown = true;
-                                break;
+                        let mut disconnect = false;
+                        if let Some(ref mut stream) = client {
+                            let msg = DaemonMessage::Exited { id };
+                            if !send_to_client(stream, &msg).await {
+                                disconnect = true;
                             }
-                        },
-                        Err(_) => {
+                        }
+                        if disconnect {
                             client = None;
                             subscriptions.clear();
-                            break;
                         }
-                    },
-                    Err(_) => {
-                        client = None;
-                        subscriptions.clear();
-                        break;
                     }
                 }
             }
-        }
 
-        // Brief sleep to avoid busy-spinning
-        std::thread::sleep(Duration::from_millis(5));
+            result = client_read => {
+                match result {
+                    Ok(msg) => {
+                        let stream = client.as_mut().unwrap();
+                        match handle_client_message(
+                            msg, &mut agents, &mut subscriptions, stream, &pty_tx,
+                        ).await {
+                            HandleResult::Continue => {}
+                            HandleResult::Shutdown => break,
+                        }
+                    }
+                    Err(_) => {
+                        client = None;
+                        subscriptions.clear();
+                    }
+                }
+            }
+
+            _ = heartbeat_interval.tick() => {
+                let mut disconnect = false;
+                if let Some(ref mut stream) = client {
+                    if !send_to_client(stream, &DaemonMessage::Heartbeat).await {
+                        disconnect = true;
+                    }
+                }
+                if disconnect {
+                    client = None;
+                    subscriptions.clear();
+                }
+            }
+        }
     }
 
-    // Cleanup
     let _ = std::fs::remove_file(&sock_path);
     let _ = std::fs::remove_file(&pid_path);
 
@@ -285,11 +230,11 @@ enum HandleResult {
     Shutdown,
 }
 
-fn handle_client_message(
+async fn handle_client_message(
     msg: ClientMessage,
     agents: &mut HashMap<String, AgentSlot>,
-    subscriptions: &mut std::collections::HashSet<String>,
-    stream: &mut UnixStream,
+    subscriptions: &mut HashSet<String>,
+    stream: &mut tokio::net::UnixStream,
     pty_tx: &mpsc::Sender<PtyEvent>,
 ) -> HandleResult {
     match msg {
@@ -304,7 +249,7 @@ fn handle_client_message(
             match spawn_agent_pty(&id, &cwd, &cmd, &env, rows, cols, pty_tx) {
                 Ok(slot) => {
                     agents.insert(id, slot);
-                    let _ = send_to_client(stream, &DaemonMessage::Ok);
+                    let _ = send_to_client(stream, &DaemonMessage::Ok).await;
                 }
                 Err(e) => {
                     let _ = send_to_client(
@@ -312,7 +257,8 @@ fn handle_client_message(
                         &DaemonMessage::Error {
                             message: format!("{e:#}"),
                         },
-                    );
+                    )
+                    .await;
                 }
             }
             HandleResult::Continue
@@ -323,14 +269,15 @@ fn handle_client_message(
                     unsafe { libc::kill(pid as i32, libc::SIGKILL) };
                 }
                 slot.alive = false;
-                let _ = send_to_client(stream, &DaemonMessage::Ok);
+                let _ = send_to_client(stream, &DaemonMessage::Ok).await;
             } else {
                 let _ = send_to_client(
                     stream,
                     &DaemonMessage::Error {
                         message: format!("unknown agent: {id}"),
                     },
-                );
+                )
+                .await;
             }
             HandleResult::Continue
         }
@@ -339,14 +286,15 @@ fn handle_client_message(
                 if let Some(pid) = slot.child_pid {
                     send_sigint(pid);
                 }
-                let _ = send_to_client(stream, &DaemonMessage::Ok);
+                let _ = send_to_client(stream, &DaemonMessage::Ok).await;
             } else {
                 let _ = send_to_client(
                     stream,
                     &DaemonMessage::Error {
                         message: format!("unknown agent: {id}"),
                     },
-                );
+                )
+                .await;
             }
             HandleResult::Continue
         }
@@ -354,7 +302,6 @@ fn handle_client_message(
             if let Some(slot) = agents.get_mut(&id) {
                 let _ = slot.writer.write_all(&data);
                 let _ = slot.writer.flush();
-                // No response for Input — fire-and-forget for performance
             }
             HandleResult::Continue
         }
@@ -367,14 +314,15 @@ fn handle_client_message(
                     pixel_height: 0,
                 };
                 let _ = slot.master.resize(size);
-                let _ = send_to_client(stream, &DaemonMessage::Ok);
+                let _ = send_to_client(stream, &DaemonMessage::Ok).await;
             } else {
                 let _ = send_to_client(
                     stream,
                     &DaemonMessage::Error {
                         message: format!("unknown agent: {id}"),
                     },
-                );
+                )
+                .await;
             }
             HandleResult::Continue
         }
@@ -388,20 +336,22 @@ fn handle_client_message(
                         id,
                         data: catch_up_data,
                     },
-                );
+                )
+                .await;
             } else {
                 let _ = send_to_client(
                     stream,
                     &DaemonMessage::Error {
                         message: format!("unknown agent: {id}"),
                     },
-                );
+                )
+                .await;
             }
             HandleResult::Continue
         }
         ClientMessage::Unsubscribe { id } => {
             subscriptions.remove(&id);
-            let _ = send_to_client(stream, &DaemonMessage::Ok);
+            let _ = send_to_client(stream, &DaemonMessage::Ok).await;
             HandleResult::Continue
         }
         ClientMessage::List => {
@@ -412,11 +362,11 @@ fn handle_client_message(
                     alive: slot.alive,
                 })
                 .collect();
-            let _ = send_to_client(stream, &DaemonMessage::AgentList { agents: list });
+            let _ = send_to_client(stream, &DaemonMessage::AgentList { agents: list }).await;
             HandleResult::Continue
         }
         ClientMessage::Shutdown => {
-            let _ = send_to_client(stream, &DaemonMessage::Ok);
+            let _ = send_to_client(stream, &DaemonMessage::Ok).await;
             HandleResult::Shutdown
         }
         ClientMessage::Hello { version: _ } => {
@@ -425,14 +375,14 @@ fn handle_client_message(
                 &DaemonMessage::Hello {
                     version: env!("CARGO_PKG_VERSION").to_string(),
                 },
-            );
+            )
+            .await;
             HandleResult::Continue
         }
         ClientMessage::Pong => HandleResult::Continue,
     }
 }
 
-/// Spawn a PTY for an agent and start a reader thread.
 fn spawn_agent_pty(
     id: &str,
     cwd: &str,
@@ -478,7 +428,6 @@ fn spawn_agent_pty(
         .take_writer()
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    // Start reader thread
     let tx = pty_tx.clone();
     let agent_id = id.to_string();
     let mut reader = pair
@@ -486,19 +435,19 @@ fn spawn_agent_pty(
         .try_clone_reader()
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    std::thread::spawn(move || {
+    tokio::task::spawn_blocking(move || {
         let mut buf = [0u8; 65536];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => {
-                    let _ = tx.send(PtyEvent::Exited {
+                    let _ = tx.blocking_send(PtyEvent::Exited {
                         id: agent_id.clone(),
                     });
                     break;
                 }
                 Ok(n) => {
                     if tx
-                        .send(PtyEvent::Output {
+                        .blocking_send(PtyEvent::Output {
                             id: agent_id.clone(),
                             data: buf[..n].to_vec(),
                         })
@@ -511,8 +460,6 @@ fn spawn_agent_pty(
         }
     });
 
-    // Keep the child handle alive by leaking it — the daemon manages lifetime
-    // via the PID and signals, not the Child handle
     let _child = child;
     std::mem::forget(_child);
 

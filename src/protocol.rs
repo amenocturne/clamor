@@ -106,7 +106,6 @@ pub fn recv_message<T: DeserializeOwned, R: Read>(reader: &mut R) -> Result<T> {
 }
 
 /// Async variant of `send_message`.
-#[allow(dead_code)]
 pub async fn send_message_async<W: AsyncWrite + Unpin>(
     writer: &mut W,
     msg: &impl Serialize,
@@ -126,7 +125,6 @@ pub async fn send_message_async<W: AsyncWrite + Unpin>(
 }
 
 /// Async variant of `recv_message`.
-#[allow(dead_code)]
 pub async fn recv_message_async<T: DeserializeOwned, R: AsyncRead + Unpin>(
     reader: &mut R,
 ) -> Result<T> {
