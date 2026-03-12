@@ -1,61 +1,54 @@
-# Clamor
+<p align="center">
+  <img src="banner.png" alt="Clamor" width="100%">
+</p>
 
-A terminal multiplexer for Claude Code agents. Think tmux, but purpose-built for managing multiple AI agents simultaneously.
+<h3 align="center"><i>ORCHESTRATE THE NOISE</i></h3>
 
-## Why Clamor Exists
+<p align="center"> Tmux but for agents. Because one Claude isn't loud enough. </p>
 
-Claude Code is powerful, but it's one agent in one terminal. Real-world development often needs several agents working in parallel — one refactoring a module, another writing tests, a third fixing CI. Without clamor, you're juggling terminal tabs, losing track of which agent is doing what, and if your terminal crashes, all sessions die with it.
+<!-- demo gif placeholder -->
 
-Clamor solves this with a daemon-client architecture (like tmux). A background daemon owns the agent processes — they survive if your dashboard crashes, your terminal closes, or you disconnect entirely. Reconnect anytime and pick up where you left off.
-
-## How It Works
-
-Clamor manages the full agent lifecycle:
-
-1. **Spawn** — create an agent with a task description, pointed at a project folder
-2. **Monitor** — a live TUI dashboard shows all agents, their current state, and what tool they're using
-3. **Interact** — jump into any agent's terminal with a single keypress, interact with it, jump back to the dashboard
-4. **Adopt** — already have a Claude Code session running outside clamor? Bring it under management without restarting it
-
-Each agent runs in its own PTY (pseudoterminal) managed by the daemon. The daemon captures output into ring buffers, so when you attach to an agent you see its recent history — not a blank screen.
-
-### State Tracking via Hooks
-
-Clamor installs Claude Code hooks that fire on key events (tool use, notifications, completion). This gives the dashboard real-time awareness of each agent's state:
-
-- **Working** — actively executing tools or processing
-- **Input** — waiting for your response
-- **Done** — finished its task
-
-You see at a glance which agents need attention vs. which are happily working away.
-
-## Killer Features
-
-**Persistent sessions** — Agents live in the daemon, not your terminal. Close the dashboard, reopen it, everything's still running. No lost work, ever.
-
-**Jump keys** — Each agent gets a home-row key (a/s/d/f/j/k/l/g/h). One keypress to attach, `Ctrl+F` to return to the dashboard. Switching between agents is instant.
-
-**Live state awareness** — Not just "is it running" — you see the actual state (working/waiting/done) and the last tool invoked. Spot a stalled agent immediately instead of discovering it 20 minutes later.
-
-**Session adoption** — Started a Claude Code session the normal way and realize it's going to take a while? `clamor adopt <session-id>` brings it into clamor's management without interruption.
-
-**Non-blocking hooks** — The hook integration uses non-blocking file locks. Clamor never slows down Claude Code, even under heavy load.
-
-## Quick Start
+## Install
 
 ```bash
-# Build and install
-cd tools/clamor && cargo build --release
-cp target/release/clamor ~/.local/bin/clamor
+cargo install clamor
+```
 
-# Or from agentic-kit root
-just clamor-install
+Or build from source:
 
+```bash
+git clone https://github.com/amenocturne/clamor.git
+cd clamor
+cargo build --release
+cp target/release/clamor ~/.local/bin/
+```
+
+### Hook setup
+
+Clamor tracks agent state (working/waiting/done) via Claude Code hooks. Add these to your `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "type": "command", "command": "clamor hook" }],
+    "Notification": [{ "type": "command", "command": "clamor hook" }],
+    "PreToolUse": [{ "type": "command", "command": "clamor hook" }],
+    "UserPromptSubmit": [{ "type": "command", "command": "clamor hook" }],
+    "Stop": [{ "type": "command", "command": "clamor hook" }]
+  }
+}
+```
+
+That's it — no files to copy. The hook reads events from stdin and updates agent state in `~/.clamor/state.json`.
+
+## Quick start
+
+```bash
 # Configure your project folders
 clamor config
 ```
 
-Config is a simple JSON file mapping names to paths:
+This opens `~/.clamor/config.json` — map names to paths:
 
 ```json
 {
@@ -66,10 +59,87 @@ Config is a simple JSON file mapping names to paths:
 }
 ```
 
-Then just run `clamor` to open the dashboard. Create agents, monitor them, switch between them — all from one screen.
+Then launch the dashboard:
 
-Run `clamor --help` for the full command list.
+```bash
+clamor
+```
+
+## Features
+
+**Persistent sessions** — Agents live in a background daemon, not your terminal. Close the dashboard, reopen it — everything's still running. Terminal crash? SSH disconnect? Doesn't matter.
+
+**Jump keys** — Each agent gets a home-row key (`a`/`s`/`d`/`f`/`j`/`k`/`l`/`g`/`h`). One keypress to attach, `Ctrl+F` to detach. Switching between agents is instant.
+
+**Live state tracking** — The dashboard shows each agent's actual state (working/waiting/done) and the last tool it invoked. Spot stalled agents immediately.
+
+**Session adoption** — Already have a Claude Code session running? `clamor adopt <session-id>` brings it under management without restarting.
+
+**Non-blocking hooks** — State tracking uses non-blocking file locks. Clamor never slows down your Claude Code sessions.
+
+## Usage
+
+```
+clamor                  Open the dashboard (starts daemon if needed)
+clamor ls               List all agents
+clamor new <title>      Spawn a new agent
+clamor attach <ref>     Attach to an agent (by ID or jump key)
+clamor adopt <id>       Adopt an existing Claude Code session
+clamor edit <ref>       Update agent description
+clamor kill <ref>       Terminate an agent
+clamor kill --all       Terminate all agents
+clamor clean            Remove finished agents
+clamor config           Open config in $EDITOR
+clamor stop             Stop the daemon
+```
+
+### Dashboard keys
+
+| Key       | Action                        |
+| --------- | ----------------------------- |
+| `a`–`h`   | Jump to agent                 |
+| `c`       | Create agent (inline prompt)  |
+| `C`       | Create agent ($EDITOR prompt) |
+| `K` + key | Kill agent                    |
+| `e` + key | Edit agent description        |
+| `x`       | Clean finished agents         |
+| `q`       | Quit dashboard                |
+
+### Terminal keys
+
+| Key      | Action                     |
+| -------- | -------------------------- |
+| `Ctrl+F` | Detach (back to dashboard) |
+| `Ctrl+C` | Send SIGINT to agent       |
+| `Ctrl+J` | Snap to bottom (live view) |
+
+## Architecture
+
+Clamor uses a daemon-client architecture, similar to tmux:
+
+```
+┌──────────────┐    Unix socket    ┌────────────────────────┐
+│              │◄─────────────────►│         Daemon         │
+│   Dashboard  │  length-prefixed  │                        │
+│  (TUI client)│       JSON        │  ┌───────┐ ┌───────┐   │
+│              │                   │  │  PTY  │ │  PTY  │   │
+└──────────────┘                   │  │ agent │ │ agent │…  │
+                                   │  └───────┘ └───────┘   │
+                                   └────────────────────────┘
+```
+
+- The **daemon** runs in the background, owns all agent PTY processes, and persists across dashboard restarts
+- The **dashboard** connects over a Unix socket (`~/.clamor/clamor.sock`), subscribes to output streams, and renders the TUI
+- **State** is tracked in `~/.clamor/state.json` with file-locked reads/writes, updated by hooks in real time
 
 ## Troubleshooting
 
-**Agent terminal rendering breaks after attaching** — Some tools (e.g. Claude Code) use non-standard terminal rendering that can leave the attached terminal in a broken state. Double `Ctrl+F` fixes it — the first detaches to the dashboard, the second re-attaches to the last agent, resetting the terminal.
+**Agent terminal looks garbled after attaching** — Double `Ctrl+F` fixes it. The first detaches to the dashboard, the second re-attaches, resetting the terminal state.
+
+**Daemon won't start** — Check if a stale socket exists: `rm ~/.clamor/clamor.sock` and try again.
+
+**Hooks not updating state** — Verify the hook is executable (`chmod +x hook.sh`) and that `clamor` is in your `PATH`.
+
+## License
+
+[MIT](LICENSE)
