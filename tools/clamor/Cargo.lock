@@ -215,6 +215,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "clamor"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "crossterm",
+ "fs2",
+ "futures-util",
+ "libc",
+ "notify",
+ "portable-pty",
+ "rand",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tui-term",
+ "vt100",
+]
+
+[[package]]
 name = "clap"
 version = "4.5.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -522,28 +544,6 @@ name = "fixedbitset"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
-
-[[package]]
-name = "fleet"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "crossterm",
- "fs2",
- "futures-util",
- "libc",
- "notify",
- "portable-pty",
- "rand",
- "ratatui",
- "serde",
- "serde_json",
- "tokio",
- "tui-term",
- "vt100",
-]
 
 [[package]]
 name = "fnv"

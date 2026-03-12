@@ -18,7 +18,7 @@ skills:
   - todo
   - talk
   - shh
-  - fleet
+  - clamor
 common:
   - dev-workflow
   - code-conventions
@@ -29,7 +29,7 @@ common:
 hooks:
   - notification
   - workflow-check
-  - fleet
+  - clamor
   - deny-read
   - tts
 pipelines: []

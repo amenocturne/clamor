@@ -8,11 +8,11 @@ use anyhow::{Context, Result};
 use fs2::FileExt as _;
 use notify::{EventKind, RecursiveMode, Watcher};
 
-use crate::config::{FleetConfig, WatchMode};
-use crate::state::FleetState;
+use crate::config::{ClamorConfig, WatchMode};
+use crate::state::ClamorState;
 
 /// Reads state.json with a shared lock, returning None on any failure.
-fn reload_from_disk(path: &std::path::Path) -> Option<FleetState> {
+fn reload_from_disk(path: &std::path::Path) -> Option<ClamorState> {
     let file = File::open(path).ok()?;
     file.lock_shared().ok()?;
     let mut contents = String::new();
@@ -20,24 +20,24 @@ fn reload_from_disk(path: &std::path::Path) -> Option<FleetState> {
     file.unlock().ok()?;
 
     if contents.trim().is_empty() {
-        return Some(FleetState::default());
+        return Some(ClamorState::default());
     }
 
     serde_json::from_str(&contents).ok()
 }
 
-/// Watches `~/.fleet/state.json` for changes and keeps an in-memory cache.
+/// Watches `~/.clamor/state.json` for changes and keeps an in-memory cache.
 pub(crate) struct StateWatcher {
-    cached: Arc<Mutex<FleetState>>,
+    cached: Arc<Mutex<ClamorState>>,
     _watcher: Box<dyn Watcher + Send>,
 }
 
 impl StateWatcher {
-    fn new(config: &FleetConfig) -> Result<Self> {
-        let initial = FleetState::load()?;
+    fn new(config: &ClamorConfig) -> Result<Self> {
+        let initial = ClamorState::load()?;
         let cached = Arc::new(Mutex::new(initial));
 
-        let watch_dir = FleetConfig::config_dir()?;
+        let watch_dir = ClamorConfig::config_dir()?;
         let state_path = watch_dir.join("state.json");
 
         let cached_clone = cached.clone();
@@ -66,14 +66,14 @@ impl StateWatcher {
                 let mut w = notify::PollWatcher::new(handler, poll_config)
                     .context("Failed to create poll watcher")?;
                 w.watch(&watch_dir, RecursiveMode::NonRecursive)
-                    .context("Failed to watch fleet directory")?;
+                    .context("Failed to watch clamor directory")?;
                 Box::new(w)
             }
             WatchMode::Fsevents => {
                 let mut w = notify::RecommendedWatcher::new(handler, notify::Config::default())
                     .context("Failed to create file watcher")?;
                 w.watch(&watch_dir, RecursiveMode::NonRecursive)
-                    .context("Failed to watch fleet directory")?;
+                    .context("Failed to watch clamor directory")?;
                 Box::new(w)
             }
         };
@@ -84,12 +84,12 @@ impl StateWatcher {
         })
     }
 
-    fn get(&self) -> FleetState {
+    fn get(&self) -> ClamorState {
         self.cached.lock().unwrap().clone()
     }
 
     fn invalidate(&self) {
-        if let Ok(state) = FleetState::load() {
+        if let Ok(state) = ClamorState::load() {
             *self.cached.lock().unwrap() = state;
         }
     }
@@ -104,7 +104,7 @@ pub enum StateSource {
 impl StateSource {
     /// Create a new state source based on config. Falls back to direct
     /// disk reads if the file watcher cannot be created.
-    pub fn new(config: &FleetConfig) -> Self {
+    pub fn new(config: &ClamorConfig) -> Self {
         match StateWatcher::new(config) {
             Ok(w) => Self::Watched(w),
             Err(_) => Self::Direct,
@@ -112,10 +112,10 @@ impl StateSource {
     }
 
     /// Get the current state (from cache or disk).
-    pub fn get(&self) -> FleetState {
+    pub fn get(&self) -> ClamorState {
         match self {
             Self::Watched(w) => w.get(),
-            Self::Direct => FleetState::load().unwrap_or_default(),
+            Self::Direct => ClamorState::load().unwrap_or_default(),
         }
     }
 

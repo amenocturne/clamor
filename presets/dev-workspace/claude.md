@@ -12,7 +12,7 @@ Multi-project development workspace. Run Claude from this directory and specify 
 1. **Read WORKSPACE.yaml** directly with the Read tool (it's small, never spawn an agent for it)
 2. **Match the request to a project** using:
    - Explicit project name the user mentioned
-   - `explore_when` keywords — each project lists topic/tool names that route to it (e.g., "fix review tool" → agentic-kit, "fleet" → agentic-kit)
+   - `explore_when` keywords — each project lists topic/tool names that route to it (e.g., "fix review tool" → agentic-kit, "clamor" → agentic-kit)
 3. **Load project context**: read `<project>/CLAUDE.md` if it exists
 4. **Then proceed** with skills, orchestration, etc.
 

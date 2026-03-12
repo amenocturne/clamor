@@ -13,11 +13,11 @@ use crate::protocol::{recv_message_async, send_message_async, ClientMessage, Dae
 const RING_BUFFER_CAP: usize = 1024 * 1024;
 
 pub fn daemon_socket_path() -> Result<PathBuf> {
-    Ok(crate::config::FleetConfig::config_dir()?.join("fleet.sock"))
+    Ok(crate::config::ClamorConfig::config_dir()?.join("clamor.sock"))
 }
 
 pub fn daemon_pid_path() -> Result<PathBuf> {
-    Ok(crate::config::FleetConfig::config_dir()?.join("fleet.pid"))
+    Ok(crate::config::ClamorConfig::config_dir()?.join("clamor.pid"))
 }
 
 pub fn is_daemon_running() -> bool {
@@ -37,7 +37,7 @@ pub fn is_daemon_running() -> bool {
 }
 
 pub fn start_daemon_background() -> Result<()> {
-    let exe = std::env::current_exe().context("resolving fleet executable path")?;
+    let exe = std::env::current_exe().context("resolving clamor executable path")?;
     std::process::Command::new(exe)
         .arg("daemon")
         .stdin(std::process::Stdio::null())
@@ -104,7 +104,7 @@ pub async fn run_daemon() -> Result<()> {
     let pid_path = daemon_pid_path()?;
 
     if let Some(parent) = sock_path.parent() {
-        std::fs::create_dir_all(parent).context("creating ~/.fleet directory")?;
+        std::fs::create_dir_all(parent).context("creating ~/.clamor directory")?;
     }
 
     if sock_path.exists() {
@@ -142,7 +142,7 @@ pub async fn run_daemon() -> Result<()> {
                         client = Some(stream);
                     }
                     Err(e) => {
-                        eprintln!("fleet-daemon: accept error: {e}");
+                        eprintln!("clamor-daemon: accept error: {e}");
                     }
                 }
             }

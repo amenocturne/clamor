@@ -43,21 +43,21 @@ clean:
     find . -name "*.pyc" -delete
     find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
-# Build and install fleet binary to ~/.local/bin
-fleet-install:
+# Build and install clamor binary to ~/.local/bin
+clamor-install:
     #!/usr/bin/env bash
-    FLEET_DIR="tools/fleet"
-    DAEMON_FILES="$FLEET_DIR/src/daemon.rs $FLEET_DIR/src/protocol.rs $FLEET_DIR/src/state.rs $FLEET_DIR/src/agent.rs $FLEET_DIR/Cargo.toml"
+    CLAMOR_DIR="tools/clamor"
+    DAEMON_FILES="$CLAMOR_DIR/src/daemon.rs $CLAMOR_DIR/src/protocol.rs $CLAMOR_DIR/src/state.rs $CLAMOR_DIR/src/agent.rs $CLAMOR_DIR/Cargo.toml"
     NEW_HASH=$(cat $DAEMON_FILES | shasum -a 256 | cut -d' ' -f1)
     OLD_HASH=""
-    [[ -f ~/.fleet/daemon.hash ]] && OLD_HASH=$(cat ~/.fleet/daemon.hash)
+    [[ -f ~/.clamor/daemon.hash ]] && OLD_HASH=$(cat ~/.clamor/daemon.hash)
 
     NEED_RESUME=false
 
-    if [ -S ~/.fleet/fleet.sock ]; then
+    if [ -S ~/.clamor/clamor.sock ]; then
         if [[ "$NEW_HASH" != "$OLD_HASH" ]]; then
-            echo "Fleet daemon code changed — restart required."
-            fleet pre-upgrade
+            echo "Clamor daemon code changed — restart required."
+            clamor pre-upgrade
             rc=$?
             if [[ $rc -ne 0 && $rc -le 128 ]]; then
                 exit 0
@@ -68,17 +68,17 @@ fleet-install:
         fi
     fi
 
-    cargo build --release --manifest-path "$FLEET_DIR/Cargo.toml"
-    mkdir -p ~/.local/bin ~/.fleet
-    rm -f ~/.local/bin/fleet
-    cp "$FLEET_DIR/target/release/fleet" ~/.local/bin/fleet
-    echo "$NEW_HASH" > ~/.fleet/daemon.hash
-    echo "fleet installed to ~/.local/bin/fleet"
+    cargo build --release --manifest-path "$CLAMOR_DIR/Cargo.toml"
+    mkdir -p ~/.local/bin ~/.clamor
+    rm -f ~/.local/bin/clamor
+    cp "$CLAMOR_DIR/target/release/clamor" ~/.local/bin/clamor
+    echo "$NEW_HASH" > ~/.clamor/daemon.hash
+    echo "clamor installed to ~/.local/bin/clamor"
 
     if [[ "$NEED_RESUME" == "true" ]]; then
         echo ""
         echo "Resuming sessions..."
-        fleet resume
+        clamor resume
     fi
 
 # Aliases

@@ -22,11 +22,11 @@ use ratatui::Terminal;
 
 use crate::agent::{generate_id, next_color_index, Agent, AgentState};
 use crate::client::DaemonClient;
-use crate::config::{resolve_path, FleetConfig};
+use crate::config::{resolve_path, ClamorConfig};
 use crate::daemon;
 use crate::pane::{self, PaneView};
 use crate::protocol::DaemonMessage;
-use crate::state::{with_state, FleetState};
+use crate::state::{with_state, ClamorState};
 use crate::watcher::StateSource;
 
 use input::{DashboardAction, InputMode, PromptEdit, PromptField};
@@ -83,7 +83,7 @@ async fn reconcile_state(client: &mut DaemonClient) -> Result<usize> {
     Ok(lost_count)
 }
 
-pub async fn run(config: &FleetConfig, attach_to: Option<String>) -> Result<()> {
+pub async fn run(config: &ClamorConfig, attach_to: Option<String>) -> Result<()> {
     ensure_daemon()?;
     let mut client = DaemonClient::connect().await?;
 
@@ -143,7 +143,7 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
 
 async fn main_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    config: &FleetConfig,
+    config: &ClamorConfig,
     client: &mut DaemonClient,
     attach_to: Option<String>,
     lost_count: usize,
@@ -380,7 +380,7 @@ enum LoopAction {
 
 fn render_dashboard(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    config: &FleetConfig,
+    config: &ClamorConfig,
     input_mode: &InputMode,
     killed_at: &HashMap<String, Instant>,
     sorted_folders: &[(String, String)],
@@ -404,7 +404,7 @@ fn render_dashboard(
 fn build_overlay<'a>(
     input_mode: &'a InputMode,
     sorted_folders: &'a [(String, String)],
-    state: &'a FleetState,
+    state: &'a ClamorState,
 ) -> render::Overlay<'a> {
     match input_mode {
         InputMode::Normal => render::Overlay::None,
@@ -1124,7 +1124,7 @@ async fn spawn_inline(
     folder_path: &str,
     title: &str,
     prompt: Option<&str>,
-    current_state: &FleetState,
+    current_state: &ClamorState,
     state_source: &StateSource,
     pty_rows: u16,
     pty_cols: u16,
@@ -1168,7 +1168,7 @@ async fn spawn_inline(
     state_source.invalidate();
 
     let cmd = crate::spawn::build_agent_cmd(prompt);
-    let env = vec![("FLEET_AGENT_ID".to_string(), id.clone())];
+    let env = vec![("CLAMOR_AGENT_ID".to_string(), id.clone())];
 
     client.spawn_agent(&id, &cwd_str, &cmd, &env, pty_rows, pty_cols).await?;
 
@@ -1180,7 +1180,7 @@ async fn adopt_inline(
     session_id: &str,
     folder_name: &str,
     folder_path: &str,
-    current_state: &FleetState,
+    current_state: &ClamorState,
     state_source: &StateSource,
     pty_rows: u16,
     pty_cols: u16,
@@ -1218,7 +1218,7 @@ async fn adopt_inline(
     state_source.invalidate();
 
     let cmd = crate::spawn::build_resume_cmd(session_id);
-    let env = vec![("FLEET_AGENT_ID".to_string(), id.clone())];
+    let env = vec![("CLAMOR_AGENT_ID".to_string(), id.clone())];
 
     client.spawn_agent(&id, &cwd_str, &cmd, &env, pty_rows, pty_cols).await?;
 

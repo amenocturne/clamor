@@ -5,7 +5,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FleetConfig {
+pub struct ClamorConfig {
     #[serde(default)]
     pub folders: HashMap<String, String>,
     #[serde(default)]
@@ -41,7 +41,7 @@ impl Default for DashboardConfig {
     }
 }
 
-impl Default for FleetConfig {
+impl Default for ClamorConfig {
     fn default() -> Self {
         Self {
             folders: HashMap::new(),
@@ -50,14 +50,14 @@ impl Default for FleetConfig {
     }
 }
 
-impl FleetConfig {
-    /// Returns `~/.fleet/`.
+impl ClamorConfig {
+    /// Returns `~/.clamor/`.
     pub fn config_dir() -> anyhow::Result<PathBuf> {
         let home = std::env::var("HOME").context("HOME environment variable not set")?;
-        Ok(PathBuf::from(home).join(".fleet"))
+        Ok(PathBuf::from(home).join(".clamor"))
     }
 
-    /// Creates `~/.fleet/` if it doesn't exist.
+    /// Creates `~/.clamor/` if it doesn't exist.
     pub fn ensure_dir() -> anyhow::Result<()> {
         let dir = Self::config_dir()?;
         if !dir.exists() {
@@ -67,7 +67,7 @@ impl FleetConfig {
         Ok(())
     }
 
-    /// Loads config from `~/.fleet/config.json`.
+    /// Loads config from `~/.clamor/config.json`.
     /// Creates a default config file if it doesn't exist.
     pub fn load() -> anyhow::Result<Self> {
         Self::ensure_dir()?;

@@ -26,15 +26,15 @@ pytest skills/youtube/              # Skill-specific tests
 
 Scripts use PEP 723 inline metadata. Run with `uv run <script>`.
 
-## Fleet Public Repo
+## Clamor Public Repo
 
-Fleet (`tools/fleet/`) is published as a standalone public repo via `git subtree`. The canonical hooks live at `tools/fleet/hooks/` (symlinked from `hooks/fleet/`).
+Clamor (`tools/clamor/`) is published as a standalone public repo via `git subtree`. The canonical hooks live at `tools/clamor/hooks/` (symlinked from `hooks/clamor/`).
 
-**Before pushing Fleet changes to the public repo, always ask the user first.** Don't push automatically — the user decides when and what gets published.
+**Before pushing Clamor changes to the public repo, always ask the user first.** Don't push automatically — the user decides when and what gets published.
 
 Sync commands:
 ```bash
-git subtree push --prefix=tools/fleet fleet-public main
+git subtree push --prefix=tools/clamor clamor-public main
 ```
 
 ## TODO

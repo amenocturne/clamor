@@ -17,7 +17,7 @@ skills:
   - review
   - talk
   - shh
-  - fleet
+  - clamor
 instructions:
   - quick-rules
   - saving
@@ -36,7 +36,7 @@ hooks:
   - notification
   - save-conversation
   - graph-colors
-  - fleet
+  - clamor
   - deny-read
   - tts
 pipelines: []

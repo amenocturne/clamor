@@ -16,7 +16,7 @@ mod watcher;
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Command};
-use config::FleetConfig;
+use config::ClamorConfig;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -24,9 +24,9 @@ async fn main() -> Result<()> {
 
     match cli.command {
         None => {
-            let config = FleetConfig::load()?;
+            let config = ClamorConfig::load()?;
             if config.folders.is_empty() {
-                eprintln!("Error: No folders configured. Run `fleet config` to add folders.");
+                eprintln!("Error: No folders configured. Run `clamor config` to add folders.");
                 std::process::exit(1);
             }
             dashboard::run(&config, None).await?;
@@ -35,8 +35,8 @@ async fn main() -> Result<()> {
             spawn::list_agents()?;
         }
         Some(Command::Attach { agent_ref }) => {
-            let config = FleetConfig::load()?;
-            let state = state::FleetState::load()?;
+            let config = ClamorConfig::load()?;
+            let state = state::ClamorState::load()?;
             let agent = spawn::resolve_agent(&state, &agent_ref)?;
             dashboard::run(&config, Some(agent.id.clone())).await?;
         }
@@ -96,7 +96,7 @@ async fn main() -> Result<()> {
         Some(Command::Stop) => {
             let mut client = client::DaemonClient::connect().await?;
             client.shutdown().await?;
-            println!("Fleet daemon stopped");
+            println!("Clamor daemon stopped");
         }
         Some(Command::Daemon) => {
             daemon::run_daemon().await?;

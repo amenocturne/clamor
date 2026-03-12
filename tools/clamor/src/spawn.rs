@@ -5,11 +5,11 @@ use chrono::Utc;
 
 use crate::agent::{generate_id, next_color_index, Agent, AgentState};
 use crate::client::DaemonClient;
-use crate::config::{resolve_path, FleetConfig};
+use crate::config::{resolve_path, ClamorConfig};
 use crate::daemon;
 use crate::dashboard::keys;
 use crate::picker;
-use crate::state::{with_state, FleetState};
+use crate::state::{with_state, ClamorState};
 
 fn ensure_daemon() -> anyhow::Result<()> {
     if !daemon::is_daemon_running() {
@@ -19,12 +19,12 @@ fn ensure_daemon() -> anyhow::Result<()> {
 }
 
 pub fn is_debug_mode() -> bool {
-    std::env::var("FLEET_DEBUG").is_ok()
+    std::env::var("CLAMOR_DEBUG").is_ok()
 }
 
 pub fn build_agent_cmd(prompt: Option<&str>) -> Vec<String> {
     if is_debug_mode() {
-        let exe = std::env::current_exe().unwrap_or_else(|_| "fleet".into());
+        let exe = std::env::current_exe().unwrap_or_else(|_| "clamor".into());
         let desc = prompt.unwrap_or("interactive");
         vec![
             exe.to_string_lossy().to_string(),
@@ -42,7 +42,7 @@ pub fn build_agent_cmd(prompt: Option<&str>) -> Vec<String> {
 
 pub fn build_resume_cmd(session_id: &str) -> Vec<String> {
     if is_debug_mode() {
-        let exe = std::env::current_exe().unwrap_or_else(|_| "fleet".into());
+        let exe = std::env::current_exe().unwrap_or_else(|_| "clamor".into());
         vec![
             exe.to_string_lossy().to_string(),
             "mock-agent".to_string(),
@@ -64,10 +64,10 @@ pub async fn spawn_agent(
     force_editor: bool,
 ) -> anyhow::Result<()> {
     ensure_daemon()?;
-    let config = FleetConfig::load()?;
+    let config = ClamorConfig::load()?;
 
     if config.folders.is_empty() {
-        bail!("No folders configured. Run `fleet config` to add folders.");
+        bail!("No folders configured. Run `clamor config` to add folders.");
     }
 
     let (folder_name, folder_path) = match folder_override {
@@ -93,7 +93,7 @@ pub async fn spawn_agent(
         None => tokio::task::block_in_place(read_task_description)?,
     };
 
-    let state = FleetState::load()?;
+    let state = ClamorState::load()?;
     let existing_ids: std::collections::HashSet<String> = state.agents.keys().cloned().collect();
     let id = generate_id(&existing_ids);
     let now = Utc::now();
@@ -128,7 +128,7 @@ pub async fn spawn_agent(
     })?;
 
     let cmd = build_agent_cmd(prompt.as_deref());
-    let env = vec![("FLEET_AGENT_ID".to_string(), id.clone())];
+    let env = vec![("CLAMOR_AGENT_ID".to_string(), id.clone())];
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
     let mut client = DaemonClient::connect().await?;
     client.spawn_agent(&id, &cwd_str, &cmd, &env, term_rows, term_cols).await?;
@@ -144,10 +144,10 @@ pub async fn adopt_session(
     folder_override: Option<String>,
 ) -> anyhow::Result<()> {
     ensure_daemon()?;
-    let config = FleetConfig::load()?;
+    let config = ClamorConfig::load()?;
 
     if config.folders.is_empty() {
-        bail!("No folders configured. Run `fleet config` to add folders.");
+        bail!("No folders configured. Run `clamor config` to add folders.");
     }
 
     let (folder_name, folder_path) = match folder_override {
@@ -179,7 +179,7 @@ pub async fn adopt_session(
         }
     };
 
-    let state = FleetState::load()?;
+    let state = ClamorState::load()?;
     let existing_ids: std::collections::HashSet<String> = state.agents.keys().cloned().collect();
     let id = generate_id(&existing_ids);
     let now = Utc::now();
@@ -208,7 +208,7 @@ pub async fn adopt_session(
     })?;
 
     let cmd = build_resume_cmd(session_id);
-    let env = vec![("FLEET_AGENT_ID".to_string(), id.clone())];
+    let env = vec![("CLAMOR_AGENT_ID".to_string(), id.clone())];
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
     let mut client = DaemonClient::connect().await?;
     client.spawn_agent(&id, &cwd_str, &cmd, &env, term_rows, term_cols).await?;
@@ -223,7 +223,7 @@ pub async fn pre_upgrade() -> anyhow::Result<bool> {
         return Ok(true);
     }
 
-    let state = FleetState::load()?;
+    let state = ClamorState::load()?;
     let total = state.agents.len();
 
     if total > 0 {
@@ -272,7 +272,7 @@ pub async fn pre_upgrade() -> anyhow::Result<bool> {
     })?;
 
     if !confirmed {
-        println!("Skipping. Run 'just fleet-install' later.");
+        println!("Skipping. Run 'just clamor-install' later.");
         return Ok(false);
     }
 
@@ -284,7 +284,7 @@ pub async fn pre_upgrade() -> anyhow::Result<bool> {
 }
 
 pub async fn resume_agents() -> anyhow::Result<()> {
-    let state = FleetState::load()?;
+    let state = ClamorState::load()?;
 
     let resumable: Vec<&Agent> = state
         .agents
@@ -306,7 +306,7 @@ pub async fn resume_agents() -> anyhow::Result<()> {
     for agent in &resumable {
         let session_id = agent.session_id.as_ref().unwrap();
         let cmd = build_resume_cmd(session_id);
-        let env = vec![("FLEET_AGENT_ID".to_string(), agent.id.clone())];
+        let env = vec![("CLAMOR_AGENT_ID".to_string(), agent.id.clone())];
 
         match client.spawn_agent(&agent.id, &agent.cwd, &cmd, &env, term_rows, term_cols).await {
             Ok(()) => {
@@ -335,7 +335,7 @@ pub async fn resume_agents() -> anyhow::Result<()> {
 
 pub async fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
     ensure_daemon()?;
-    let state = FleetState::load()?;
+    let state = ClamorState::load()?;
 
     let agent = resolve_agent(&state, agent_ref)?.clone();
 
@@ -353,7 +353,7 @@ pub async fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
 
 pub async fn kill_all_agents() -> anyhow::Result<()> {
     ensure_daemon()?;
-    let state = FleetState::load()?;
+    let state = ClamorState::load()?;
 
     let count = state.agents.len();
     let mut client = DaemonClient::connect().await?;
@@ -392,7 +392,7 @@ pub fn clean_agents() -> anyhow::Result<()> {
 }
 
 pub fn list_agents() -> anyhow::Result<()> {
-    let state = FleetState::load()?;
+    let state = ClamorState::load()?;
 
     if state.agents.is_empty() {
         println!("No agents.");
@@ -436,7 +436,7 @@ pub fn list_agents() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn resolve_agent<'a>(state: &'a FleetState, agent_ref: &str) -> anyhow::Result<&'a Agent> {
+pub fn resolve_agent<'a>(state: &'a ClamorState, agent_ref: &str) -> anyhow::Result<&'a Agent> {
     let matches: Vec<&Agent> = state
         .agents
         .values()
@@ -457,7 +457,7 @@ pub fn resolve_agent<'a>(state: &'a FleetState, agent_ref: &str) -> anyhow::Resu
 }
 
 pub async fn edit_agent(agent_ref: &str, description: Option<String>) -> anyhow::Result<()> {
-    let state = FleetState::load()?;
+    let state = ClamorState::load()?;
 
     let agent_id = resolve_agent(&state, agent_ref)?.id.clone();
 
@@ -487,11 +487,11 @@ pub async fn edit_agent(agent_ref: &str, description: Option<String>) -> anyhow:
 }
 
 pub fn open_config() -> anyhow::Result<()> {
-    let config_path = FleetConfig::config_dir()?.join("config.json");
-    FleetConfig::ensure_dir()?;
+    let config_path = ClamorConfig::config_dir()?.join("config.json");
+    ClamorConfig::ensure_dir()?;
 
     if !config_path.exists() {
-        let _ = FleetConfig::load()?;
+        let _ = ClamorConfig::load()?;
     }
 
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
@@ -511,7 +511,7 @@ use crate::dashboard::render::format_duration;
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-fn select_folder(config: &FleetConfig) -> anyhow::Result<(String, String)> {
+fn select_folder(config: &ClamorConfig) -> anyhow::Result<(String, String)> {
     let mut folders: Vec<(&String, &String)> = config.folders.iter().collect();
     folders.sort_by_key(|(name, _)| name.to_owned());
 
@@ -540,7 +540,7 @@ fn read_task_description() -> anyhow::Result<(String, Option<String>)> {
 pub fn read_task_from_editor() -> anyhow::Result<(String, String)> {
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
     let tmp = std::env::temp_dir().join(format!(
-        "fleet-task-{}.md",
+        "clamor-task-{}.md",
         generate_id(&std::collections::HashSet::new())
     ));
 

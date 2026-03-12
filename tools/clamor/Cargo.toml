@@ -1,5 +1,5 @@
 [package]
-name = "fleet"
+name = "clamor"
 version = "0.1.1"
 edition = "2021"
 

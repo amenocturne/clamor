@@ -7,20 +7,20 @@ use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::Agent;
-use crate::config::FleetConfig;
+use crate::config::ClamorConfig;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct FleetState {
+pub struct ClamorState {
     #[serde(default)]
     pub agents: HashMap<String, Agent>,
 }
 
-impl FleetState {
+impl ClamorState {
     fn state_path() -> anyhow::Result<std::path::PathBuf> {
-        Ok(FleetConfig::config_dir()?.join("state.json"))
+        Ok(ClamorConfig::config_dir()?.join("state.json"))
     }
 
-    /// Reads state from `~/.fleet/state.json` with a shared (read) lock.
+    /// Reads state from `~/.clamor/state.json` with a shared (read) lock.
     /// Returns empty state if the file doesn't exist.
     pub fn load() -> anyhow::Result<Self> {
         let path = Self::state_path()?;
@@ -50,10 +50,10 @@ impl FleetState {
             .with_context(|| format!("Failed to parse state file: {}", path.display()))
     }
 
-    /// Writes state to `~/.fleet/state.json` with an exclusive file lock.
+    /// Writes state to `~/.clamor/state.json` with an exclusive file lock.
     #[allow(dead_code)]
     pub fn save(&self) -> anyhow::Result<()> {
-        FleetConfig::ensure_dir()?;
+        ClamorConfig::ensure_dir()?;
         let path = Self::state_path()?;
 
         let file = OpenOptions::new()
@@ -86,7 +86,7 @@ impl FleetState {
 /// and releases the lock. Returns whatever `f` returns.
 pub fn with_state<F, R>(f: F) -> anyhow::Result<R>
 where
-    F: FnOnce(&mut FleetState) -> R,
+    F: FnOnce(&mut ClamorState) -> R,
 {
     with_state_inner(f, true)
 }
@@ -95,7 +95,7 @@ where
 /// Used by hooks to avoid blocking Claude Code.
 pub fn try_with_state<F, R>(f: F) -> anyhow::Result<Option<R>>
 where
-    F: FnOnce(&mut FleetState) -> R,
+    F: FnOnce(&mut ClamorState) -> R,
 {
     match with_state_inner(f, false) {
         Ok(r) => Ok(Some(r)),
@@ -115,7 +115,7 @@ where
 #[allow(dead_code)]
 pub async fn with_state_async<F, R>(f: F) -> anyhow::Result<R>
 where
-    F: FnOnce(&mut FleetState) -> R + Send + 'static,
+    F: FnOnce(&mut ClamorState) -> R + Send + 'static,
     R: Send + 'static,
 {
     tokio::task::spawn_blocking(move || with_state(f)).await?
@@ -123,10 +123,10 @@ where
 
 fn with_state_inner<F, R>(f: F, blocking: bool) -> anyhow::Result<R>
 where
-    F: FnOnce(&mut FleetState) -> R,
+    F: FnOnce(&mut ClamorState) -> R,
 {
-    FleetConfig::ensure_dir()?;
-    let path = FleetConfig::config_dir()?.join("state.json");
+    ClamorConfig::ensure_dir()?;
+    let path = ClamorConfig::config_dir()?.join("state.json");
 
     let file = OpenOptions::new()
         .read(true)
@@ -150,8 +150,8 @@ where
         .read_to_string(&mut contents)
         .with_context(|| format!("Failed to read state file: {}", path.display()))?;
 
-    let mut state: FleetState = if contents.trim().is_empty() {
-        FleetState::default()
+    let mut state: ClamorState = if contents.trim().is_empty() {
+        ClamorState::default()
     } else {
         serde_json::from_str(&contents)
             .with_context(|| format!("Failed to parse state file: {}", path.display()))?
