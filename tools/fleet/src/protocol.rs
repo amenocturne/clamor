@@ -78,6 +78,7 @@ pub struct DaemonAgent {
 /// Send a length-prefixed JSON message over a writer.
 ///
 /// Wire format: 4-byte big-endian length prefix followed by JSON bytes.
+#[allow(dead_code)]
 pub fn send_message<W: Write>(writer: &mut W, msg: &impl Serialize) -> Result<()> {
     let json = serde_json::to_vec(msg).context("serializing message")?;
     let len = (json.len() as u32).to_be_bytes();
@@ -90,6 +91,7 @@ pub fn send_message<W: Write>(writer: &mut W, msg: &impl Serialize) -> Result<()
 /// Read a length-prefixed JSON message from a reader.
 ///
 /// Wire format: 4-byte big-endian length prefix followed by JSON bytes.
+#[allow(dead_code)]
 pub fn recv_message<T: DeserializeOwned, R: Read>(reader: &mut R) -> Result<T> {
     let mut len_buf = [0u8; 4];
     reader
