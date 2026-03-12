@@ -110,6 +110,17 @@ where
     }
 }
 
+/// Async variant of `with_state` — runs the file-locked read-modify-write
+/// on the tokio blocking thread pool to avoid stalling the async runtime.
+#[allow(dead_code)]
+pub async fn with_state_async<F, R>(f: F) -> anyhow::Result<R>
+where
+    F: FnOnce(&mut FleetState) -> R + Send + 'static,
+    R: Send + 'static,
+{
+    tokio::task::spawn_blocking(move || with_state(f)).await?
+}
+
 fn with_state_inner<F, R>(f: F, blocking: bool) -> anyhow::Result<R>
 where
     F: FnOnce(&mut FleetState) -> R,

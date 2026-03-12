@@ -419,6 +419,16 @@ fn handle_client_message(
             let _ = send_to_client(stream, &DaemonMessage::Ok);
             HandleResult::Shutdown
         }
+        ClientMessage::Hello { version: _ } => {
+            let _ = send_to_client(
+                stream,
+                &DaemonMessage::Hello {
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                },
+            );
+            HandleResult::Continue
+        }
+        ClientMessage::Pong => HandleResult::Continue,
     }
 }
 
