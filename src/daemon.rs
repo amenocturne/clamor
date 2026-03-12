@@ -217,34 +217,59 @@ pub fn run_daemon() -> Result<()> {
             }
         }
 
-        // Read client messages (non-blocking)
+        // Read client messages.
+        // Two-phase read: length prefix in non-blocking mode, then body in
+        // blocking mode. This prevents partial-read corruption when large
+        // messages (e.g. paste input) span multiple kernel buffer fills.
         if let Some(ref mut stream) = client {
             loop {
-                match crate::protocol::recv_message::<ClientMessage, _>(stream) {
-                    Ok(msg) => match handle_client_message(
-                        msg,
-                        &mut agents,
-                        &mut subscriptions,
-                        stream,
-                        &pty_tx,
-                    ) {
-                        HandleResult::Continue => {}
-                        HandleResult::Shutdown => {
-                            shutdown = true;
-                            break;
+                // Phase 1: read 4-byte length prefix (non-blocking).
+                // Writes ≤ PIPE_BUF are atomic on Unix sockets, so 4 bytes
+                // either arrive in full or not at all.
+                let mut len_buf = [0u8; 4];
+                match Read::read_exact(stream, &mut len_buf) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(_) => {
+                        client = None;
+                        subscriptions.clear();
+                        break;
+                    }
+                }
+                let len = u32::from_be_bytes(len_buf) as usize;
+
+                // Phase 2: switch to blocking to read the full body reliably.
+                let _ = stream.set_nonblocking(false);
+                let mut buf = vec![0u8; len];
+                let body_result = Read::read_exact(stream, &mut buf);
+                let _ = stream.set_nonblocking(true);
+
+                match body_result {
+                    Ok(()) => {
+                        match serde_json::from_slice::<ClientMessage>(&buf) {
+                            Ok(msg) => match handle_client_message(
+                                msg,
+                                &mut agents,
+                                &mut subscriptions,
+                                stream,
+                                &pty_tx,
+                            ) {
+                                HandleResult::Continue => {}
+                                HandleResult::Shutdown => {
+                                    shutdown = true;
+                                    break;
+                                }
+                            },
+                            Err(_) => {
+                                client = None;
+                                subscriptions.clear();
+                                break;
+                            }
                         }
-                    },
-                    Err(e) => {
-                        let is_would_block = e
-                            .downcast_ref::<std::io::Error>()
-                            .map_or(false, |io_err| {
-                                io_err.kind() == std::io::ErrorKind::WouldBlock
-                            });
-                        if !is_would_block {
-                            // Client disconnected or protocol error
-                            client = None;
-                            subscriptions.clear();
-                        }
+                    }
+                    Err(_) => {
+                        client = None;
+                        subscriptions.clear();
                         break;
                     }
                 }

@@ -918,7 +918,11 @@ fn terminal_iteration(
                 } else {
                     text.into_bytes()
                 };
+                // Switch to blocking mode so large pastes don't get
+                // silently dropped by WouldBlock on the non-blocking socket.
+                client.set_nonblocking(false)?;
                 let _ = client.send_input(agent_id, &data);
+                client.set_nonblocking(true)?;
 
                 // Force full redraw — the multiline paste echo from the
                 // inner app can desync ratatui's diff-based rendering.
