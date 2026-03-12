@@ -59,6 +59,10 @@ impl PaneView {
             self.parser.process(data);
             let after = self.scrollback_len();
             self.scroll_offset += after.saturating_sub(before);
+            // Clamp so offset never exceeds actual scrollback — prevents
+            // runaway growth when the buffer is at capacity and
+            // scrollback_len() stops increasing.
+            self.scroll_offset = self.scroll_offset.min(after);
         } else {
             self.parser.process(data);
         }
@@ -98,6 +102,18 @@ impl PaneView {
     /// Clear any active text selection.
     pub fn clear_selection(&mut self) {
         self.selection = None;
+    }
+
+    /// Scroll up by `n` lines, clamped to actual scrollback size.
+    pub fn scroll_up(&mut self, n: usize) {
+        self.scroll_offset = self.scroll_offset.saturating_add(n);
+        let max = self.scrollback_len();
+        self.scroll_offset = self.scroll_offset.min(max);
+    }
+
+    /// Scroll down by `n` lines (toward live view).
+    pub fn scroll_down(&mut self, n: usize) {
+        self.scroll_offset = self.scroll_offset.saturating_sub(n);
     }
 
     /// Snap back to live view (scroll_offset = 0).
