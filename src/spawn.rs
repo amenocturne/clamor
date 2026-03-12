@@ -272,7 +272,7 @@ pub async fn pre_upgrade() -> anyhow::Result<bool> {
     })?;
 
     if !confirmed {
-        println!("Skipping. Run 'just clamor-install' later.");
+        println!("Skipping. Rebuild and restart the daemon later.");
         return Ok(false);
     }
 
