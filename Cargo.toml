@@ -2,6 +2,12 @@
 name = "clamor"
 version = "0.1.1"
 edition = "2021"
+description = "Terminal multiplexer for managing multiple Claude Code agents"
+license = "MIT"
+repository = "https://github.com/amenocturne/clamor"
+readme = "README.md"
+keywords = ["terminal", "multiplexer", "claude", "agent", "tui"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
