@@ -151,7 +151,7 @@ pub fn render_terminal(
         &duration,
         color,
         true,
-        Some("^F back  ^G bottom"),
+        Some("^F back  ^J bottom"),
     );
 
     let pseudo_term = tui_term::widget::PseudoTerminal::new(screen);

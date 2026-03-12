@@ -930,9 +930,9 @@ async fn handle_terminal_event(
                 return Ok(LoopAction::Continue);
             }
 
-            // Ctrl+G -> snap to bottom (live view) without forwarding to PTY
+            // Ctrl+J -> snap to bottom (live view) without forwarding to PTY
             if key_event.modifiers.contains(KeyModifiers::CONTROL)
-                && key_event.code == KeyCode::Char('g')
+                && key_event.code == KeyCode::Char('j')
             {
                 if let Some(pv) = pane_views.get_mut(agent_id) {
                     pv.snap_to_bottom();
