@@ -8,7 +8,9 @@ use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use tokio::net::UnixListener;
 use tokio::sync::mpsc;
 
-use crate::protocol::{recv_message_async, send_message_async, ClientMessage, DaemonAgent, DaemonMessage};
+use crate::protocol::{
+    recv_message_async, send_message_async, ClientMessage, DaemonAgent, DaemonMessage,
+};
 
 const RING_BUFFER_CAP: usize = 1024 * 1024;
 

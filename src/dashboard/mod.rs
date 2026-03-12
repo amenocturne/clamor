@@ -611,7 +611,8 @@ async fn handle_dashboard_event(
                                 state_source,
                                 pty_rows,
                                 pty_cols,
-                            ).await;
+                            )
+                            .await;
                         }
                         None => {
                             *input_mode = InputMode::ConfirmEmptySpawn {
@@ -644,13 +645,11 @@ async fn handle_dashboard_event(
                         let folder_path_owned = path.clone();
                         let mut editor_result: Option<(String, String)> = None;
                         tokio::task::block_in_place(|| {
-                            suspend_tui(terminal, || {
-                                match crate::spawn::read_task_from_editor() {
-                                    Ok(result) => editor_result = Some(result),
-                                    Err(e) => {
-                                        eprintln!("Error: {e}");
-                                        std::thread::sleep(Duration::from_secs(1));
-                                    }
+                            suspend_tui(terminal, || match crate::spawn::read_task_from_editor() {
+                                Ok(result) => editor_result = Some(result),
+                                Err(e) => {
+                                    eprintln!("Error: {e}");
+                                    std::thread::sleep(Duration::from_secs(1));
                                 }
                             })
                         })?;
@@ -668,7 +667,8 @@ async fn handle_dashboard_event(
                                     state_source,
                                     pty_rows,
                                     pty_cols,
-                                ).await;
+                                )
+                                .await;
                                 *input_mode = InputMode::Normal;
                             }
                             None => {
@@ -751,7 +751,8 @@ async fn handle_dashboard_event(
                             state_source,
                             pty_rows,
                             pty_cols,
-                        ).await;
+                        )
+                        .await;
                         submitted = true;
                     }
                 }
@@ -776,7 +777,8 @@ async fn handle_dashboard_event(
                         state_source,
                         pty_rows,
                         pty_cols,
-                    ).await;
+                    )
+                    .await;
                 }
                 *input_mode = InputMode::Normal;
             }
@@ -856,7 +858,8 @@ async fn handle_dashboard_event(
                                 state_source,
                                 pty_rows,
                                 pty_cols,
-                            ).await;
+                            )
+                            .await;
                         } else if !sorted_folders.is_empty() {
                             let (folder_name, folder_path) = &sorted_folders[0];
                             let _ = adopt_inline(
@@ -868,7 +871,8 @@ async fn handle_dashboard_event(
                                 state_source,
                                 pty_rows,
                                 pty_cols,
-                            ).await;
+                            )
+                            .await;
                         }
                     }
                 }
@@ -990,11 +994,8 @@ async fn handle_terminal_event(
                                 if !sel.active && sel.start != sel.end {
                                     let sel = sel.clone();
                                     let screen = pv.scrolled_screen();
-                                    let text = pane::extract_selected_text(
-                                        screen,
-                                        &sel,
-                                        pane_area.width,
-                                    );
+                                    let text =
+                                        pane::extract_selected_text(screen, &sel, pane_area.width);
                                     if !text.is_empty() {
                                         pane::copy_to_clipboard(&text);
                                     }
@@ -1035,10 +1036,11 @@ async fn handle_terminal_event(
                                         let delta = (pv.scroll_offset - old) as u16;
                                         if delta > 0 {
                                             if let Some(ref mut sel) = pv.selection {
-                                                sel.start.1 =
-                                                    sel.start.1.saturating_add(delta).min(
-                                                        pane_area.height.saturating_sub(1),
-                                                    );
+                                                sel.start.1 = sel
+                                                    .start
+                                                    .1
+                                                    .saturating_add(delta)
+                                                    .min(pane_area.height.saturating_sub(1));
                                             }
                                         }
                                     } else if mouse_event.row
@@ -1170,7 +1172,9 @@ async fn spawn_inline(
     let cmd = crate::spawn::build_agent_cmd(prompt);
     let env = vec![("CLAMOR_AGENT_ID".to_string(), id.clone())];
 
-    client.spawn_agent(&id, &cwd_str, &cmd, &env, pty_rows, pty_cols).await?;
+    client
+        .spawn_agent(&id, &cwd_str, &cmd, &env, pty_rows, pty_cols)
+        .await?;
 
     Ok(())
 }
@@ -1220,7 +1224,9 @@ async fn adopt_inline(
     let cmd = crate::spawn::build_resume_cmd(session_id);
     let env = vec![("CLAMOR_AGENT_ID".to_string(), id.clone())];
 
-    client.spawn_agent(&id, &cwd_str, &cmd, &env, pty_rows, pty_cols).await?;
+    client
+        .spawn_agent(&id, &cwd_str, &cmd, &env, pty_rows, pty_cols)
+        .await?;
 
     Ok(())
 }

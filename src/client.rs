@@ -3,7 +3,9 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use tokio::net::UnixStream;
 
-use crate::protocol::{recv_message_async, send_message_async, ClientMessage, DaemonAgent, DaemonMessage};
+use crate::protocol::{
+    recv_message_async, send_message_async, ClientMessage, DaemonAgent, DaemonMessage,
+};
 
 pub struct DaemonClient {
     stream: UnixStream,
@@ -34,17 +36,20 @@ impl DaemonClient {
             env: env.to_vec(),
             rows,
             cols,
-        }).await?;
+        })
+        .await?;
         self.expect_ok().await
     }
 
     pub async fn kill_agent(&mut self, id: &str) -> Result<()> {
-        self.send(ClientMessage::Kill { id: id.to_string() }).await?;
+        self.send(ClientMessage::Kill { id: id.to_string() })
+            .await?;
         self.expect_ok().await
     }
 
     pub async fn send_sigint(&mut self, id: &str) -> Result<()> {
-        self.send(ClientMessage::Sigint { id: id.to_string() }).await?;
+        self.send(ClientMessage::Sigint { id: id.to_string() })
+            .await?;
         self.expect_ok().await
     }
 
@@ -52,7 +57,8 @@ impl DaemonClient {
         self.send(ClientMessage::Input {
             id: id.to_string(),
             data: data.to_vec(),
-        }).await
+        })
+        .await
     }
 
     pub async fn resize(&mut self, id: &str, rows: u16, cols: u16) -> Result<()> {
@@ -60,19 +66,19 @@ impl DaemonClient {
             id: id.to_string(),
             rows,
             cols,
-        }).await?;
+        })
+        .await?;
         self.expect_ok().await
     }
 
     pub async fn subscribe(&mut self, id: &str) -> Result<Vec<u8>> {
-        self.send(ClientMessage::Subscribe { id: id.to_string() }).await?;
+        self.send(ClientMessage::Subscribe { id: id.to_string() })
+            .await?;
         loop {
-            let msg: DaemonMessage = tokio::time::timeout(
-                Duration::from_secs(5),
-                recv_message_async(&mut self.stream),
-            )
-            .await
-            .context("subscribe timed out")??;
+            let msg: DaemonMessage =
+                tokio::time::timeout(Duration::from_secs(5), recv_message_async(&mut self.stream))
+                    .await
+                    .context("subscribe timed out")??;
 
             match &msg {
                 DaemonMessage::CatchUp { data, .. } => {
@@ -94,19 +100,18 @@ impl DaemonClient {
     }
 
     pub async fn unsubscribe(&mut self, id: &str) -> Result<()> {
-        self.send(ClientMessage::Unsubscribe { id: id.to_string() }).await?;
+        self.send(ClientMessage::Unsubscribe { id: id.to_string() })
+            .await?;
         self.expect_ok().await
     }
 
     pub async fn list_agents(&mut self) -> Result<Vec<DaemonAgent>> {
         self.send(ClientMessage::List).await?;
         loop {
-            let msg: DaemonMessage = tokio::time::timeout(
-                Duration::from_secs(5),
-                recv_message_async(&mut self.stream),
-            )
-            .await
-            .context("list timed out")??;
+            let msg: DaemonMessage =
+                tokio::time::timeout(Duration::from_secs(5), recv_message_async(&mut self.stream))
+                    .await
+                    .context("list timed out")??;
 
             match msg {
                 DaemonMessage::AgentList { agents } => return Ok(agents),
@@ -140,12 +145,10 @@ impl DaemonClient {
 
     async fn expect_ok(&mut self) -> Result<()> {
         loop {
-            let msg: DaemonMessage = tokio::time::timeout(
-                Duration::from_secs(5),
-                recv_message_async(&mut self.stream),
-            )
-            .await
-            .context("expect_ok timed out")??;
+            let msg: DaemonMessage =
+                tokio::time::timeout(Duration::from_secs(5), recv_message_async(&mut self.stream))
+                    .await
+                    .context("expect_ok timed out")??;
 
             match msg {
                 DaemonMessage::Ok => return Ok(()),
