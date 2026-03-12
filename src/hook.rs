@@ -16,10 +16,10 @@ struct HookEvent {
 }
 
 /// Run the hook: read stdin JSON, update agent state.
-/// Called as `fleet hook` subcommand.
+/// Called as `clamor hook` subcommand.
 ///
 /// Never fails — hooks must not block Claude Code.
-/// Silently exits on any error or when FLEET_AGENT_ID is not set.
+/// Silently exits on any error or when CLAMOR_AGENT_ID is not set.
 pub fn run() {
     let _ = run_inner();
 }
@@ -29,7 +29,7 @@ fn run_inner() -> anyhow::Result<()> {
     let mut input = String::new();
     std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
 
-    let agent_id = match std::env::var("FLEET_AGENT_ID") {
+    let agent_id = match std::env::var("CLAMOR_AGENT_ID") {
         Ok(id) => id,
         Err(_) => return Ok(()),
     };
@@ -41,7 +41,7 @@ fn run_inner() -> anyhow::Result<()> {
     // slowing down Claude Code mid-session.
     let is_stop = event.hook_event_name == "Stop";
 
-    let update = |state: &mut crate::state::FleetState| {
+    let update = |state: &mut crate::state::ClamorState| {
         let agent = match state.agents.get_mut(&agent_id) {
             Some(a) => a,
             None => return,

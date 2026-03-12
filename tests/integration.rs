@@ -2,24 +2,24 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
-fn fleet_bin() -> PathBuf {
-    env!("CARGO_BIN_EXE_fleet").into()
+fn clamor_bin() -> PathBuf {
+    env!("CARGO_BIN_EXE_clamor").into()
 }
 
-fn fleet_cmd() -> Command {
-    let mut cmd = Command::new(fleet_bin());
-    cmd.env("FLEET_DEBUG", "1");
+fn clamor_cmd() -> Command {
+    let mut cmd = Command::new(clamor_bin());
+    cmd.env("CLAMOR_DEBUG", "1");
     cmd
 }
 
-/// Create an isolated HOME directory with a minimal fleet config.
+/// Create an isolated HOME directory with a minimal clamor config.
 fn setup_test_env() -> PathBuf {
     let test_home = std::env::temp_dir().join(format!(
-        "fleet-test-{}-{}",
+        "clm-t-{}-{}",
         std::process::id(),
         rand_suffix()
     ));
-    std::fs::create_dir_all(test_home.join(".fleet")).unwrap();
+    std::fs::create_dir_all(test_home.join(".clamor")).unwrap();
 
     let config = serde_json::json!({
         "folders": {
@@ -27,7 +27,7 @@ fn setup_test_env() -> PathBuf {
         }
     });
     std::fs::write(
-        test_home.join(".fleet/config.json"),
+        test_home.join(".clamor/config.json"),
         serde_json::to_string_pretty(&config).unwrap(),
     )
     .unwrap();
@@ -49,7 +49,7 @@ fn rand_suffix() -> u64 {
 
 /// Kill any daemon and remove the temp directory.
 fn cleanup_test_env(test_home: &PathBuf) {
-    let pid_file = test_home.join(".fleet/fleet.pid");
+    let pid_file = test_home.join(".clamor/clamor.pid");
     if let Ok(pid_str) = std::fs::read_to_string(&pid_file) {
         if let Ok(pid) = pid_str.trim().parse::<i32>() {
             unsafe {
@@ -64,10 +64,10 @@ fn cleanup_test_env(test_home: &PathBuf) {
 
 /// Start the daemon in the background and wait for it to be ready.
 fn start_daemon(home: &PathBuf) {
-    let mut child = Command::new(fleet_bin())
+    let mut child = Command::new(clamor_bin())
         .arg("daemon")
         .env("HOME", home)
-        .env("FLEET_DEBUG", "1")
+        .env("CLAMOR_DEBUG", "1")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -75,7 +75,7 @@ fn start_daemon(home: &PathBuf) {
         .expect("failed to start daemon");
 
     // Wait for the socket to appear
-    let sock = home.join(".fleet/fleet.sock");
+    let sock = home.join(".clamor/clamor.sock");
     for _ in 0..50 {
         if sock.exists() {
             return;
@@ -93,8 +93,8 @@ fn test_daemon_starts_and_stops() {
     let home = setup_test_env();
     start_daemon(&home);
 
-    assert!(home.join(".fleet/fleet.pid").exists());
-    assert!(home.join(".fleet/fleet.sock").exists());
+    assert!(home.join(".clamor/clamor.pid").exists());
+    assert!(home.join(".clamor/clamor.sock").exists());
 
     cleanup_test_env(&home);
 }
@@ -105,7 +105,7 @@ fn test_spawn_and_list() {
     start_daemon(&home);
 
     // Spawn an agent
-    let output = fleet_cmd()
+    let output = clamor_cmd()
         .args(["new", "--folder", "test", "test task"])
         .env("HOME", &home)
         .output()
@@ -117,7 +117,7 @@ fn test_spawn_and_list() {
     );
 
     // List agents
-    let output = fleet_cmd().arg("ls").env("HOME", &home).output().unwrap();
+    let output = clamor_cmd().arg("ls").env("HOME", &home).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("test task"), "agent not listed: {stdout}");
     assert!(
@@ -134,7 +134,7 @@ fn test_spawn_and_kill() {
     start_daemon(&home);
 
     // Spawn
-    let output = fleet_cmd()
+    let output = clamor_cmd()
         .args(["new", "--folder", "test", "kill me"])
         .env("HOME", &home)
         .output()
@@ -150,7 +150,7 @@ fn test_spawn_and_kill() {
         .trim_end_matches(':');
 
     // Kill it
-    let output = fleet_cmd()
+    let output = clamor_cmd()
         .args(["kill", id])
         .env("HOME", &home)
         .output()
@@ -162,7 +162,7 @@ fn test_spawn_and_kill() {
     );
 
     // Verify it's gone from list
-    let output = fleet_cmd().arg("ls").env("HOME", &home).output().unwrap();
+    let output = clamor_cmd().arg("ls").env("HOME", &home).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         !stdout.contains("kill me") || stdout.contains("No agents"),
@@ -179,7 +179,7 @@ fn test_kill_all() {
 
     // Spawn two agents
     for desc in ["agent one", "agent two"] {
-        let output = fleet_cmd()
+        let output = clamor_cmd()
             .args(["new", "--folder", "test", desc])
             .env("HOME", &home)
             .output()
@@ -194,7 +194,7 @@ fn test_kill_all() {
     }
 
     // Kill all
-    let output = fleet_cmd()
+    let output = clamor_cmd()
         .args(["kill", "--all"])
         .env("HOME", &home)
         .output()
@@ -208,7 +208,7 @@ fn test_kill_all() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("2 agent(s)"));
 
     // List should be empty
-    let output = fleet_cmd().arg("ls").env("HOME", &home).output().unwrap();
+    let output = clamor_cmd().arg("ls").env("HOME", &home).output().unwrap();
     assert!(String::from_utf8_lossy(&output.stdout).contains("No agents"));
 
     cleanup_test_env(&home);
@@ -219,7 +219,7 @@ fn test_adopt_session() {
     let home = setup_test_env();
     start_daemon(&home);
 
-    let output = fleet_cmd()
+    let output = clamor_cmd()
         .args([
             "adopt",
             "fake-session-123",
@@ -245,7 +245,7 @@ fn test_adopt_session() {
     );
 
     // Should appear in list
-    let output = fleet_cmd().arg("ls").env("HOME", &home).output().unwrap();
+    let output = clamor_cmd().arg("ls").env("HOME", &home).output().unwrap();
     assert!(String::from_utf8_lossy(&output.stdout).contains("adopted task"));
 
     cleanup_test_env(&home);
@@ -258,7 +258,7 @@ fn test_persistent_keys() {
 
     // Spawn three agents
     for desc in ["first", "second", "third"] {
-        let output = fleet_cmd()
+        let output = clamor_cmd()
             .args(["new", "--folder", "test", desc])
             .env("HOME", &home)
             .output()
@@ -273,7 +273,7 @@ fn test_persistent_keys() {
     }
 
     // Read state file to verify keys
-    let state_path = home.join(".fleet/state.json");
+    let state_path = home.join(".clamor/state.json");
     let state_str = std::fs::read_to_string(&state_path).unwrap();
     let state: serde_json::Value = serde_json::from_str(&state_str).unwrap();
 
@@ -308,7 +308,7 @@ fn test_color_indices_increment() {
     start_daemon(&home);
 
     for desc in ["a", "b", "c"] {
-        let output = fleet_cmd()
+        let output = clamor_cmd()
             .args(["new", "--folder", "test", desc])
             .env("HOME", &home)
             .output()
@@ -322,7 +322,7 @@ fn test_color_indices_increment() {
         std::thread::sleep(Duration::from_millis(100));
     }
 
-    let state_str = std::fs::read_to_string(home.join(".fleet/state.json")).unwrap();
+    let state_str = std::fs::read_to_string(home.join(".clamor/state.json")).unwrap();
     let state: serde_json::Value = serde_json::from_str(&state_str).unwrap();
 
     let agents = state["agents"].as_object().unwrap();
@@ -339,9 +339,9 @@ fn test_color_indices_increment() {
 
 #[test]
 fn test_mock_agent_produces_output() {
-    let output = Command::new(fleet_bin())
+    let output = Command::new(clamor_bin())
         .args(["mock-agent", "--description", "test", "--duration", "3"])
-        .env("FLEET_AGENT_ID", "test123")
+        .env("CLAMOR_AGENT_ID", "test123")
         .output()
         .unwrap();
 
@@ -358,14 +358,14 @@ fn test_clean_removes_done_agents() {
     start_daemon(&home);
 
     // Spawn an agent
-    fleet_cmd()
+    clamor_cmd()
         .args(["new", "--folder", "test", "will be done"])
         .env("HOME", &home)
         .output()
         .unwrap();
 
     // Manually mark as done in state file
-    let state_path = home.join(".fleet/state.json");
+    let state_path = home.join(".clamor/state.json");
     let state_str = std::fs::read_to_string(&state_path).unwrap();
     let mut state: serde_json::Value = serde_json::from_str(&state_str).unwrap();
 
@@ -377,7 +377,7 @@ fn test_clean_removes_done_agents() {
     std::fs::write(&state_path, serde_json::to_string_pretty(&state).unwrap()).unwrap();
 
     // Clean
-    let output = fleet_cmd()
+    let output = clamor_cmd()
         .arg("clean")
         .env("HOME", &home)
         .output()
@@ -386,7 +386,7 @@ fn test_clean_removes_done_agents() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("1 finished agent(s)"));
 
     // Verify empty
-    let output = fleet_cmd().arg("ls").env("HOME", &home).output().unwrap();
+    let output = clamor_cmd().arg("ls").env("HOME", &home).output().unwrap();
     assert!(String::from_utf8_lossy(&output.stdout).contains("No agents"));
 
     cleanup_test_env(&home);

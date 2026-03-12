@@ -3,15 +3,15 @@ set positional-arguments
 default:
     @just --list
 
-# Build fleet binary (release mode)
+# Build clamor binary (release mode)
 build:
     cargo build --release
 
-# Build fleet binary (debug mode)
+# Build clamor binary (debug mode)
 build-debug:
     cargo build
 
-# Run fleet dashboard
+# Run clamor dashboard
 run *FLAGS:
     cargo run -- "$@"
 

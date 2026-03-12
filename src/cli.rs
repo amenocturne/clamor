@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "fleet", version, about = "Terminal multiplexer for Claude Code agents")]
+#[command(name = "clamor", version, about = "Terminal multiplexer for Claude Code agents")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -29,7 +29,7 @@ pub enum Command {
         agent_ref: String,
     },
 
-    /// Adopt an external Claude Code session into fleet
+    /// Adopt an external Claude Code session into clamor
     Adopt {
         /// Claude Code session ID
         session_id: String,
@@ -70,16 +70,16 @@ pub enum Command {
     /// Resume agents from a previous daemon session
     Resume,
 
-    /// Stop the fleet daemon
+    /// Stop the clamor daemon
     Stop,
 
-    /// Run the fleet daemon (usually started automatically)
+    /// Run the clamor daemon (usually started automatically)
     Daemon,
 
     /// Internal: mock agent for testing (hidden)
     #[command(hide = true)]
     MockAgent {
-        /// Agent description (passed by fleet)
+        /// Agent description (passed by clamor)
         #[arg(long, default_value = "test agent")]
         description: String,
         /// How long to run in seconds

@@ -2,7 +2,7 @@ use std::io::{self, BufRead, Write};
 use std::time::{Duration, Instant};
 
 pub fn run(description: &str, duration_secs: u64) {
-    let agent_id = std::env::var("FLEET_AGENT_ID").unwrap_or_else(|_| "unknown".into());
+    let agent_id = std::env::var("CLAMOR_AGENT_ID").unwrap_or_else(|_| "unknown".into());
 
     println!("\x1b[1;36m══ Mock Agent ══\x1b[0m");
     println!("  id: {agent_id}");

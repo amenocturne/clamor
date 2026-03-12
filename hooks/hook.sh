@@ -1,2 +1,2 @@
 #!/bin/bash
-exec ~/.local/bin/fleet hook
+exec ~/.local/bin/clamor hook

@@ -9,7 +9,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::agent::{Agent, AgentState};
-use crate::config::FleetConfig;
+use crate::config::ClamorConfig;
 use crate::pane::{self, Selection};
 
 use super::input::PromptField;
@@ -53,7 +53,7 @@ pub enum Overlay<'a> {
 /// Render the full dashboard frame.
 pub fn render(
     frame: &mut Frame,
-    config: &FleetConfig,
+    config: &ClamorConfig,
     agents: &HashMap<String, &Agent>,
     killed_ids: &[String],
     overlay: &Overlay,
@@ -167,7 +167,7 @@ pub fn render_terminal(
 fn render_header(frame: &mut Frame, area: Rect, total: usize, needs_input: usize) {
     let mut spans = vec![
         Span::styled(
-            "FLEET",
+            "CLAMOR",
             Style::default()
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
@@ -249,7 +249,7 @@ struct AgentGroup<'a> {
 }
 
 fn build_groups<'a>(
-    config: &FleetConfig,
+    config: &ClamorConfig,
     agents: &HashMap<String, &'a Agent>,
     killed_ids: &[String],
 ) -> Vec<AgentGroup<'a>> {
@@ -617,7 +617,7 @@ fn render_stale_agent_popup(frame: &mut Frame, area: Rect, description: &str) {
         Line::from(format!(" \"{}\" is from a previous daemon.", desc)),
         Line::from(""),
         Line::from(Span::styled(
-            " Resume outside fleet: claude --resume <session-id>",
+            " Resume outside clamor: claude --resume <session-id>",
             Style::default().fg(Color::DarkGray),
         )),
         Line::from(""),
