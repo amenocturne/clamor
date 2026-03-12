@@ -1,0 +1,7 @@
+{
+  "name": "shh",
+  "description": "Kill TTS playback immediately. Stop current speech output without disabling voice mode.",
+  "author": "amenocturne",
+  "version": "1.0.0",
+  "tags": ["voice", "tts", "control"]
+}

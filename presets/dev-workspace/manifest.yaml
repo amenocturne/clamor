@@ -16,6 +16,8 @@ skills:
   - config
   - project-setup
   - todo
+  - talk
+  - shh
   - fleet
 common:
   - dev-workflow
@@ -29,6 +31,7 @@ hooks:
   - workflow-check
   - fleet
   - deny-read
+  - tts
 pipelines: []
 external:
   - github.com/anthropics/skills/skill-creator
