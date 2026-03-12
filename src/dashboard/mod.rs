@@ -284,8 +284,8 @@ async fn main_loop(
 
                             let pv = pane_views
                                 .entry(agent_id.clone())
-                                .or_insert_with(|| PaneView::new(content_rows, term_cols));
-                            pv.resize(content_rows, term_cols);
+                                .insert_entry(PaneView::new(content_rows, term_cols))
+                                .into_mut();
 
                             match client.subscribe(&agent_id).await {
                                 Ok(catch_up) => {
