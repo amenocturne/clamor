@@ -1,3 +1,5 @@
+set positional-arguments
+
 default:
     @just --list
 
@@ -11,7 +13,7 @@ build-debug:
 
 # Run fleet dashboard
 run *FLAGS:
-    cargo run -- {{FLAGS}}
+    cargo run -- "$@"
 
 # Run tests
 test:

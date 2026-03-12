@@ -1,10 +1,12 @@
+set positional-arguments
+
 default:
     @just --list
 
 # Download YouTube subtitles
 subs *FLAGS:
-    uv run scripts/yt-subs.py {{FLAGS}}
+    uv run scripts/yt-subs.py "$@"
 
 # Inject transcript/lyrics into a source note
 inject *FLAGS:
-    uv run scripts/inject-transcript.py {{FLAGS}}
+    uv run scripts/inject-transcript.py "$@"

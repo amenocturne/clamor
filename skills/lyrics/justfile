@@ -1,6 +1,8 @@
+set positional-arguments
+
 default:
     @just --list
 
 # Fetch lyrics from Genius
 fetch *FLAGS:
-    uv run scripts/fetch-lyrics.py {{FLAGS}}
+    uv run scripts/fetch-lyrics.py "$@"
