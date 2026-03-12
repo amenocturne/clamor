@@ -141,11 +141,8 @@ pub fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
         }
     }
 
-    if key.modifiers.contains(KeyModifiers::SUPER) {
-        match key.code {
-            KeyCode::Backspace => return Some(vec![0x15]),
-            _ => {}
-        }
+    if key.modifiers.contains(KeyModifiers::SUPER) && key.code == KeyCode::Backspace {
+        return Some(vec![0x15]);
     }
 
     if key.modifiers.contains(KeyModifiers::ALT) {
@@ -231,25 +228,35 @@ pub fn encode_mouse_for_pane(mouse: MouseEvent, pane_area: Rect) -> Option<Vec<u
     Some(seq.into_bytes())
 }
 
+/// Parameters for rendering an agent title bar.
+pub struct TitleBarParams<'a> {
+    pub folder: &'a str,
+    pub description: &'a str,
+    pub state: &'a str,
+    pub duration: &'a str,
+    pub color: Color,
+    pub focused: bool,
+    pub hint: Option<&'a str>,
+}
+
 /// Render an agent title bar.
 ///
 /// Layout: ` folder | description ... state duration`
 ///
 /// Background color is determined by agent state (via `color` param),
 /// tinted by whether the pane is focused.
-pub fn render_title_bar(
-    frame: &mut Frame,
-    area: Rect,
-    folder: &str,
-    description: &str,
-    state: &str,
-    duration: &str,
-    color: Color,
-    focused: bool,
-    hint: Option<&str>,
-) {
-    let bg = if focused { color } else { dim_color(color) };
-    let fg = if focused {
+pub fn render_title_bar(frame: &mut Frame, area: Rect, params: &TitleBarParams) {
+    let TitleBarParams {
+        folder,
+        description,
+        state,
+        duration,
+        color,
+        focused,
+        hint,
+    } = params;
+    let bg = if *focused { *color } else { dim_color(*color) };
+    let fg = if *focused {
         Color::Black
     } else {
         Color::Rgb(80, 80, 80)
@@ -311,7 +318,7 @@ pub fn extract_selected_text(screen: &vt100::Screen, sel: &Selection, cols: u16)
     }
 
     // Strip empty trailing lines
-    while lines.last().map_or(false, |l| l.is_empty()) {
+    while lines.last().is_some_and(|l| l.is_empty()) {
         lines.pop();
     }
 

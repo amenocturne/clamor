@@ -84,10 +84,8 @@ pub fn handle_input(
     key_map: &HashMap<char, String>,
     mode: &InputMode,
 ) -> DashboardAction {
-    if event.modifiers.contains(KeyModifiers::CONTROL) {
-        if matches!(event.code, KeyCode::Char('c')) {
-            return DashboardAction::Quit;
-        }
+    if event.modifiers.contains(KeyModifiers::CONTROL) && matches!(event.code, KeyCode::Char('c')) {
+        return DashboardAction::Quit;
     }
 
     match mode {

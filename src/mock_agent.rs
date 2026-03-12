@@ -13,7 +13,7 @@ pub fn run(description: &str, duration_secs: u64) {
     // Spawn stdin echo thread
     std::thread::spawn(|| {
         let stdin = io::stdin();
-        for line in stdin.lock().lines().flatten() {
+        for line in stdin.lock().lines().map_while(Result::ok) {
             println!("\x1b[33mecho>\x1b[0m {line}");
             let _ = io::stdout().flush();
         }

@@ -145,13 +145,15 @@ pub fn render_terminal(
     pane::render_title_bar(
         frame,
         chunks[0],
-        &agent.folder,
-        &agent.title,
-        state_str,
-        &duration,
-        color,
-        true,
-        Some("^F back  ^J bottom"),
+        &pane::TitleBarParams {
+            folder: &agent.folder,
+            description: &agent.title,
+            state: state_str,
+            duration: &duration,
+            color,
+            focused: true,
+            hint: Some("^F back  ^J bottom"),
+        },
     );
 
     let pseudo_term = tui_term::widget::PseudoTerminal::new(screen);

@@ -164,7 +164,7 @@ async fn main_loop(
         let is_lost = state
             .agents
             .get(agent_id)
-            .map_or(true, |a| a.state == AgentState::Lost);
+            .is_none_or(|a| a.state == AgentState::Lost);
 
         if is_lost {
             input_mode = InputMode::StaleAgent {
@@ -601,16 +601,21 @@ async fn handle_dashboard_event(
                     match editor_result {
                         Some((title, prompt)) => {
                             let state = state_source.get();
-                            let _ = spawn_inline(
-                                client,
-                                &folder_name_owned,
-                                &folder_path_owned,
-                                &title,
-                                Some(&prompt),
-                                &state,
+                            let ctx = SpawnContext {
+                                current_state: &state,
                                 state_source,
                                 pty_rows,
                                 pty_cols,
+                            };
+                            let _ = spawn_inline(
+                                client,
+                                &SpawnParams {
+                                    folder_name: &folder_name_owned,
+                                    folder_path: &folder_path_owned,
+                                    title: &title,
+                                    prompt: Some(&prompt),
+                                },
+                                &ctx,
                             )
                             .await;
                         }
@@ -657,16 +662,21 @@ async fn handle_dashboard_event(
                         match editor_result {
                             Some((title, prompt)) => {
                                 let state = state_source.get();
-                                let _ = spawn_inline(
-                                    client,
-                                    &folder_name_owned,
-                                    &folder_path_owned,
-                                    &title,
-                                    Some(&prompt),
-                                    &state,
+                                let ctx = SpawnContext {
+                                    current_state: &state,
                                     state_source,
                                     pty_rows,
                                     pty_cols,
+                                };
+                                let _ = spawn_inline(
+                                    client,
+                                    &SpawnParams {
+                                        folder_name: &folder_name_owned,
+                                        folder_path: &folder_path_owned,
+                                        title: &title,
+                                        prompt: Some(&prompt),
+                                    },
+                                    &ctx,
                                 )
                                 .await;
                                 *input_mode = InputMode::Normal;
@@ -741,16 +751,21 @@ async fn handle_dashboard_event(
                         } else {
                             Some(format!("{title_trimmed}\n\n{desc_trimmed}"))
                         };
-                        let _ = spawn_inline(
-                            client,
-                            folder_name,
-                            folder_path,
-                            &title_trimmed,
-                            effective_prompt.as_deref(),
-                            &state,
+                        let ctx = SpawnContext {
+                            current_state: &state,
                             state_source,
                             pty_rows,
                             pty_cols,
+                        };
+                        let _ = spawn_inline(
+                            client,
+                            &SpawnParams {
+                                folder_name,
+                                folder_path,
+                                title: &title_trimmed,
+                                prompt: effective_prompt.as_deref(),
+                            },
+                            &ctx,
                         )
                         .await;
                         submitted = true;
@@ -767,16 +782,21 @@ async fn handle_dashboard_event(
                     folder_path,
                 } = input_mode
                 {
-                    let _ = spawn_inline(
-                        client,
-                        folder_name,
-                        folder_path,
-                        "interactive",
-                        None,
-                        &state,
+                    let ctx = SpawnContext {
+                        current_state: &state,
                         state_source,
                         pty_rows,
                         pty_cols,
+                    };
+                    let _ = spawn_inline(
+                        client,
+                        &SpawnParams {
+                            folder_name,
+                            folder_path,
+                            title: "interactive",
+                            prompt: None,
+                        },
+                        &ctx,
                     )
                     .await;
                 }
@@ -846,34 +866,16 @@ async fn handle_dashboard_event(
             DashboardAction::AdoptSubmitted => {
                 if let InputMode::TypingAdopt { input } = input_mode {
                     let session_id = input.trim().to_string();
-                    if !session_id.is_empty() {
-                        if sorted_folders.len() == 1 {
-                            let (folder_name, folder_path) = &sorted_folders[0];
-                            let _ = adopt_inline(
-                                client,
-                                &session_id,
-                                folder_name,
-                                folder_path,
-                                &state,
-                                state_source,
-                                pty_rows,
-                                pty_cols,
-                            )
-                            .await;
-                        } else if !sorted_folders.is_empty() {
-                            let (folder_name, folder_path) = &sorted_folders[0];
-                            let _ = adopt_inline(
-                                client,
-                                &session_id,
-                                folder_name,
-                                folder_path,
-                                &state,
-                                state_source,
-                                pty_rows,
-                                pty_cols,
-                            )
-                            .await;
-                        }
+                    if !session_id.is_empty() && !sorted_folders.is_empty() {
+                        let (folder_name, folder_path) = &sorted_folders[0];
+                        let ctx = SpawnContext {
+                            current_state: &state,
+                            state_source,
+                            pty_rows,
+                            pty_cols,
+                        };
+                        let _ =
+                            adopt_inline(client, &session_id, folder_name, folder_path, &ctx).await;
                     }
                 }
                 *input_mode = InputMode::Normal;
@@ -961,7 +963,7 @@ async fn handle_terminal_event(
 
             let mouse_mode = pane_views
                 .get(agent_id)
-                .map_or(false, |pv| pv.mouse_mode_active());
+                .is_some_and(|pv| pv.mouse_mode_active());
 
             if mouse_mode {
                 if let Some(bytes) = pane::encode_mouse_for_pane(*mouse_event, pane_area) {
@@ -1015,7 +1017,7 @@ async fn handle_terminal_event(
                     }
                     MouseEventKind::Drag(MouseButton::Left) => {
                         if let Some(pv) = pane_views.get_mut(agent_id) {
-                            if pv.selection.as_ref().map_or(false, |s| s.active) {
+                            if pv.selection.as_ref().is_some_and(|s| s.active) {
                                 let col = mouse_event
                                     .column
                                     .saturating_sub(pane_area.x)
@@ -1064,7 +1066,7 @@ async fn handle_terminal_event(
                             let should_copy = pv
                                 .selection
                                 .as_ref()
-                                .map_or(false, |s| s.active && s.start != s.end);
+                                .is_some_and(|s| s.active && s.start != s.end);
                             if should_copy {
                                 let sel = pv.selection.clone().unwrap();
                                 let screen = pv.scrolled_screen();
@@ -1090,7 +1092,7 @@ async fn handle_terminal_event(
 
             let use_bracket = pane_views
                 .get(agent_id)
-                .map_or(false, |pv| pv.parser.screen().bracketed_paste());
+                .is_some_and(|pv| pv.parser.screen().bracketed_paste());
 
             let data = if use_bracket {
                 let mut buf = Vec::with_capacity(text.len() + 14);
@@ -1120,30 +1122,38 @@ async fn handle_terminal_event(
     Ok(LoopAction::Continue)
 }
 
-async fn spawn_inline(
-    client: &mut DaemonClient,
-    folder_name: &str,
-    folder_path: &str,
-    title: &str,
-    prompt: Option<&str>,
-    current_state: &ClamorState,
-    state_source: &StateSource,
+struct SpawnParams<'a> {
+    folder_name: &'a str,
+    folder_path: &'a str,
+    title: &'a str,
+    prompt: Option<&'a str>,
+}
+
+struct SpawnContext<'a> {
+    current_state: &'a ClamorState,
+    state_source: &'a StateSource,
     pty_rows: u16,
     pty_cols: u16,
+}
+
+async fn spawn_inline(
+    client: &mut DaemonClient,
+    params: &SpawnParams<'_>,
+    ctx: &SpawnContext<'_>,
 ) -> Result<()> {
-    let cwd = resolve_path(folder_path);
+    let cwd = resolve_path(params.folder_path);
     let cwd_str = cwd.to_string_lossy().to_string();
 
     let existing_ids: std::collections::HashSet<String> =
-        current_state.agents.keys().cloned().collect();
+        ctx.current_state.agents.keys().cloned().collect();
     let id = generate_id(&existing_ids);
     let now = Utc::now();
 
-    let existing: Vec<&Agent> = current_state.agents.values().collect();
+    let existing: Vec<&Agent> = ctx.current_state.agents.values().collect();
     let key = keys::next_available_key(&existing);
     let color_index = next_color_index(&existing);
 
-    let initial_state = if prompt.is_some() {
+    let initial_state = if params.prompt.is_some() {
         AgentState::Working
     } else {
         AgentState::Input
@@ -1151,10 +1161,10 @@ async fn spawn_inline(
 
     let agent = Agent {
         id: id.clone(),
-        title: title.to_string(),
-        folder: folder_name.to_string(),
+        title: params.title.to_string(),
+        folder: params.folder_name.to_string(),
         cwd: cwd_str.clone(),
-        initial_prompt: prompt.map(|s| s.to_string()),
+        initial_prompt: params.prompt.map(|s| s.to_string()),
         state: initial_state,
         started_at: now,
         last_activity_at: now,
@@ -1167,13 +1177,13 @@ async fn spawn_inline(
     with_state(|state| {
         state.agents.insert(id.clone(), agent);
     })?;
-    state_source.invalidate();
+    ctx.state_source.invalidate();
 
-    let cmd = crate::spawn::build_agent_cmd(prompt);
+    let cmd = crate::spawn::build_agent_cmd(params.prompt);
     let env = vec![("CLAMOR_AGENT_ID".to_string(), id.clone())];
 
     client
-        .spawn_agent(&id, &cwd_str, &cmd, &env, pty_rows, pty_cols)
+        .spawn_agent(&id, &cwd_str, &cmd, &env, ctx.pty_rows, ctx.pty_cols)
         .await?;
 
     Ok(())
@@ -1184,20 +1194,17 @@ async fn adopt_inline(
     session_id: &str,
     folder_name: &str,
     folder_path: &str,
-    current_state: &ClamorState,
-    state_source: &StateSource,
-    pty_rows: u16,
-    pty_cols: u16,
+    ctx: &SpawnContext<'_>,
 ) -> Result<()> {
     let cwd = resolve_path(folder_path);
     let cwd_str = cwd.to_string_lossy().to_string();
 
     let existing_ids: std::collections::HashSet<String> =
-        current_state.agents.keys().cloned().collect();
+        ctx.current_state.agents.keys().cloned().collect();
     let id = generate_id(&existing_ids);
     let now = Utc::now();
 
-    let existing: Vec<&Agent> = current_state.agents.values().collect();
+    let existing: Vec<&Agent> = ctx.current_state.agents.values().collect();
     let key = keys::next_available_key(&existing);
     let color_index = next_color_index(&existing);
 
@@ -1219,13 +1226,13 @@ async fn adopt_inline(
     with_state(|state| {
         state.agents.insert(id.clone(), agent);
     })?;
-    state_source.invalidate();
+    ctx.state_source.invalidate();
 
     let cmd = crate::spawn::build_resume_cmd(session_id);
     let env = vec![("CLAMOR_AGENT_ID".to_string(), id.clone())];
 
     client
-        .spawn_agent(&id, &cwd_str, &cmd, &env, pty_rows, pty_cols)
+        .spawn_agent(&id, &cwd_str, &cmd, &env, ctx.pty_rows, ctx.pty_cols)
         .await?;
 
     Ok(())
