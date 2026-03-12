@@ -39,11 +39,8 @@ Clamor (`tools/clamor/`) is published as a standalone public repo and crate.
 
 ### Sync workflow
 
-The public repo was created with `git filter-repo` (preserving full history), so `git subtree push` won't work due to divergent commit hashes. Instead, sync via the local clone:
-
 ```bash
-# The public repo clone lives at /tmp/clamor-extract (or re-clone from GitHub)
-# Copy changed files, commit, and push from there
+git subtree push --prefix=tools/clamor clamor-public main
 ```
 
 ### Publishing a new version
