@@ -930,6 +930,16 @@ async fn handle_terminal_event(
                 return Ok(LoopAction::Continue);
             }
 
+            // Ctrl+G -> snap to bottom (live view) without forwarding to PTY
+            if key_event.modifiers.contains(KeyModifiers::CONTROL)
+                && key_event.code == KeyCode::Char('g')
+            {
+                if let Some(pv) = pane_views.get_mut(agent_id) {
+                    pv.snap_to_bottom();
+                }
+                return Ok(LoopAction::Continue);
+            }
+
             if let Some(pv) = pane_views.get_mut(agent_id) {
                 pv.clear_selection();
                 pv.snap_to_bottom();
@@ -961,7 +971,7 @@ async fn handle_terminal_event(
                             if pv.alternate_screen() {
                                 let _ = client.send_input(agent_id, b"\x1b[A\x1b[A\x1b[A").await;
                             } else {
-                                pv.scroll_offset = pv.scroll_offset.saturating_add(3);
+                                pv.scroll_up(3);
                             }
                         }
                     }
@@ -970,7 +980,7 @@ async fn handle_terminal_event(
                             if pv.alternate_screen() {
                                 let _ = client.send_input(agent_id, b"\x1b[B\x1b[B\x1b[B").await;
                             } else {
-                                pv.scroll_offset = pv.scroll_offset.saturating_sub(3);
+                                pv.scroll_down(3);
                             }
                         }
                     }
@@ -1021,7 +1031,7 @@ async fn handle_terminal_event(
                                 if !pv.alternate_screen() {
                                     if mouse_event.row <= pane_area.y + 1 {
                                         let old = pv.scroll_offset;
-                                        pv.scroll_offset = pv.scroll_offset.saturating_add(1);
+                                        pv.scroll_up(1);
                                         let delta = (pv.scroll_offset - old) as u16;
                                         if delta > 0 {
                                             if let Some(ref mut sel) = pv.selection {
@@ -1035,7 +1045,7 @@ async fn handle_terminal_event(
                                         >= pane_area.y + pane_area.height.saturating_sub(2)
                                     {
                                         let old = pv.scroll_offset;
-                                        pv.scroll_offset = pv.scroll_offset.saturating_sub(1);
+                                        pv.scroll_down(1);
                                         let delta = (old - pv.scroll_offset) as u16;
                                         if delta > 0 {
                                             if let Some(ref mut sel) = pv.selection {
