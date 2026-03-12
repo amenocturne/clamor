@@ -39,7 +39,11 @@ fn main() -> Result<()> {
             let agent = spawn::resolve_agent(&state, &agent_ref)?;
             dashboard::run(&config, Some(agent.id.clone()))?;
         }
-        Some(Command::New { title, description, folder }) => {
+        Some(Command::New {
+            title,
+            description,
+            folder,
+        }) => {
             // If title provided via CLI: title is set, description becomes prompt
             // If only title: title is both title and prompt (backward compat)
             let effective_desc = match (title, description) {
@@ -49,7 +53,11 @@ fn main() -> Result<()> {
             };
             spawn::spawn_agent(effective_desc, folder, false)?;
         }
-        Some(Command::Adopt { session_id, description, folder }) => {
+        Some(Command::Adopt {
+            session_id,
+            description,
+            folder,
+        }) => {
             spawn::adopt_session(&session_id, description, folder)?;
         }
         Some(Command::Edit {
@@ -61,7 +69,9 @@ fn main() -> Result<()> {
         Some(Command::Kill { all: true, .. }) => {
             spawn::kill_all_agents()?;
         }
-        Some(Command::Kill { agent_ref: Some(r), .. }) => {
+        Some(Command::Kill {
+            agent_ref: Some(r), ..
+        }) => {
             spawn::kill_agent(&r)?;
         }
         Some(Command::Kill { .. }) => {
@@ -92,7 +102,10 @@ fn main() -> Result<()> {
         Some(Command::Daemon) => {
             daemon::run_daemon()?;
         }
-        Some(Command::MockAgent { description, duration }) => {
+        Some(Command::MockAgent {
+            description,
+            duration,
+        }) => {
             mock_agent::run(&description, duration);
         }
     }

@@ -61,13 +61,14 @@ impl FleetState {
             .create(true)
             .truncate(true)
             .open(&path)
-            .with_context(|| format!("Failed to open state file for writing: {}", path.display()))?;
+            .with_context(|| {
+                format!("Failed to open state file for writing: {}", path.display())
+            })?;
 
         file.lock_exclusive()
             .context("Failed to acquire lock on state file")?;
 
-        let json =
-            serde_json::to_string_pretty(self).context("Failed to serialize state")?;
+        let json = serde_json::to_string_pretty(self).context("Failed to serialize state")?;
 
         (&file)
             .write_all(json.as_bytes())

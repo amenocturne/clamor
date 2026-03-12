@@ -232,11 +232,7 @@ pub fn render_title_bar(
     focused: bool,
     hint: Option<&str>,
 ) {
-    let bg = if focused {
-        color
-    } else {
-        dim_color(color)
-    };
+    let bg = if focused { color } else { dim_color(color) };
     let fg = if focused {
         Color::Black
     } else {
@@ -265,13 +261,12 @@ pub fn render_title_bar(
 /// reads cells row-by-row, trims trailing whitespace per line,
 /// and strips empty trailing lines.
 pub fn extract_selected_text(screen: &vt100::Screen, sel: &Selection, cols: u16) -> String {
-    let (start, end) = if sel.start.1 < sel.end.1
-        || (sel.start.1 == sel.end.1 && sel.start.0 <= sel.end.0)
-    {
-        (sel.start, sel.end)
-    } else {
-        (sel.end, sel.start)
-    };
+    let (start, end) =
+        if sel.start.1 < sel.end.1 || (sel.start.1 == sel.end.1 && sel.start.0 <= sel.end.0) {
+            (sel.start, sel.end)
+        } else {
+            (sel.end, sel.start)
+        };
 
     let (start_col, start_row) = start;
     let (end_col, end_row) = end;

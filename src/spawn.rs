@@ -27,8 +27,7 @@ pub fn is_debug_mode() -> bool {
 /// In debug mode, spawns `fleet _mock-agent` instead of `claude`.
 pub fn build_agent_cmd(prompt: Option<&str>) -> Vec<String> {
     if is_debug_mode() {
-        let exe = std::env::current_exe()
-            .unwrap_or_else(|_| "fleet".into());
+        let exe = std::env::current_exe().unwrap_or_else(|_| "fleet".into());
         let desc = prompt.unwrap_or("interactive");
         vec![
             exe.to_string_lossy().to_string(),
@@ -47,8 +46,7 @@ pub fn build_agent_cmd(prompt: Option<&str>) -> Vec<String> {
 /// Build the command for adopting/resuming a session.
 pub fn build_resume_cmd(session_id: &str) -> Vec<String> {
     if is_debug_mode() {
-        let exe = std::env::current_exe()
-            .unwrap_or_else(|_| "fleet".into());
+        let exe = std::env::current_exe().unwrap_or_else(|_| "fleet".into());
         vec![
             exe.to_string_lossy().to_string(),
             "mock-agent".to_string(),
@@ -56,13 +54,21 @@ pub fn build_resume_cmd(session_id: &str) -> Vec<String> {
             format!("resumed: {session_id}"),
         ]
     } else {
-        vec!["claude".to_string(), "--resume".to_string(), session_id.to_string()]
+        vec![
+            "claude".to_string(),
+            "--resume".to_string(),
+            session_id.to_string(),
+        ]
     }
 }
 
 /// Interactive agent spawn flow.
 /// If `force_editor` is true, open $EDITOR directly instead of showing a text prompt.
-pub fn spawn_agent(description: Option<String>, folder_override: Option<String>, force_editor: bool) -> anyhow::Result<()> {
+pub fn spawn_agent(
+    description: Option<String>,
+    folder_override: Option<String>,
+    force_editor: bool,
+) -> anyhow::Result<()> {
     ensure_daemon()?;
     let config = FleetConfig::load()?;
 
@@ -104,7 +110,11 @@ pub fn spawn_agent(description: Option<String>, folder_override: Option<String>,
     let key = keys::next_available_key(&existing);
     let color_index = next_color_index(&existing);
 
-    let initial_state = if prompt.is_some() { AgentState::Working } else { AgentState::Input };
+    let initial_state = if prompt.is_some() {
+        AgentState::Working
+    } else {
+        AgentState::Input
+    };
 
     let agent = Agent {
         id: id.clone(),
@@ -139,7 +149,11 @@ pub fn spawn_agent(description: Option<String>, folder_override: Option<String>,
 }
 
 /// Adopt an external Claude Code session into fleet.
-pub fn adopt_session(session_id: &str, description: Option<String>, folder_override: Option<String>) -> anyhow::Result<()> {
+pub fn adopt_session(
+    session_id: &str,
+    description: Option<String>,
+    folder_override: Option<String>,
+) -> anyhow::Result<()> {
     ensure_daemon()?;
     let config = FleetConfig::load()?;
 
@@ -454,7 +468,10 @@ pub fn resolve_agent<'a>(state: &'a FleetState, agent_ref: &str) -> anyhow::Resu
         1 => Ok(matches[0]),
         _ => {
             let ids: Vec<&str> = matches.iter().map(|a| a.id.as_str()).collect();
-            bail!("ambiguous prefix '{agent_ref}' — matches: {}", ids.join(", "))
+            bail!(
+                "ambiguous prefix '{agent_ref}' — matches: {}",
+                ids.join(", ")
+            )
         }
     }
 }
@@ -521,8 +538,7 @@ fn select_folder(config: &FleetConfig) -> anyhow::Result<(String, String)> {
 
     let options: Vec<String> = folders.iter().map(|(name, _)| (*name).clone()).collect();
 
-    let idx = picker::pick("Where?", &options)?
-        .context("Aborted.")?;
+    let idx = picker::pick("Where?", &options)?.context("Aborted.")?;
 
     let (name, path) = &folders[idx];
     Ok(((*name).clone(), (*path).clone()))
@@ -549,7 +565,10 @@ fn read_task_description() -> anyhow::Result<(String, Option<String>)> {
 /// Returns (first_line_as_description, full_content_as_prompt).
 pub fn read_task_from_editor() -> anyhow::Result<(String, String)> {
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
-    let tmp = std::env::temp_dir().join(format!("fleet-task-{}.md", generate_id(&std::collections::HashSet::new())));
+    let tmp = std::env::temp_dir().join(format!(
+        "fleet-task-{}.md",
+        generate_id(&std::collections::HashSet::new())
+    ));
 
     std::fs::write(&tmp, "")?;
 

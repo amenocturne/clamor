@@ -2,9 +2,7 @@ use std::os::unix::net::UnixStream;
 
 use anyhow::{Context, Result};
 
-use crate::protocol::{
-    send_message, recv_message, ClientMessage, DaemonAgent, DaemonMessage,
-};
+use crate::protocol::{recv_message, send_message, ClientMessage, DaemonAgent, DaemonMessage};
 
 /// Client connection to the fleet daemon.
 ///
@@ -45,17 +43,13 @@ impl DaemonClient {
 
     /// Kill an agent's PTY process.
     pub fn kill_agent(&mut self, id: &str) -> Result<()> {
-        self.send(ClientMessage::Kill {
-            id: id.to_string(),
-        })?;
+        self.send(ClientMessage::Kill { id: id.to_string() })?;
         self.expect_ok()
     }
 
     /// Send SIGINT to an agent's foreground process group.
     pub fn send_sigint(&mut self, id: &str) -> Result<()> {
-        self.send(ClientMessage::Sigint {
-            id: id.to_string(),
-        })?;
+        self.send(ClientMessage::Sigint { id: id.to_string() })?;
         self.expect_ok()
     }
 
@@ -84,9 +78,7 @@ impl DaemonClient {
     /// Drains any stale messages (Output, Exited) that may be buffered
     /// before the expected CatchUp response.
     pub fn subscribe(&mut self, id: &str) -> Result<Vec<u8>> {
-        self.send(ClientMessage::Subscribe {
-            id: id.to_string(),
-        })?;
+        self.send(ClientMessage::Subscribe { id: id.to_string() })?;
         loop {
             let msg: DaemonMessage = recv_message(&mut self.stream)?;
             match &msg {
@@ -108,9 +100,7 @@ impl DaemonClient {
 
     /// Unsubscribe from an agent's output.
     pub fn unsubscribe(&mut self, id: &str) -> Result<()> {
-        self.send(ClientMessage::Unsubscribe {
-            id: id.to_string(),
-        })?;
+        self.send(ClientMessage::Unsubscribe { id: id.to_string() })?;
         self.expect_ok()
     }
 
@@ -143,11 +133,9 @@ impl DaemonClient {
         match recv_message::<DaemonMessage, _>(&mut self.stream) {
             Ok(msg) => Ok(Some(msg)),
             Err(e) => {
-                let is_would_block = e
-                    .downcast_ref::<std::io::Error>()
-                    .map_or(false, |io_err| {
-                        io_err.kind() == std::io::ErrorKind::WouldBlock
-                    });
+                let is_would_block = e.downcast_ref::<std::io::Error>().map_or(false, |io_err| {
+                    io_err.kind() == std::io::ErrorKind::WouldBlock
+                });
                 if is_would_block {
                     Ok(None)
                 } else {

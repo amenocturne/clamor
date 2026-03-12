@@ -4,18 +4,15 @@ const KEY_POOL: &[char] = &['a', 's', 'd', 'f', 'j', 'k', 'l', 'g', 'h'];
 
 /// Find the next available key from the pool that isn't already assigned.
 pub fn next_available_key(agents: &[&Agent]) -> Option<char> {
-    let used: std::collections::HashSet<char> = agents
-        .iter()
-        .filter_map(|a| a.key)
-        .collect();
+    let used: std::collections::HashSet<char> = agents.iter().filter_map(|a| a.key).collect();
     KEY_POOL.iter().copied().find(|k| !used.contains(k))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::agent::AgentState;
+    use chrono::Utc;
 
     fn make_agent(key: Option<char>) -> Agent {
         let now = Utc::now();
@@ -31,6 +28,7 @@ mod tests {
             last_tool: None,
             key,
             color_index: 0,
+            session_id: None,
         }
     }
 

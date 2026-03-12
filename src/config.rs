@@ -53,8 +53,7 @@ impl Default for FleetConfig {
 impl FleetConfig {
     /// Returns `~/.fleet/`.
     pub fn config_dir() -> anyhow::Result<PathBuf> {
-        let home = std::env::var("HOME")
-            .context("HOME environment variable not set")?;
+        let home = std::env::var("HOME").context("HOME environment variable not set")?;
         Ok(PathBuf::from(home).join(".fleet"))
     }
 

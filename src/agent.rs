@@ -48,5 +48,9 @@ pub fn generate_id(existing: &std::collections::HashSet<String>) -> String {
 
 pub fn next_color_index(existing: &[&Agent]) -> u8 {
     let max = existing.iter().map(|a| a.color_index).max().unwrap_or(0);
-    if existing.is_empty() { 0 } else { max.wrapping_add(1) }
+    if existing.is_empty() {
+        0
+    } else {
+        max.wrapping_add(1)
+    }
 }

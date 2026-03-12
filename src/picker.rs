@@ -29,7 +29,11 @@ pub fn pick(title: &str, options: &[String]) -> anyhow::Result<Option<usize>> {
     result
 }
 
-fn run_picker(stdout: &mut io::Stdout, title: &str, options: &[String]) -> anyhow::Result<Option<usize>> {
+fn run_picker(
+    stdout: &mut io::Stdout,
+    title: &str,
+    options: &[String],
+) -> anyhow::Result<Option<usize>> {
     let mut selected: usize = 0;
 
     render(stdout, title, options, selected)?;
@@ -77,7 +81,12 @@ fn run_picker(stdout: &mut io::Stdout, title: &str, options: &[String]) -> anyho
     }
 }
 
-fn render(stdout: &mut io::Stdout, title: &str, options: &[String], selected: usize) -> anyhow::Result<()> {
+fn render(
+    stdout: &mut io::Stdout,
+    title: &str,
+    options: &[String],
+    selected: usize,
+) -> anyhow::Result<()> {
     // Move cursor to start and clear
     clear(stdout, title, options)?;
 
