@@ -273,7 +273,7 @@ fn main_loop(
                 match action {
                     LoopAction::Continue
                     | LoopAction::SwitchToDashboard
-                    | LoopAction::Reconnect(_) => {}
+                    => {}
                     LoopAction::Quit => break,
                     LoopAction::SwitchToTerminal(agent_id) => {
                         let (term_cols, term_rows) = crossterm::terminal::size()?;
@@ -321,32 +321,6 @@ fn main_loop(
                         mode = AppMode::Dashboard;
                         input_mode = InputMode::Normal;
                     }
-                    LoopAction::Reconnect(ref aid) => {
-                        // Reset pane view and resubscribe to get fresh state
-                        let (term_cols, term_rows) = crossterm::terminal::size()?;
-                        let content_rows = term_rows.saturating_sub(1);
-                        pane_views.insert(aid.clone(), PaneView::new(content_rows, term_cols));
-                        let pv = pane_views.get_mut(aid).unwrap();
-
-                        client.set_nonblocking(false)?;
-                        match client.subscribe(aid) {
-                            Ok(catch_up) => {
-                                if !catch_up.is_empty() {
-                                    pv.process_output(&catch_up);
-                                }
-                            }
-                            Err(_) => {
-                                client.set_nonblocking(true)?;
-                                last_agent_id = Some(agent_id_clone.clone());
-                                mode = AppMode::Dashboard;
-                                input_mode = InputMode::Normal;
-                                continue;
-                            }
-                        }
-                        let _ = client.resize(aid, content_rows, term_cols);
-                        client.set_nonblocking(true)?;
-                        terminal.clear()?;
-                    }
                     LoopAction::SwitchToTerminal(_) => unreachable!(),
                 }
             }
@@ -367,8 +341,6 @@ enum LoopAction {
     Quit,
     SwitchToTerminal(String),
     SwitchToDashboard,
-    /// Reconnect to an agent: reset pane view and resubscribe.
-    Reconnect(String),
 }
 
 fn dashboard_iteration(
@@ -931,17 +903,6 @@ fn terminal_iteration(
                     let _ = client.send_sigint(agent_id);
                     client.set_nonblocking(true)?;
                     return Ok(LoopAction::Continue);
-                }
-
-                // Ctrl+R -> reconnect: unsubscribe, reset pane, resubscribe.
-                // Fixes stuck/laggy agent views without killing the session.
-                if key_event.modifiers.contains(KeyModifiers::CONTROL)
-                    && key_event.code == KeyCode::Char('r')
-                {
-                    client.set_nonblocking(false)?;
-                    let _ = client.unsubscribe(agent_id);
-                    client.set_nonblocking(true)?;
-                    return Ok(LoopAction::Reconnect(agent_id.to_string()));
                 }
 
                 // Any keyboard input clears selection and snaps to live view
