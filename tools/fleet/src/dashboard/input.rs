@@ -47,18 +47,43 @@ pub enum PromptEdit {
 pub enum InputMode {
     Normal,
     WaitingKill,
-    PickingFolder { folder_count: usize, for_editor: bool },
-    TypingPrompt { folder_name: String, folder_path: String, title: String, description: String, active_field: PromptField },
-    TypingAdopt { input: String },
-    StalePrompt { count: usize },
-    StaleAgent { agent_id: String },
-    ConfirmEmptySpawn { folder_name: String, folder_path: String },
+    PickingFolder {
+        folder_count: usize,
+        for_editor: bool,
+    },
+    TypingPrompt {
+        folder_name: String,
+        folder_path: String,
+        title: String,
+        description: String,
+        active_field: PromptField,
+    },
+    TypingAdopt {
+        input: String,
+    },
+    StalePrompt {
+        count: usize,
+    },
+    StaleAgent {
+        agent_id: String,
+    },
+    ConfirmEmptySpawn {
+        folder_name: String,
+        folder_path: String,
+    },
     WaitingEdit,
-    EditingDescription { agent_id: String, input: String },
+    EditingDescription {
+        agent_id: String,
+        input: String,
+    },
 }
 
 /// Process a keyboard event and return the corresponding action.
-pub fn handle_input(event: KeyEvent, key_map: &HashMap<char, String>, mode: &InputMode) -> DashboardAction {
+pub fn handle_input(
+    event: KeyEvent,
+    key_map: &HashMap<char, String>,
+    mode: &InputMode,
+) -> DashboardAction {
     if event.modifiers.contains(KeyModifiers::CONTROL) {
         if matches!(event.code, KeyCode::Char('c')) {
             return DashboardAction::Quit;
@@ -83,10 +108,14 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
     match event.code {
         KeyCode::Char('q') => DashboardAction::Quit,
         KeyCode::Char('C') => DashboardAction::SpawnEditor,
-        KeyCode::Char('c') if event.modifiers.contains(KeyModifiers::SHIFT) => DashboardAction::SpawnEditor,
+        KeyCode::Char('c') if event.modifiers.contains(KeyModifiers::SHIFT) => {
+            DashboardAction::SpawnEditor
+        }
         KeyCode::Char('c') => DashboardAction::SpawnInline,
         KeyCode::Char('K') => DashboardAction::PendingKill,
-        KeyCode::Char('k') if event.modifiers.contains(KeyModifiers::SHIFT) => DashboardAction::PendingKill,
+        KeyCode::Char('k') if event.modifiers.contains(KeyModifiers::SHIFT) => {
+            DashboardAction::PendingKill
+        }
         KeyCode::Char('e') => DashboardAction::PendingEdit,
         KeyCode::Char('R') => DashboardAction::AdoptStart,
         KeyCode::Char(c) => match key_map.get(&c) {

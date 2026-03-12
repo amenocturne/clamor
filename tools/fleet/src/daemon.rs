@@ -146,11 +146,9 @@ pub fn run_daemon() -> Result<()> {
     }
 
     // Write PID file
-    std::fs::write(&pid_path, std::process::id().to_string())
-        .context("writing PID file")?;
+    std::fs::write(&pid_path, std::process::id().to_string()).context("writing PID file")?;
 
-    let listener =
-        UnixListener::bind(&sock_path).context("binding Unix domain socket")?;
+    let listener = UnixListener::bind(&sock_path).context("binding Unix domain socket")?;
     listener
         .set_nonblocking(true)
         .context("setting listener to non-blocking")?;
@@ -159,8 +157,7 @@ pub fn run_daemon() -> Result<()> {
 
     let mut agents: HashMap<String, AgentSlot> = HashMap::new();
     let mut client: Option<UnixStream> = None;
-    let mut subscriptions: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut subscriptions: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut shutdown = false;
 
     while !shutdown {
@@ -168,9 +165,7 @@ pub fn run_daemon() -> Result<()> {
         match listener.accept() {
             Ok((stream, _)) => {
                 // Replace existing client — single-user model
-                stream
-                    .set_nonblocking(true)
-                    .ok();
+                stream.set_nonblocking(true).ok();
                 subscriptions.clear();
                 client = Some(stream);
             }
@@ -245,28 +240,26 @@ pub fn run_daemon() -> Result<()> {
                 let _ = stream.set_nonblocking(true);
 
                 match body_result {
-                    Ok(()) => {
-                        match serde_json::from_slice::<ClientMessage>(&buf) {
-                            Ok(msg) => match handle_client_message(
-                                msg,
-                                &mut agents,
-                                &mut subscriptions,
-                                stream,
-                                &pty_tx,
-                            ) {
-                                HandleResult::Continue => {}
-                                HandleResult::Shutdown => {
-                                    shutdown = true;
-                                    break;
-                                }
-                            },
-                            Err(_) => {
-                                client = None;
-                                subscriptions.clear();
+                    Ok(()) => match serde_json::from_slice::<ClientMessage>(&buf) {
+                        Ok(msg) => match handle_client_message(
+                            msg,
+                            &mut agents,
+                            &mut subscriptions,
+                            stream,
+                            &pty_tx,
+                        ) {
+                            HandleResult::Continue => {}
+                            HandleResult::Shutdown => {
+                                shutdown = true;
                                 break;
                             }
+                        },
+                        Err(_) => {
+                            client = None;
+                            subscriptions.clear();
+                            break;
                         }
-                    }
+                    },
                     Err(_) => {
                         client = None;
                         subscriptions.clear();

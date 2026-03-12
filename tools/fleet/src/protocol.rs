@@ -3,8 +3,12 @@ use std::io::{Read, Write};
 use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-fn default_rows() -> u16 { 24 }
-fn default_cols() -> u16 { 80 }
+fn default_rows() -> u16 {
+    24
+}
+fn default_cols() -> u16 {
+    80
+}
 
 /// Messages sent from client to daemon over the Unix domain socket.
 #[derive(Debug, Serialize, Deserialize)]

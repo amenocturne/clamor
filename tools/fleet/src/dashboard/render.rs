@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
-use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::layout::Position;
+use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
@@ -25,14 +25,29 @@ pub struct DisplayAgent<'a> {
 pub enum Overlay<'a> {
     None,
     PendingKill,
-    FolderPicker { folders: &'a [(String, String)] },
-    PromptInput { folder_name: &'a str, title: &'a str, description: &'a str, active_field: &'a PromptField },
-    AdoptInput { input: &'a str },
-    StaleAgents { count: usize },
-    StaleAgent { description: &'a str },
+    FolderPicker {
+        folders: &'a [(String, String)],
+    },
+    PromptInput {
+        folder_name: &'a str,
+        title: &'a str,
+        description: &'a str,
+        active_field: &'a PromptField,
+    },
+    AdoptInput {
+        input: &'a str,
+    },
+    StaleAgents {
+        count: usize,
+    },
+    StaleAgent {
+        description: &'a str,
+    },
     ConfirmEmptySpawn,
     PendingEdit,
-    EditInput { input: &'a str },
+    EditInput {
+        input: &'a str,
+    },
 }
 
 /// Render the full dashboard frame.
@@ -49,7 +64,11 @@ pub fn render(
     let groups = build_groups(config, agents, killed_ids);
 
     // Count stats (exclude killed from count)
-    let total = agents.len() - killed_ids.iter().filter(|id| agents.contains_key(*id)).count();
+    let total = agents.len()
+        - killed_ids
+            .iter()
+            .filter(|id| agents.contains_key(*id))
+            .count();
     let needs_input = agents
         .values()
         .filter(|a| a.state == AgentState::Input)
@@ -74,7 +93,12 @@ pub fn render(
         Overlay::FolderPicker { folders } => {
             render_folder_popup(frame, area, folders);
         }
-        Overlay::PromptInput { folder_name, title, description, active_field } => {
+        Overlay::PromptInput {
+            folder_name,
+            title,
+            description,
+            active_field,
+        } => {
             render_prompt_popup(frame, area, folder_name, title, description, active_field);
         }
         Overlay::AdoptInput { input } => {
@@ -106,7 +130,7 @@ pub fn render_terminal(
     let area = frame.area();
     let chunks = Layout::vertical([
         Constraint::Length(1), // title bar
-        Constraint::Min(1),   // terminal content
+        Constraint::Min(1),    // terminal content
     ])
     .split(area);
 
@@ -118,7 +142,17 @@ pub fn render_terminal(
         AgentState::Lost => "lost",
     };
     let duration = format_duration(agent.started_at);
-    pane::render_title_bar(frame, chunks[0], &agent.folder, &agent.title, state_str, &duration, color, true, Some("^F back"));
+    pane::render_title_bar(
+        frame,
+        chunks[0],
+        &agent.folder,
+        &agent.title,
+        state_str,
+        &duration,
+        color,
+        true,
+        Some("^F back  ^R reconnect"),
+    );
 
     let pseudo_term = tui_term::widget::PseudoTerminal::new(screen);
     frame.render_widget(pseudo_term, chunks[1]);
@@ -173,9 +207,7 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay) {
             Span::raw(" "),
             Span::styled(
                 "Kill: press agent key (Esc to cancel)",
-                Style::default()
-                    .fg(Color::Red)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
             ),
         ])),
         Overlay::PendingEdit => Paragraph::new(Line::from(vec![
@@ -308,9 +340,7 @@ fn render_agent_line(da: &DisplayAgent, width: usize) -> Line<'static> {
     let (state_label, state_style) = if da.killed {
         (
             "killed",
-            Style::default()
-                .fg(Color::Red)
-                .add_modifier(Modifier::DIM),
+            Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
         )
     } else {
         match da.agent.state {
@@ -322,7 +352,12 @@ fn render_agent_line(da: &DisplayAgent, width: usize) -> Line<'static> {
             ),
             AgentState::Working => ("work ", Style::default().fg(Color::Green)),
             AgentState::Done => ("done ", Style::default().fg(Color::DarkGray)),
-            AgentState::Lost => ("lost ", Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM)),
+            AgentState::Lost => (
+                "lost ",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::DIM),
+            ),
         }
     };
 
@@ -437,7 +472,9 @@ fn render_folder_popup(frame: &mut Frame, area: Rect, folders: &[(String, String
             Line::from(vec![
                 Span::styled(
                     format!("  {}  ", i + 1),
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(name.clone()),
             ])
@@ -447,7 +484,14 @@ fn render_folder_popup(frame: &mut Frame, area: Rect, folders: &[(String, String
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-fn render_prompt_popup(frame: &mut Frame, area: Rect, folder_name: &str, title_text: &str, desc_text: &str, active_field: &PromptField) {
+fn render_prompt_popup(
+    frame: &mut Frame,
+    area: Rect,
+    folder_name: &str,
+    title_text: &str,
+    desc_text: &str,
+    active_field: &PromptField,
+) {
     let width = area.width.min(70);
     let height = (area.height * 2 / 5).clamp(10, 20);
     let popup = popup_area(area, width, height);
@@ -523,8 +567,7 @@ fn render_adopt_popup(frame: &mut Frame, area: Rect, input: &str) {
     frame.render_widget(block, popup);
 
     let display = format!("{input}\u{258e}");
-    let prompt = Paragraph::new(Line::from(Span::raw(display)))
-        .wrap(Wrap { trim: false });
+    let prompt = Paragraph::new(Line::from(Span::raw(display))).wrap(Wrap { trim: false });
     frame.render_widget(prompt, inner);
 }
 
@@ -542,7 +585,9 @@ fn render_stale_popup(frame: &mut Frame, area: Rect, count: usize) {
     frame.render_widget(block, popup);
 
     let text = vec![
-        Line::from(format!(" {count} agent(s) lost from a previous daemon session.")),
+        Line::from(format!(
+            " {count} agent(s) lost from a previous daemon session."
+        )),
         Line::from(""),
         Line::from(Span::styled(
             " You can resume them: claude --resume <session-id>",
@@ -616,21 +661,19 @@ fn render_edit_popup(frame: &mut Frame, area: Rect, input: &str) {
     frame.render_widget(block, popup);
 
     let display = format!("{input}\u{258e}");
-    let prompt = Paragraph::new(Line::from(Span::raw(display)))
-        .wrap(Wrap { trim: false });
+    let prompt = Paragraph::new(Line::from(Span::raw(display))).wrap(Wrap { trim: false });
     frame.render_widget(prompt, inner);
 }
 
 /// Render selection highlight by flipping selected cells to REVERSED style.
 fn render_selection(frame: &mut Frame, pane: Rect, sel: &Selection) {
     // Normalize so start is before end
-    let (start, end) = if sel.start.1 < sel.end.1
-        || (sel.start.1 == sel.end.1 && sel.start.0 <= sel.end.0)
-    {
-        (sel.start, sel.end)
-    } else {
-        (sel.end, sel.start)
-    };
+    let (start, end) =
+        if sel.start.1 < sel.end.1 || (sel.start.1 == sel.end.1 && sel.start.0 <= sel.end.0) {
+            (sel.start, sel.end)
+        } else {
+            (sel.end, sel.start)
+        };
 
     let (start_col, start_row) = start;
     let (end_col, end_row) = end;
@@ -639,7 +682,11 @@ fn render_selection(frame: &mut Frame, pane: Rect, sel: &Selection) {
 
     for row in start_row..=end_row {
         let from = if row == start_row { start_col } else { 0 };
-        let to = if row == end_row { end_col } else { pane.width.saturating_sub(1) };
+        let to = if row == end_row {
+            end_col
+        } else {
+            pane.width.saturating_sub(1)
+        };
 
         for col in from..=to {
             let x = pane.x + col;

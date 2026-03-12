@@ -117,14 +117,13 @@ fn test_spawn_and_list() {
     );
 
     // List agents
-    let output = fleet_cmd()
-        .arg("ls")
-        .env("HOME", &home)
-        .output()
-        .unwrap();
+    let output = fleet_cmd().arg("ls").env("HOME", &home).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("test task"), "agent not listed: {stdout}");
-    assert!(stdout.contains("work"), "agent not in working state: {stdout}");
+    assert!(
+        stdout.contains("work"),
+        "agent not in working state: {stdout}"
+    );
 
     cleanup_test_env(&home);
 }
@@ -163,11 +162,7 @@ fn test_spawn_and_kill() {
     );
 
     // Verify it's gone from list
-    let output = fleet_cmd()
-        .arg("ls")
-        .env("HOME", &home)
-        .output()
-        .unwrap();
+    let output = fleet_cmd().arg("ls").env("HOME", &home).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         !stdout.contains("kill me") || stdout.contains("No agents"),
@@ -213,11 +208,7 @@ fn test_kill_all() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("2 agent(s)"));
 
     // List should be empty
-    let output = fleet_cmd()
-        .arg("ls")
-        .env("HOME", &home)
-        .output()
-        .unwrap();
+    let output = fleet_cmd().arg("ls").env("HOME", &home).output().unwrap();
     assert!(String::from_utf8_lossy(&output.stdout).contains("No agents"));
 
     cleanup_test_env(&home);
@@ -254,11 +245,7 @@ fn test_adopt_session() {
     );
 
     // Should appear in list
-    let output = fleet_cmd()
-        .arg("ls")
-        .env("HOME", &home)
-        .output()
-        .unwrap();
+    let output = fleet_cmd().arg("ls").env("HOME", &home).output().unwrap();
     assert!(String::from_utf8_lossy(&output.stdout).contains("adopted task"));
 
     cleanup_test_env(&home);
@@ -387,11 +374,7 @@ fn test_clean_removes_done_agents() {
             agent["state"] = serde_json::json!("done");
         }
     }
-    std::fs::write(
-        &state_path,
-        serde_json::to_string_pretty(&state).unwrap(),
-    )
-    .unwrap();
+    std::fs::write(&state_path, serde_json::to_string_pretty(&state).unwrap()).unwrap();
 
     // Clean
     let output = fleet_cmd()
@@ -403,11 +386,7 @@ fn test_clean_removes_done_agents() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("1 finished agent(s)"));
 
     // Verify empty
-    let output = fleet_cmd()
-        .arg("ls")
-        .env("HOME", &home)
-        .output()
-        .unwrap();
+    let output = fleet_cmd().arg("ls").env("HOME", &home).output().unwrap();
     assert!(String::from_utf8_lossy(&output.stdout).contains("No agents"));
 
     cleanup_test_env(&home);

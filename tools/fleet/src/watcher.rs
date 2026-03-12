@@ -49,8 +49,7 @@ impl StateWatcher {
                 Err(_) => return,
             };
 
-            let dominated =
-                matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_));
+            let dominated = matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_));
             let affects_state = event.paths.iter().any(|p| p == &state_path_clone);
 
             if dominated && affects_state {
@@ -62,8 +61,8 @@ impl StateWatcher {
 
         let watcher: Box<dyn Watcher + Send> = match config.dashboard.watch_mode {
             WatchMode::Poll => {
-                let poll_config = notify::Config::default()
-                    .with_poll_interval(Duration::from_secs(1));
+                let poll_config =
+                    notify::Config::default().with_poll_interval(Duration::from_secs(1));
                 let mut w = notify::PollWatcher::new(handler, poll_config)
                     .context("Failed to create poll watcher")?;
                 w.watch(&watch_dir, RecursiveMode::NonRecursive)
