@@ -88,7 +88,9 @@ impl DaemonClient {
                 DaemonMessage::Error { message } => {
                     anyhow::bail!("subscribe failed: {message}")
                 }
-                DaemonMessage::Output { .. } | DaemonMessage::Exited { .. } => {
+                DaemonMessage::Output { .. }
+                | DaemonMessage::Exited { .. }
+                | DaemonMessage::Heartbeat => {
                     continue;
                 }
                 other => {
@@ -113,7 +115,9 @@ impl DaemonClient {
                 DaemonMessage::Error { message } => {
                     anyhow::bail!("list failed: {message}")
                 }
-                DaemonMessage::Output { .. } | DaemonMessage::Exited { .. } => continue,
+                DaemonMessage::Output { .. }
+                | DaemonMessage::Exited { .. }
+                | DaemonMessage::Heartbeat => continue,
                 other => anyhow::bail!("unexpected response: {other:?}"),
             }
         }
@@ -162,7 +166,9 @@ impl DaemonClient {
             match msg {
                 DaemonMessage::Ok => return Ok(()),
                 DaemonMessage::Error { message } => anyhow::bail!("{message}"),
-                DaemonMessage::Output { .. } | DaemonMessage::Exited { .. } => continue,
+                DaemonMessage::Output { .. }
+                | DaemonMessage::Exited { .. }
+                | DaemonMessage::Heartbeat => continue,
                 other => anyhow::bail!("unexpected response: {other:?}"),
             }
         }

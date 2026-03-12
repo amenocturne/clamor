@@ -2,6 +2,7 @@ use std::io::{Read, Write};
 
 use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 fn default_rows() -> u16 {
     24
@@ -40,6 +41,10 @@ pub enum ClientMessage {
     List,
     /// Shut down the daemon
     Shutdown,
+    /// Version handshake on connect
+    Hello { version: String },
+    /// Response to daemon heartbeat
+    Pong,
 }
 
 /// Messages sent from daemon to client over the Unix domain socket.
@@ -57,6 +62,10 @@ pub enum DaemonMessage {
     Error { message: String },
     /// Catch-up buffer sent when a client first subscribes to an agent
     CatchUp { id: String, data: Vec<u8> },
+    /// Version handshake response
+    Hello { version: String },
+    /// Liveness check — client should respond with Pong
+    Heartbeat,
 }
 
 /// Minimal agent info tracked by the daemon.
@@ -91,6 +100,47 @@ pub fn recv_message<T: DeserializeOwned, R: Read>(reader: &mut R) -> Result<T> {
     let mut buf = vec![0u8; len];
     reader
         .read_exact(&mut buf)
+        .context("reading message body")?;
+
+    serde_json::from_slice(&buf).context("deserializing message")
+}
+
+/// Async variant of `send_message`.
+#[allow(dead_code)]
+pub async fn send_message_async<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    msg: &impl Serialize,
+) -> Result<()> {
+    let json = serde_json::to_vec(msg).context("serializing message")?;
+    let len = (json.len() as u32).to_be_bytes();
+    writer
+        .write_all(&len)
+        .await
+        .context("writing length prefix")?;
+    writer
+        .write_all(&json)
+        .await
+        .context("writing message body")?;
+    writer.flush().await.context("flushing message")?;
+    Ok(())
+}
+
+/// Async variant of `recv_message`.
+#[allow(dead_code)]
+pub async fn recv_message_async<T: DeserializeOwned, R: AsyncRead + Unpin>(
+    reader: &mut R,
+) -> Result<T> {
+    let mut len_buf = [0u8; 4];
+    reader
+        .read_exact(&mut len_buf)
+        .await
+        .context("reading length prefix")?;
+    let len = u32::from_be_bytes(len_buf) as usize;
+
+    let mut buf = vec![0u8; len];
+    reader
+        .read_exact(&mut buf)
+        .await
         .context("reading message body")?;
 
     serde_json::from_slice(&buf).context("deserializing message")
