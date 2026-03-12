@@ -18,13 +18,10 @@ fn ensure_daemon() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Check if debug mode is active.
 pub fn is_debug_mode() -> bool {
     std::env::var("FLEET_DEBUG").is_ok()
 }
 
-/// Build the command to spawn for an agent.
-/// In debug mode, spawns `fleet _mock-agent` instead of `claude`.
 pub fn build_agent_cmd(prompt: Option<&str>) -> Vec<String> {
     if is_debug_mode() {
         let exe = std::env::current_exe().unwrap_or_else(|_| "fleet".into());
@@ -43,7 +40,6 @@ pub fn build_agent_cmd(prompt: Option<&str>) -> Vec<String> {
     }
 }
 
-/// Build the command for adopting/resuming a session.
 pub fn build_resume_cmd(session_id: &str) -> Vec<String> {
     if is_debug_mode() {
         let exe = std::env::current_exe().unwrap_or_else(|_| "fleet".into());
@@ -62,9 +58,7 @@ pub fn build_resume_cmd(session_id: &str) -> Vec<String> {
     }
 }
 
-/// Interactive agent spawn flow.
-/// If `force_editor` is true, open $EDITOR directly instead of showing a text prompt.
-pub fn spawn_agent(
+pub async fn spawn_agent(
     description: Option<String>,
     folder_override: Option<String>,
     force_editor: bool,
@@ -76,7 +70,6 @@ pub fn spawn_agent(
         bail!("No folders configured. Run `fleet config` to add folders.");
     }
 
-    // Resolve folder
     let (folder_name, folder_path) = match folder_override {
         Some(ref name) => {
             let path = config
@@ -85,20 +78,19 @@ pub fn spawn_agent(
                 .with_context(|| format!("Unknown folder: {name}"))?;
             (name.clone(), path.clone())
         }
-        None => select_folder(&config)?,
+        None => tokio::task::block_in_place(|| select_folder(&config))?,
     };
 
     let cwd = resolve_path(&folder_path);
     let cwd_str = cwd.to_string_lossy().to_string();
 
-    // Get title and optional prompt
     let (title, prompt) = match description {
         Some(d) => (d.clone(), Some(d)),
         None if force_editor => {
-            let (t, p) = read_task_from_editor()?;
+            let (t, p) = tokio::task::block_in_place(read_task_from_editor)?;
             (t, Some(p))
         }
-        None => read_task_description()?,
+        None => tokio::task::block_in_place(read_task_description)?,
     };
 
     let state = FleetState::load()?;
@@ -131,25 +123,22 @@ pub fn spawn_agent(
         color_index,
     };
 
-    // Save state first
     with_state(|state| {
         state.agents.insert(id.clone(), agent);
     })?;
 
-    // Spawn via daemon
     let cmd = build_agent_cmd(prompt.as_deref());
     let env = vec![("FLEET_AGENT_ID".to_string(), id.clone())];
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
-    let mut client = DaemonClient::connect()?;
-    client.spawn_agent(&id, &cwd_str, &cmd, &env, term_rows, term_cols)?;
+    let mut client = DaemonClient::connect().await?;
+    client.spawn_agent(&id, &cwd_str, &cmd, &env, term_rows, term_cols).await?;
 
     println!("Spawned agent {id}: {title}");
 
     Ok(())
 }
 
-/// Adopt an external Claude Code session into fleet.
-pub fn adopt_session(
+pub async fn adopt_session(
     session_id: &str,
     description: Option<String>,
     folder_override: Option<String>,
@@ -169,7 +158,7 @@ pub fn adopt_session(
                 .with_context(|| format!("Unknown folder: {name}"))?;
             (name.clone(), path.clone())
         }
-        None => select_folder(&config)?,
+        None => tokio::task::block_in_place(|| select_folder(&config))?,
     };
 
     let cwd = resolve_path(&folder_path);
@@ -178,13 +167,15 @@ pub fn adopt_session(
     let title = match description {
         Some(d) => d,
         None => {
-            print!("Title: ");
-            io::stdout().flush()?;
-            let input = read_line()?.trim().to_string();
-            if input.is_empty() {
-                bail!("Empty title, aborting.");
-            }
-            input
+            tokio::task::block_in_place(|| {
+                print!("Title: ");
+                io::stdout().flush()?;
+                let input = read_line()?.trim().to_string();
+                if input.is_empty() {
+                    bail!("Empty title, aborting.");
+                }
+                Ok(input)
+            })?
         }
     };
 
@@ -219,17 +210,15 @@ pub fn adopt_session(
     let cmd = build_resume_cmd(session_id);
     let env = vec![("FLEET_AGENT_ID".to_string(), id.clone())];
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
-    let mut client = DaemonClient::connect()?;
-    client.spawn_agent(&id, &cwd_str, &cmd, &env, term_rows, term_cols)?;
+    let mut client = DaemonClient::connect().await?;
+    client.spawn_agent(&id, &cwd_str, &cmd, &env, term_rows, term_cols).await?;
 
     println!("Adopted session {session_id} as agent {id}: {title}");
 
     Ok(())
 }
 
-/// Check sessions, warn user, stop daemon if confirmed.
-/// Returns Ok(true) if user confirmed (or no agents), Ok(false) if declined.
-pub fn pre_upgrade() -> anyhow::Result<bool> {
+pub async fn pre_upgrade() -> anyhow::Result<bool> {
     if !daemon::is_daemon_running() {
         return Ok(true);
     }
@@ -274,28 +263,27 @@ pub fn pre_upgrade() -> anyhow::Result<bool> {
         println!();
     }
 
-    print!("Proceed? [y/N] ");
-    io::stdout().flush()?;
-    let mut answer = String::new();
-    io::stdin().read_line(&mut answer)?;
+    let confirmed = tokio::task::block_in_place(|| {
+        print!("Proceed? [y/N] ");
+        io::stdout().flush()?;
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer)?;
+        Ok::<bool, anyhow::Error>(answer.trim().eq_ignore_ascii_case("y"))
+    })?;
 
-    if !answer.trim().eq_ignore_ascii_case("y") {
+    if !confirmed {
         println!("Skipping. Run 'just fleet-install' later.");
         return Ok(false);
     }
 
-    let mut client = DaemonClient::connect()?;
-    client.shutdown()?;
+    let mut client = DaemonClient::connect().await?;
+    client.shutdown().await?;
     println!("Daemon stopped.");
 
     Ok(true)
 }
 
-/// Resume all agents from a previous daemon session.
-///
-/// Reads state.json, finds agents with session_ids,
-/// and respawns them via `claude --resume <session_id>`.
-pub fn resume_agents() -> anyhow::Result<()> {
+pub async fn resume_agents() -> anyhow::Result<()> {
     let state = FleetState::load()?;
 
     let resumable: Vec<&Agent> = state
@@ -312,7 +300,7 @@ pub fn resume_agents() -> anyhow::Result<()> {
     ensure_daemon()?;
 
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
-    let mut client = DaemonClient::connect()?;
+    let mut client = DaemonClient::connect().await?;
     let mut count = 0;
 
     for agent in &resumable {
@@ -320,7 +308,7 @@ pub fn resume_agents() -> anyhow::Result<()> {
         let cmd = build_resume_cmd(session_id);
         let env = vec![("FLEET_AGENT_ID".to_string(), agent.id.clone())];
 
-        match client.spawn_agent(&agent.id, &agent.cwd, &cmd, &env, term_rows, term_cols) {
+        match client.spawn_agent(&agent.id, &agent.cwd, &cmd, &env, term_rows, term_cols).await {
             Ok(()) => {
                 count += 1;
                 println!("  Resumed {}: {}", agent.id, agent.title);
@@ -331,8 +319,6 @@ pub fn resume_agents() -> anyhow::Result<()> {
         }
     }
 
-    // Mark resumed agents as Input — they're waiting for interaction.
-    // Hooks will flip to Working once the agent actually starts executing.
     with_state(|state| {
         for agent in &resumable {
             if let Some(a) = state.agents.get_mut(&agent.id) {
@@ -347,16 +333,14 @@ pub fn resume_agents() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Kill an agent by ID prefix.
-pub fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
+pub async fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
     ensure_daemon()?;
     let state = FleetState::load()?;
 
     let agent = resolve_agent(&state, agent_ref)?.clone();
 
-    let mut client = DaemonClient::connect()?;
-    // Ignore errors — agent may not exist in daemon if already dead
-    let _ = client.kill_agent(&agent.id);
+    let mut client = DaemonClient::connect().await?;
+    let _ = client.kill_agent(&agent.id).await;
 
     with_state(|state| {
         state.agents.remove(&agent.id);
@@ -367,15 +351,14 @@ pub fn kill_agent(agent_ref: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Kill all agents: terminate PTYs and clear state.
-pub fn kill_all_agents() -> anyhow::Result<()> {
+pub async fn kill_all_agents() -> anyhow::Result<()> {
     ensure_daemon()?;
     let state = FleetState::load()?;
 
     let count = state.agents.len();
-    let mut client = DaemonClient::connect()?;
+    let mut client = DaemonClient::connect().await?;
     for agent in state.agents.values() {
-        let _ = client.kill_agent(&agent.id);
+        let _ = client.kill_agent(&agent.id).await;
     }
 
     with_state(|state| {
@@ -387,7 +370,6 @@ pub fn kill_all_agents() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Remove all done agents from state.
 pub fn clean_agents() -> anyhow::Result<()> {
     let removed = with_state(|state| {
         let done_ids: Vec<String> = state
@@ -409,7 +391,6 @@ pub fn clean_agents() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Print one-shot status table to stdout.
 pub fn list_agents() -> anyhow::Result<()> {
     let state = FleetState::load()?;
 
@@ -455,7 +436,6 @@ pub fn list_agents() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Resolve an agent reference by unique ID prefix (git-style).
 pub fn resolve_agent<'a>(state: &'a FleetState, agent_ref: &str) -> anyhow::Result<&'a Agent> {
     let matches: Vec<&Agent> = state
         .agents
@@ -476,8 +456,7 @@ pub fn resolve_agent<'a>(state: &'a FleetState, agent_ref: &str) -> anyhow::Resu
     }
 }
 
-/// Edit an agent's title.
-pub fn edit_agent(agent_ref: &str, description: Option<String>) -> anyhow::Result<()> {
+pub async fn edit_agent(agent_ref: &str, description: Option<String>) -> anyhow::Result<()> {
     let state = FleetState::load()?;
 
     let agent_id = resolve_agent(&state, agent_ref)?.id.clone();
@@ -485,9 +464,11 @@ pub fn edit_agent(agent_ref: &str, description: Option<String>) -> anyhow::Resul
     let new_title = match description {
         Some(d) => d,
         None => {
-            print!("Title: ");
-            io::stdout().flush()?;
-            read_line()?.trim().to_string()
+            tokio::task::block_in_place(|| {
+                print!("Title: ");
+                io::stdout().flush()?;
+                Ok::<String, anyhow::Error>(read_line()?.trim().to_string())
+            })?
         }
     };
 
@@ -505,7 +486,6 @@ pub fn edit_agent(agent_ref: &str, description: Option<String>) -> anyhow::Resul
     Ok(())
 }
 
-/// Open config in $EDITOR.
 pub fn open_config() -> anyhow::Result<()> {
     let config_path = FleetConfig::config_dir()?.join("config.json");
     FleetConfig::ensure_dir()?;
@@ -531,7 +511,6 @@ use crate::dashboard::render::format_duration;
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-/// Interactive folder picker.
 fn select_folder(config: &FleetConfig) -> anyhow::Result<(String, String)> {
     let mut folders: Vec<(&String, &String)> = config.folders.iter().collect();
     folders.sort_by_key(|(name, _)| name.to_owned());
@@ -544,9 +523,6 @@ fn select_folder(config: &FleetConfig) -> anyhow::Result<(String, String)> {
     Ok(((*name).clone(), (*path).clone()))
 }
 
-/// Read title from stdin. Returns (title, optional_prompt).
-/// If user enters a one-liner, it's used as both title and prompt.
-/// If empty, opens $EDITOR.
 fn read_task_description() -> anyhow::Result<(String, Option<String>)> {
     print!("Title: ");
     io::stdout().flush()?;
@@ -561,8 +537,6 @@ fn read_task_description() -> anyhow::Result<(String, Option<String>)> {
     Ok((title, Some(prompt)))
 }
 
-/// Open $EDITOR directly to compose a task prompt.
-/// Returns (first_line_as_description, full_content_as_prompt).
 pub fn read_task_from_editor() -> anyhow::Result<(String, String)> {
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
     let tmp = std::env::temp_dir().join(format!(

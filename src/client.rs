@@ -1,27 +1,24 @@
-use std::os::unix::net::UnixStream;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
+use tokio::net::UnixStream;
 
-use crate::protocol::{recv_message, send_message, ClientMessage, DaemonAgent, DaemonMessage};
+use crate::protocol::{recv_message_async, send_message_async, ClientMessage, DaemonAgent, DaemonMessage};
 
-/// Client connection to the fleet daemon.
-///
-/// Communicates over a Unix domain socket using length-prefixed JSON messages.
 pub struct DaemonClient {
     stream: UnixStream,
 }
 
 impl DaemonClient {
-    /// Connect to the running daemon.
-    pub fn connect() -> Result<Self> {
+    pub async fn connect() -> Result<Self> {
         let path = crate::daemon::daemon_socket_path()?;
         let stream = UnixStream::connect(&path)
+            .await
             .with_context(|| format!("connecting to daemon at {}", path.display()))?;
         Ok(Self { stream })
     }
 
-    /// Spawn a new agent PTY on the daemon.
-    pub fn spawn_agent(
+    pub async fn spawn_agent(
         &mut self,
         id: &str,
         cwd: &str,
@@ -37,50 +34,46 @@ impl DaemonClient {
             env: env.to_vec(),
             rows,
             cols,
-        })?;
-        self.expect_ok()
+        }).await?;
+        self.expect_ok().await
     }
 
-    /// Kill an agent's PTY process.
-    pub fn kill_agent(&mut self, id: &str) -> Result<()> {
-        self.send(ClientMessage::Kill { id: id.to_string() })?;
-        self.expect_ok()
+    pub async fn kill_agent(&mut self, id: &str) -> Result<()> {
+        self.send(ClientMessage::Kill { id: id.to_string() }).await?;
+        self.expect_ok().await
     }
 
-    /// Send SIGINT to an agent's foreground process group.
-    pub fn send_sigint(&mut self, id: &str) -> Result<()> {
-        self.send(ClientMessage::Sigint { id: id.to_string() })?;
-        self.expect_ok()
+    pub async fn send_sigint(&mut self, id: &str) -> Result<()> {
+        self.send(ClientMessage::Sigint { id: id.to_string() }).await?;
+        self.expect_ok().await
     }
 
-    /// Send raw input bytes to an agent's PTY.
-    ///
-    /// Fire-and-forget — the daemon does not respond to Input messages.
-    pub fn send_input(&mut self, id: &str, data: &[u8]) -> Result<()> {
+    pub async fn send_input(&mut self, id: &str, data: &[u8]) -> Result<()> {
         self.send(ClientMessage::Input {
             id: id.to_string(),
             data: data.to_vec(),
-        })
+        }).await
     }
 
-    /// Resize an agent's PTY.
-    pub fn resize(&mut self, id: &str, rows: u16, cols: u16) -> Result<()> {
+    pub async fn resize(&mut self, id: &str, rows: u16, cols: u16) -> Result<()> {
         self.send(ClientMessage::Resize {
             id: id.to_string(),
             rows,
             cols,
-        })?;
-        self.expect_ok()
+        }).await?;
+        self.expect_ok().await
     }
 
-    /// Subscribe to output from an agent. Returns the catch-up buffer.
-    ///
-    /// Drains any stale messages (Output, Exited) that may be buffered
-    /// before the expected CatchUp response.
-    pub fn subscribe(&mut self, id: &str) -> Result<Vec<u8>> {
-        self.send(ClientMessage::Subscribe { id: id.to_string() })?;
+    pub async fn subscribe(&mut self, id: &str) -> Result<Vec<u8>> {
+        self.send(ClientMessage::Subscribe { id: id.to_string() }).await?;
         loop {
-            let msg: DaemonMessage = recv_message(&mut self.stream)?;
+            let msg: DaemonMessage = tokio::time::timeout(
+                Duration::from_secs(5),
+                recv_message_async(&mut self.stream),
+            )
+            .await
+            .context("subscribe timed out")??;
+
             match &msg {
                 DaemonMessage::CatchUp { data, .. } => {
                     return Ok(data.clone());
@@ -100,16 +93,21 @@ impl DaemonClient {
         }
     }
 
-    /// Unsubscribe from an agent's output.
-    pub fn unsubscribe(&mut self, id: &str) -> Result<()> {
-        self.send(ClientMessage::Unsubscribe { id: id.to_string() })?;
-        self.expect_ok()
+    pub async fn unsubscribe(&mut self, id: &str) -> Result<()> {
+        self.send(ClientMessage::Unsubscribe { id: id.to_string() }).await?;
+        self.expect_ok().await
     }
 
-    pub fn list_agents(&mut self) -> Result<Vec<DaemonAgent>> {
-        self.send(ClientMessage::List)?;
+    pub async fn list_agents(&mut self) -> Result<Vec<DaemonAgent>> {
+        self.send(ClientMessage::List).await?;
         loop {
-            let msg: DaemonMessage = recv_message(&mut self.stream)?;
+            let msg: DaemonMessage = tokio::time::timeout(
+                Duration::from_secs(5),
+                recv_message_async(&mut self.stream),
+            )
+            .await
+            .context("list timed out")??;
+
             match msg {
                 DaemonMessage::AgentList { agents } => return Ok(agents),
                 DaemonMessage::Error { message } => {
@@ -123,46 +121,32 @@ impl DaemonClient {
         }
     }
 
-    /// Request daemon shutdown.
-    pub fn shutdown(&mut self) -> Result<()> {
-        self.send(ClientMessage::Shutdown)?;
-        self.expect_ok()
+    pub async fn shutdown(&mut self) -> Result<()> {
+        self.send(ClientMessage::Shutdown).await?;
+        self.expect_ok().await
     }
 
-    /// Try to read the next message from the daemon without blocking.
-    ///
-    /// Returns Ok(None) if no data is available (WouldBlock).
-    /// The socket must be in non-blocking mode for this to work.
-    pub fn try_recv(&mut self) -> Result<Option<DaemonMessage>> {
-        match recv_message::<DaemonMessage, _>(&mut self.stream) {
-            Ok(msg) => Ok(Some(msg)),
-            Err(e) => {
-                let is_would_block = e.downcast_ref::<std::io::Error>().map_or(false, |io_err| {
-                    io_err.kind() == std::io::ErrorKind::WouldBlock
-                });
-                if is_would_block {
-                    Ok(None)
-                } else {
-                    Err(e)
-                }
-            }
-        }
+    pub async fn recv(&mut self) -> Result<DaemonMessage> {
+        recv_message_async(&mut self.stream).await
     }
 
-    /// Set the socket to non-blocking mode (for use in event loops).
-    pub fn set_nonblocking(&mut self, nonblocking: bool) -> Result<()> {
-        self.stream
-            .set_nonblocking(nonblocking)
-            .context("setting socket non-blocking mode")
+    pub async fn pong(&mut self) -> Result<()> {
+        self.send(ClientMessage::Pong).await
     }
 
-    fn send(&mut self, msg: ClientMessage) -> Result<()> {
-        send_message(&mut self.stream, &msg)
+    async fn send(&mut self, msg: ClientMessage) -> Result<()> {
+        send_message_async(&mut self.stream, &msg).await
     }
 
-    fn expect_ok(&mut self) -> Result<()> {
+    async fn expect_ok(&mut self) -> Result<()> {
         loop {
-            let msg: DaemonMessage = recv_message(&mut self.stream)?;
+            let msg: DaemonMessage = tokio::time::timeout(
+                Duration::from_secs(5),
+                recv_message_async(&mut self.stream),
+            )
+            .await
+            .context("expect_ok timed out")??;
+
             match msg {
                 DaemonMessage::Ok => return Ok(()),
                 DaemonMessage::Error { message } => anyhow::bail!("{message}"),

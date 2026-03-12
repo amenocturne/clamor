@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
                 eprintln!("Error: No folders configured. Run `fleet config` to add folders.");
                 std::process::exit(1);
             }
-            dashboard::run(&config, None)?;
+            dashboard::run(&config, None).await?;
         }
         Some(Command::Ls) => {
             spawn::list_agents()?;
@@ -38,42 +38,40 @@ async fn main() -> Result<()> {
             let config = FleetConfig::load()?;
             let state = state::FleetState::load()?;
             let agent = spawn::resolve_agent(&state, &agent_ref)?;
-            dashboard::run(&config, Some(agent.id.clone()))?;
+            dashboard::run(&config, Some(agent.id.clone())).await?;
         }
         Some(Command::New {
             title,
             description,
             folder,
         }) => {
-            // If title provided via CLI: title is set, description becomes prompt
-            // If only title: title is both title and prompt (backward compat)
             let effective_desc = match (title, description) {
                 (Some(t), Some(d)) => Some(format!("{t}\n\n{d}")),
                 (Some(t), None) => Some(t),
                 (None, _) => None,
             };
-            spawn::spawn_agent(effective_desc, folder, false)?;
+            spawn::spawn_agent(effective_desc, folder, false).await?;
         }
         Some(Command::Adopt {
             session_id,
             description,
             folder,
         }) => {
-            spawn::adopt_session(&session_id, description, folder)?;
+            spawn::adopt_session(&session_id, description, folder).await?;
         }
         Some(Command::Edit {
             agent_ref,
             description,
         }) => {
-            spawn::edit_agent(&agent_ref, description)?;
+            spawn::edit_agent(&agent_ref, description).await?;
         }
         Some(Command::Kill { all: true, .. }) => {
-            spawn::kill_all_agents()?;
+            spawn::kill_all_agents().await?;
         }
         Some(Command::Kill {
             agent_ref: Some(r), ..
         }) => {
-            spawn::kill_agent(&r)?;
+            spawn::kill_agent(&r).await?;
         }
         Some(Command::Kill { .. }) => {
             unreachable!("clap enforces ref or --all");
@@ -88,16 +86,16 @@ async fn main() -> Result<()> {
             hook::run();
         }
         Some(Command::PreUpgrade) => {
-            if !spawn::pre_upgrade()? {
+            if !spawn::pre_upgrade().await? {
                 std::process::exit(1);
             }
         }
         Some(Command::Resume) => {
-            spawn::resume_agents()?;
+            spawn::resume_agents().await?;
         }
         Some(Command::Stop) => {
-            let mut client = client::DaemonClient::connect()?;
-            client.shutdown()?;
+            let mut client = client::DaemonClient::connect().await?;
+            client.shutdown().await?;
             println!("Fleet daemon stopped");
         }
         Some(Command::Daemon) => {
