@@ -131,7 +131,9 @@ pub async fn spawn_agent(
     let env = vec![("CLAMOR_AGENT_ID".to_string(), id.clone())];
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
     let mut client = DaemonClient::connect().await?;
-    client.spawn_agent(&id, &cwd_str, &cmd, &env, term_rows, term_cols).await?;
+    client
+        .spawn_agent(&id, &cwd_str, &cmd, &env, term_rows, term_cols)
+        .await?;
 
     println!("Spawned agent {id}: {title}");
 
@@ -166,17 +168,15 @@ pub async fn adopt_session(
 
     let title = match description {
         Some(d) => d,
-        None => {
-            tokio::task::block_in_place(|| {
-                print!("Title: ");
-                io::stdout().flush()?;
-                let input = read_line()?.trim().to_string();
-                if input.is_empty() {
-                    bail!("Empty title, aborting.");
-                }
-                Ok(input)
-            })?
-        }
+        None => tokio::task::block_in_place(|| {
+            print!("Title: ");
+            io::stdout().flush()?;
+            let input = read_line()?.trim().to_string();
+            if input.is_empty() {
+                bail!("Empty title, aborting.");
+            }
+            Ok(input)
+        })?,
     };
 
     let state = ClamorState::load()?;
@@ -211,7 +211,9 @@ pub async fn adopt_session(
     let env = vec![("CLAMOR_AGENT_ID".to_string(), id.clone())];
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
     let mut client = DaemonClient::connect().await?;
-    client.spawn_agent(&id, &cwd_str, &cmd, &env, term_rows, term_cols).await?;
+    client
+        .spawn_agent(&id, &cwd_str, &cmd, &env, term_rows, term_cols)
+        .await?;
 
     println!("Adopted session {session_id} as agent {id}: {title}");
 
@@ -308,7 +310,10 @@ pub async fn resume_agents() -> anyhow::Result<()> {
         let cmd = build_resume_cmd(session_id);
         let env = vec![("CLAMOR_AGENT_ID".to_string(), agent.id.clone())];
 
-        match client.spawn_agent(&agent.id, &agent.cwd, &cmd, &env, term_rows, term_cols).await {
+        match client
+            .spawn_agent(&agent.id, &agent.cwd, &cmd, &env, term_rows, term_cols)
+            .await
+        {
             Ok(()) => {
                 count += 1;
                 println!("  Resumed {}: {}", agent.id, agent.title);
@@ -463,13 +468,11 @@ pub async fn edit_agent(agent_ref: &str, description: Option<String>) -> anyhow:
 
     let new_title = match description {
         Some(d) => d,
-        None => {
-            tokio::task::block_in_place(|| {
-                print!("Title: ");
-                io::stdout().flush()?;
-                Ok::<String, anyhow::Error>(read_line()?.trim().to_string())
-            })?
-        }
+        None => tokio::task::block_in_place(|| {
+            print!("Title: ");
+            io::stdout().flush()?;
+            Ok::<String, anyhow::Error>(read_line()?.trim().to_string())
+        })?,
     };
 
     if new_title.is_empty() {

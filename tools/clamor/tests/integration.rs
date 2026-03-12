@@ -14,11 +14,8 @@ fn clamor_cmd() -> Command {
 
 /// Create an isolated HOME directory with a minimal clamor config.
 fn setup_test_env() -> PathBuf {
-    let test_home = std::env::temp_dir().join(format!(
-        "clm-t-{}-{}",
-        std::process::id(),
-        rand_suffix()
-    ));
+    let test_home =
+        std::env::temp_dir().join(format!("clm-t-{}-{}", std::process::id(), rand_suffix()));
     std::fs::create_dir_all(test_home.join(".clamor")).unwrap();
 
     let config = serde_json::json!({
