@@ -138,7 +138,7 @@ Clamor uses a daemon-client architecture, similar to tmux:
 
 **Daemon won't start** — Check if a stale socket exists: `rm ~/.clamor/clamor.sock` and try again.
 
-**Hooks not updating state** — Verify the hook is executable (`chmod +x hook.sh`) and that `clamor` is in your `PATH`.
+**Hooks not updating state** — Verify that `clamor` is in your `PATH` and the hook entries are in your `.claude/settings.json`.
 
 ## License
 

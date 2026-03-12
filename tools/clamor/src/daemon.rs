@@ -98,7 +98,7 @@ fn send_sigint(child_pid: u32) {
 async fn send_to_client(stream: &mut tokio::net::UnixStream, msg: &DaemonMessage) -> bool {
     tokio::time::timeout(Duration::from_secs(5), send_message_async(stream, msg))
         .await
-        .map_or(false, |r| r.is_ok())
+        .is_ok_and(|r| r.is_ok())
 }
 
 pub async fn run_daemon() -> Result<()> {

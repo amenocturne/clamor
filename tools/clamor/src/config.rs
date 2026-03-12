@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ClamorConfig {
     #[serde(default)]
     pub folders: HashMap<String, String>,
@@ -37,15 +37,6 @@ impl Default for DashboardConfig {
         Self {
             refresh_interval: default_refresh_interval(),
             watch_mode: WatchMode::default(),
-        }
-    }
-}
-
-impl Default for ClamorConfig {
-    fn default() -> Self {
-        Self {
-            folders: HashMap::new(),
-            dashboard: DashboardConfig::default(),
         }
     }
 }
