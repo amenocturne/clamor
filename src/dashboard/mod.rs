@@ -174,15 +174,16 @@ async fn main_loop(
         } else {
             let (term_cols, term_rows) = crossterm::terminal::size()?;
             let content_rows = term_rows.saturating_sub(1);
+            let _ = client.resize(agent_id, content_rows, term_cols).await;
             let pv = pane_views
                 .entry(agent_id.clone())
                 .or_insert_with(|| PaneView::new(content_rows, term_cols));
+            pv.resize(content_rows, term_cols);
             match client.subscribe(agent_id).await {
                 Ok(catch_up) => {
                     if !catch_up.is_empty() {
                         pv.process_output(&catch_up);
                     }
-                    let _ = client.resize(agent_id, content_rows, term_cols).await;
                     AppMode::Terminal {
                         agent_id: agent_id.clone(),
                     }
@@ -276,9 +277,15 @@ async fn main_loop(
                         LoopAction::SwitchToTerminal(agent_id) => {
                             let (term_cols, term_rows) = crossterm::terminal::size()?;
                             let content_rows = term_rows.saturating_sub(1);
+
+                            // Resize PTY first so the agent re-renders at
+                            // the correct size before we grab the catch-up
+                            let _ = client.resize(&agent_id, content_rows, term_cols).await;
+
                             let pv = pane_views
                                 .entry(agent_id.clone())
                                 .or_insert_with(|| PaneView::new(content_rows, term_cols));
+                            pv.resize(content_rows, term_cols);
 
                             match client.subscribe(&agent_id).await {
                                 Ok(catch_up) => {
@@ -289,7 +296,7 @@ async fn main_loop(
                                 Err(_) => continue,
                             }
 
-                            let _ = client.resize(&agent_id, content_rows, term_cols).await;
+                            terminal.clear()?;
                             mode = AppMode::Terminal { agent_id };
                         }
                         LoopAction::SwitchToDashboard => {
