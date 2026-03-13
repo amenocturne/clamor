@@ -4,11 +4,35 @@
 
 <h3 align="center"><i>ORCHESTRATE THE NOISE</i></h3>
 
-<p align="center"> Tmux but for agents. Because one Claude isn't loud enough. </p>
+<p align="center"> Tmux for agents. Because one Claude isn't loud enough. </p>
+
+<p align="center">A terminal multiplexer for managing parallel Claude Code sessions.</p>
 
 <!-- demo gif placeholder -->
 
-## Install
+## Why
+
+You're running five Claude Code sessions in parallel. Tab names blur together. You can't tell which agent needs input and which is still working. Switching between them means hunting through tmux windows or terminal tabs. Spawning a new one is a ritual of `cd`, naming, and arranging.
+
+Clamor fixes this without replacing your workflow. It's *not* a new terminal, *not* a new editor, *not* an IDE that swallows everything. It's a single tool that does one thing well: manage parallel agent sessions. It runs inside your existing terminal, alongside tmux, inside whatever setup you already have. Unix philosophy — small, composable, stays out of the way.
+
+## Features
+
+**Persistent sessions** — Agents live in a background daemon, not your terminal. Close the dashboard, reopen it — everything's still running. Terminal crash? SSH disconnect? Doesn't matter.
+
+**Jump keys** — Each agent gets a home-row key (`a`/`s`/`d`/`f`/`j`/`k`/`l`/`g`/`h`). One keypress to attach, `Ctrl+F` to detach. Switching between agents is instant.
+
+**Live state tracking** — The dashboard shows each agent's actual state (working/waiting/done). Spot stalled agents immediately.
+
+**Color-coded title bar** — When attached, a title bar shows the project name and a distinct color so you always know where you are. No squinting at tab names.
+
+**Session adoption** — Already have Claude Code sessions from before? Spawn a new agent with just a title, then `/resume` into the session you want.
+
+**Non-blocking hooks** — State tracking uses non-blocking file locks. Clamor never slows down your Claude Code sessions.
+
+## Quick start
+
+### Install
 
 ```bash
 cargo install clamor
@@ -41,10 +65,9 @@ Clamor tracks agent state (working/waiting/done) via Claude Code hooks. Add thes
 
 That's it — no files to copy. The hook reads events from stdin and updates agent state in `~/.clamor/state.json`.
 
-## Quick start
+### Configure folders
 
 ```bash
-# Configure your project folders
 clamor config
 ```
 
@@ -59,23 +82,11 @@ This opens `~/.clamor/config.json` — map names to paths:
 }
 ```
 
-Then launch the dashboard:
+### Launch
 
 ```bash
 clamor
 ```
-
-## Features
-
-**Persistent sessions** — Agents live in a background daemon, not your terminal. Close the dashboard, reopen it — everything's still running. Terminal crash? SSH disconnect? Doesn't matter.
-
-**Jump keys** — Each agent gets a home-row key (`a`/`s`/`d`/`f`/`j`/`k`/`l`/`g`/`h`). One keypress to attach, `Ctrl+F` to detach. Switching between agents is instant.
-
-**Live state tracking** — The dashboard shows each agent's actual state (working/waiting/done) and the last tool it invoked. Spot stalled agents immediately.
-
-**Session adoption** — Already have a Claude Code session running? `clamor adopt <session-id>` brings it under management without restarting.
-
-**Non-blocking hooks** — State tracking uses non-blocking file locks. Clamor never slows down your Claude Code sessions.
 
 ## Usage
 
