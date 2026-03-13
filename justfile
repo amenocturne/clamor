@@ -6,7 +6,7 @@ default:
     @just --list
 
 # Reinstall all registered installations (falls back to interactive if no registry)
-install: deny-read-install graph-colors-install
+install: deny-read-install graph-colors-install generate-workspace-install
     uv run install.py --all
 
 # Install preset interactively
@@ -23,7 +23,7 @@ list:
 
 # Generate WORKSPACE.yaml for a directory
 workspace root="." output="WORKSPACE.yaml":
-    uv run pipelines/workspace/generate-workspace.py --root {{ root }} --output {{ output }}
+    generate-workspace --root {{ root }} --output {{ output }}
 
 # Run tests
 test:
@@ -104,6 +104,18 @@ graph-colors-install:
     rm -f ~/.local/bin/graph-colors
     cp tools/graph-colors/target/release/graph-colors ~/.local/bin/graph-colors
     @echo "graph-colors installed to ~/.local/bin/graph-colors"
+
+# Build generate-workspace binary (debug)
+generate-workspace-build:
+    cargo build --manifest-path tools/generate-workspace/Cargo.toml
+
+# Build and install generate-workspace binary to ~/.local/bin
+generate-workspace-install:
+    cargo build --release --manifest-path tools/generate-workspace/Cargo.toml
+    mkdir -p ~/.local/bin
+    rm -f ~/.local/bin/generate-workspace
+    cp tools/generate-workspace/target/release/generate-workspace ~/.local/bin/generate-workspace
+    @echo "generate-workspace installed to ~/.local/bin/generate-workspace"
 
 # Aliases
 alias i := install
