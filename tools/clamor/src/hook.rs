@@ -62,9 +62,13 @@ fn run_inner() -> anyhow::Result<()> {
                 agent.state = AgentState::Input;
             }
             "PreToolUse" => {
-                agent.state = AgentState::Input;
+                agent.state = AgentState::Working;
                 agent.last_tool = Some(format_tool(&event.tool_name, &event.tool_input));
                 agent.last_activity_at = Utc::now();
+            }
+            "PermissionRequest" => {
+                agent.state = AgentState::Input;
+                agent.last_tool = Some(format_tool(&event.tool_name, &event.tool_input));
             }
             "PostToolUse" => {
                 agent.state = AgentState::Working;
