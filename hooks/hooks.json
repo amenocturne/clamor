@@ -33,6 +33,17 @@
       ]
     }
   ],
+  "PermissionRequest": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "clamor hook",
+          "timeout": 5
+        }
+      ]
+    }
+  ],
   "PostToolUse": [
     {
       "hooks": [
