@@ -74,3 +74,8 @@ Uses **in-place file transformation** to avoid Claude Code's file tracking issue
 
 - `data/mappings.json` - Global URL→hash mappings (shared across sessions)
 - `data/sessions/{id}.json` - Per-session list of transformed files
+
+## TODO
+
+- **Phase 3**: Add PHONE detector (simplified regex, no external deps) and DATE detector (19 Russian date patterns from anon)
+- **Phase 4**: Add NAME/SURNAME/PATRONYMIC and ADDRESS detection via `natasha` library (needs dep added to pyproject.toml)
