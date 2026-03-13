@@ -648,6 +648,7 @@ from main import (  # noqa: E402
     load_domains,
     load_mappings,
     restore_text,
+    transform_secrets,
     transform_text,
 )
 
@@ -1492,9 +1493,17 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 transformed_body, new_mappings = transform_request_body(body, config.url_pattern)
                 self.server_state.add_mappings(new_mappings)
                 if new_mappings:
-                    self.log_debug(f"Transformed: {len(new_mappings)} new mappings")
+                    self.log_debug(f"Transformed: {len(new_mappings)} new URL mappings")
             else:
                 transformed_body = body
+
+            # Apply secret/PII detection after URL transformation
+            body_str = json.dumps(transformed_body)
+            body_str, secret_mappings = transform_secrets(body_str)
+            if secret_mappings:
+                self.server_state.add_mappings(secret_mappings)
+                self.log_debug(f"Transformed: {len(secret_mappings)} new secret mappings")
+                transformed_body = json.loads(body_str)
         except Exception:
             logger.error("Request transform error:\n%s", traceback.format_exc())
             self.send_error_response(

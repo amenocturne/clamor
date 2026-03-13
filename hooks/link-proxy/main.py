@@ -15,7 +15,10 @@ DATA_DIR = SCRIPT_DIR / "data"
 DOMAINS_FILE = SCRIPT_DIR / "domains.txt"
 MAPPINGS_FILE = DATA_DIR / "mappings.json"
 
-PLACEHOLDER_RE = re.compile(r"\[InternalLink_([a-zA-Z0-9]+)_([a-f0-9]{8})\]")
+# Matches both URL placeholders [InternalLink_prefix_hash] and secret placeholders [TypeName_hash].
+# Group 1: full type/prefix (may contain underscores, e.g. "InternalLink_wiki")
+# Group 2: 8-char hex hash (used as key into mappings)
+PLACEHOLDER_RE = re.compile(r"\[([A-Za-z][A-Za-z0-9_]*)_([a-f0-9]{8})\]")
 
 
 def load_domains() -> list[str]:
@@ -100,3 +103,7 @@ def restore_text(text: str, mappings: dict[str, str]) -> str:
         if url_hash in mappings:
             text = text[: match.start()] + mappings[url_hash] + text[match.end() :]
     return text
+
+
+# Re-export so proxy.py can import transform_secrets alongside other main.py symbols.
+from secrets import transform_secrets as transform_secrets  # noqa: F401  # type: ignore[no-redef]
