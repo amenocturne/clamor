@@ -6,7 +6,7 @@ default:
     @just --list
 
 # Reinstall all registered installations (falls back to interactive if no registry)
-install: deny-read-install
+install: deny-read-install graph-colors-install
     uv run install.py --all
 
 # Install preset interactively
@@ -92,6 +92,18 @@ deny-read-install:
     rm -f ~/.local/bin/deny-read
     cp tools/deny-read/target/release/deny-read ~/.local/bin/deny-read
     @echo "deny-read installed to ~/.local/bin/deny-read"
+
+# Build graph-colors binary (debug)
+graph-colors-build:
+    cargo build --manifest-path tools/graph-colors/Cargo.toml
+
+# Build and install graph-colors binary to ~/.local/bin
+graph-colors-install:
+    cargo build --release --manifest-path tools/graph-colors/Cargo.toml
+    mkdir -p ~/.local/bin
+    rm -f ~/.local/bin/graph-colors
+    cp tools/graph-colors/target/release/graph-colors ~/.local/bin/graph-colors
+    @echo "graph-colors installed to ~/.local/bin/graph-colors"
 
 # Aliases
 alias i := install
