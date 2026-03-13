@@ -4,7 +4,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "bash -c 'graph-colors --exclude=logs,tmp,archive \"$(jq -r .cwd)\"'",
+          "command": "graph-colors --exclude=logs,tmp,archive",
           "timeout": 30
         }
       ]

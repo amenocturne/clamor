@@ -5,6 +5,7 @@ mod louvain;
 mod obsidian;
 
 use std::collections::HashSet;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 const MAX_CLUSTERS: usize = 50;
@@ -36,6 +37,11 @@ fn main() -> anyhow::Result<()> {
         } else {
             vault_path = Some(PathBuf::from(arg));
         }
+    }
+
+    // If no vault path from args, try reading CWD from stdin JSON (hook protocol)
+    if vault_path.is_none() {
+        vault_path = read_cwd_from_stdin();
     }
 
     let start = vault_path.unwrap_or_else(|| std::env::current_dir().expect("cannot get cwd"));
@@ -103,6 +109,15 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Try reading `{"cwd": "..."}` from stdin (Claude Code hook protocol).
+fn read_cwd_from_stdin() -> Option<PathBuf> {
+    let mut input = String::new();
+    std::io::stdin().read_to_string(&mut input).ok()?;
+    let data: serde_json::Value = serde_json::from_str(&input).ok()?;
+    let cwd = data.get("cwd")?.as_str()?;
+    Some(PathBuf::from(cwd))
 }
 
 /// Walk up from `start` to find the nearest directory containing `.obsidian`.
