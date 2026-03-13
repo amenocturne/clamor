@@ -287,3 +287,292 @@ class TestRoundTrip:
         out2, m2 = pii.transform_secrets(text)
         assert out1 == out2
         assert m1 == m2
+
+
+# ── Phase 2: Passport ─────────────────────────────────────────────────────────
+
+# Russian passport: valid OKATO region (77 = Moscow) + valid issue year (03) + 6-digit number
+RUS_PASSPORT_VALID = "77 03 123456"
+# Invalid OKATO region (02 is not a valid OKATO code)
+RUS_PASSPORT_BAD_OKATO = "02 03 123456"
+# Valid structure but issue year in future (99 is last-century valid, but "02" region is bad)
+# Use region 77 with very future year to test year exclusion
+RUS_PASSPORT_BAD_YEAR = "77 90 123456"  # year 90 would be future (2090), invalid
+
+# Ukrainian passport: valid birth date 19800515 (1980-05-15) + 5-digit number
+UKR_PASSPORT_VALID = "1980051500123"
+# Invalid month (13) in birth date
+UKR_PASSPORT_BAD_MONTH = "1980131500123"
+
+# Belarusian passport: format 7 digits + 1 letter + 3 digits + 2 letters + 1 digit
+BLR_PASSPORT_VALID = "1234567A123BC4"
+
+# Georgian passport: 2 digits + 2 letters + 5 digits
+GEO_PASSPORT_VALID = "12AB34567"
+
+# Kyrgyz/Uzbek: 2 letters + 7 digits
+KGZ_UZB_PASSPORT_VALID = "AB1234567"
+
+# Kazakh/Azerbaijani/Turkmen: 1 letter + 7 digits
+KAZ_AZE_TKM_PASSPORT_VALID = "A1234567"
+
+
+class TestPassport:
+    def test_russian_valid_okato_detected(self):
+        text = f"паспорт серия {RUS_PASSPORT_VALID} выдан"
+        out, mappings = pii.transform_secrets(text)
+        assert RUS_PASSPORT_VALID not in out
+        assert "[Passport_" in out
+        assert len(mappings) >= 1
+
+    def test_russian_invalid_okato_not_detected(self):
+        text = f"серия {RUS_PASSPORT_BAD_OKATO} номер"
+        out, mappings = pii.transform_secrets(text)
+        assert "[Passport_" not in out
+
+    def test_russian_bad_year_not_detected(self):
+        # "90" as issue year is not valid (would be year 2090, far future)
+        text = f"серия {RUS_PASSPORT_BAD_YEAR}"
+        out, mappings = pii.transform_secrets(text)
+        assert "[Passport_" not in out
+
+    def test_ukrainian_valid_date_detected(self):
+        # Ukrainian passport: 13 digits total (8 birth date + 5 number)
+        text = f"паспорт {UKR_PASSPORT_VALID}"
+        out, mappings = pii.transform_secrets(text)
+        assert UKR_PASSPORT_VALID not in out
+        assert "[Passport_" in out
+
+    def test_ukrainian_invalid_month_not_detected(self):
+        text = f"паспорт {UKR_PASSPORT_BAD_MONTH}"
+        out, mappings = pii.transform_secrets(text)
+        assert "[Passport_" not in out
+
+    def test_belarusian_detected(self):
+        text = f"паспорт {BLR_PASSPORT_VALID}"
+        out, mappings = pii.transform_secrets(text)
+        assert BLR_PASSPORT_VALID not in out
+        assert "[Passport_" in out
+
+    def test_georgian_detected(self):
+        text = f"passport {GEO_PASSPORT_VALID}"
+        out, mappings = pii.transform_secrets(text)
+        assert GEO_PASSPORT_VALID not in out
+        assert "[Passport_" in out
+
+    def test_passport_roundtrip(self):
+        original = f"doc {BLR_PASSPORT_VALID} issued"
+        transformed, mappings = pii.transform_secrets(original)
+        assert BLR_PASSPORT_VALID not in transformed
+        restored = restore_text(transformed, mappings)
+        assert restored == original
+
+
+# ── Phase 2: SNILS ────────────────────────────────────────────────────────────
+
+# Valid SNILS: 112-233-445-95 (checksum passes)
+SNILS_VALID = "112-233-445-95"
+# Same digits, wrong last two (checksum fails)
+SNILS_INVALID_CHECKSUM = "112-233-445-96"
+# 11-digit without dashes — requires "СНИЛС" keyword nearby
+SNILS_PLAIN_DIGITS = "11223344595"
+
+
+class TestSNILS:
+    def test_dashed_valid_checksum_detected(self):
+        text = f"СНИЛС: {SNILS_VALID}"
+        out, mappings = pii.transform_secrets(text)
+        assert SNILS_VALID not in out
+        assert "[SNILS_" in out
+        assert len(mappings) == 1
+
+    def test_dashed_invalid_checksum_not_detected(self):
+        text = f"СНИЛС: {SNILS_INVALID_CHECKSUM}"
+        out, mappings = pii.transform_secrets(text)
+        assert "[SNILS_" not in out
+
+    def test_plain_digits_with_keyword_detected(self):
+        text = f"СНИЛС {SNILS_PLAIN_DIGITS} оформлен"
+        out, mappings = pii.transform_secrets(text)
+        assert SNILS_PLAIN_DIGITS not in out
+        assert "[SNILS_" in out
+
+    def test_plain_digits_without_keyword_not_detected(self):
+        text = f"число {SNILS_PLAIN_DIGITS} без ключевого слова"
+        out, mappings = pii.transform_secrets(text)
+        assert "[SNILS_" not in out
+
+    def test_snils_roundtrip(self):
+        original = f"номер снилс: {SNILS_VALID}"
+        transformed, mappings = pii.transform_secrets(original)
+        restored = restore_text(transformed, mappings)
+        assert restored == original
+
+
+# ── Phase 2: Email ────────────────────────────────────────────────────────────
+
+EMAIL_VALID = "user.name@gmail.com"
+EMAIL_CYRILLIC_DOMAIN = "ivan.petrov@yandex.ru"
+EMAIL_NO_AT = "testusergmailcom"  # no @ — should NOT match (too short / pattern specific)
+
+
+class TestEmail:
+    def test_standard_email_detected(self):
+        text = f"напишите на {EMAIL_VALID} для связи"
+        out, mappings = pii.transform_secrets(text)
+        assert EMAIL_VALID not in out
+        assert "[Email_" in out
+        assert len(mappings) == 1
+
+    def test_yandex_email_detected(self):
+        text = f"email: {EMAIL_CYRILLIC_DOMAIN}"
+        out, mappings = pii.transform_secrets(text)
+        assert EMAIL_CYRILLIC_DOMAIN not in out
+        assert "[Email_" in out
+
+    def test_not_email_unchanged(self):
+        # Plain text with no email pattern
+        text = "позвоните по телефону или зайдите на сайт"
+        out, mappings = pii.transform_secrets(text)
+        assert "[Email_" not in out
+
+    def test_email_roundtrip(self):
+        original = f"contact: {EMAIL_VALID}"
+        transformed, mappings = pii.transform_secrets(original)
+        restored = restore_text(transformed, mappings)
+        assert restored == original
+
+
+# ── Phase 2: INN ──────────────────────────────────────────────────────────────
+
+# Valid 12-digit personal INN (checksum verified)
+INN12_VALID = "500100732259"
+# Valid 10-digit company INN (checksum verified)
+INN10_VALID = "0200000008"  # valid INN10 checksum, non-OKATO prefix to avoid passport collision
+# Invalid 12-digit (bad checksum)
+INN12_INVALID = "500100732258"
+# Invalid 10-digit (bad checksum)
+INN10_INVALID = "0200000007"  # invalid INN10 checksum (last digit wrong)
+
+
+class TestINN:
+    def test_12digit_valid_detected(self):
+        text = f"ИНН {INN12_VALID} физлица"
+        out, mappings = pii.transform_secrets(text)
+        assert INN12_VALID not in out
+        assert "[INN_" in out
+        assert len(mappings) == 1
+
+    def test_10digit_valid_detected(self):
+        text = f"ИНН организации {INN10_VALID}"
+        out, mappings = pii.transform_secrets(text)
+        assert INN10_VALID not in out
+        assert "[INN_" in out
+
+    def test_12digit_invalid_checksum_not_detected(self):
+        text = f"ИНН {INN12_INVALID}"
+        out, mappings = pii.transform_secrets(text)
+        assert "[INN_" not in out
+
+    def test_10digit_invalid_checksum_not_detected(self):
+        text = f"ИНН {INN10_INVALID}"
+        out, mappings = pii.transform_secrets(text)
+        assert "[INN_" not in out
+
+    def test_inn_roundtrip(self):
+        original = f"ИНН: {INN12_VALID}"
+        transformed, mappings = pii.transform_secrets(original)
+        restored = restore_text(transformed, mappings)
+        assert restored == original
+
+
+# ── Phase 2: BIC ──────────────────────────────────────────────────────────────
+
+# Russian BIC starts with 04, 9 digits total
+BIC_VALID = "044525225"   # Sberbank BIC (public)
+BIC_NOT_RUSSIAN = "123456789"  # doesn't start with 04
+
+
+class TestBIC:
+    def test_russian_bic_detected(self):
+        text = f"БИК {BIC_VALID} банка"
+        out, mappings = pii.transform_secrets(text)
+        assert BIC_VALID not in out
+        assert "[BIC_" in out
+        assert len(mappings) == 1
+
+    def test_non_russian_prefix_not_detected(self):
+        text = f"число {BIC_NOT_RUSSIAN} не БИК"
+        out, mappings = pii.transform_secrets(text)
+        assert "[BIC_" not in out
+
+    def test_bic_roundtrip(self):
+        original = f"реквизиты БИК {BIC_VALID}"
+        transformed, mappings = pii.transform_secrets(original)
+        restored = restore_text(transformed, mappings)
+        assert restored == original
+
+
+# ── Phase 2: KPP ──────────────────────────────────────────────────────────────
+
+# KPP must be preceded by "КПП" keyword
+KPP_VALID = "773601001"    # 4 digits + 2 alphanum + 3 digits
+KPP_ALL_ZEROS = "000000000"
+
+
+class TestKPP:
+    def test_kpp_with_keyword_detected(self):
+        text = f"КПП {KPP_VALID} организации"
+        out, mappings = pii.transform_secrets(text)
+        assert KPP_VALID not in out
+        assert "[KPP_" in out
+        assert len(mappings) == 1
+
+    def test_kpp_all_zeros_not_detected(self):
+        text = f"КПП {KPP_ALL_ZEROS}"
+        out, mappings = pii.transform_secrets(text)
+        assert "[KPP_" not in out
+
+    def test_kpp_without_keyword_not_detected(self):
+        # Same 9 chars but no "КПП" prefix
+        text = f"код {KPP_VALID} записан"
+        out, mappings = pii.transform_secrets(text)
+        assert "[KPP_" not in out
+
+    def test_kpp_roundtrip(self):
+        original = f"реквизиты: КПП {KPP_VALID}"
+        transformed, mappings = pii.transform_secrets(original)
+        restored = restore_text(transformed, mappings)
+        assert restored == original
+
+
+# ── Phase 2: PaymentInfo ──────────────────────────────────────────────────────
+
+PAYMENT_RUB = "1500 рублей"
+PAYMENT_USD = "200usd"  # dollar symbol breaks word boundary; usd works
+PAYMENT_EUR = "99.99 евро"
+
+
+class TestPaymentInfo:
+    def test_rubles_detected(self):
+        text = f"стоимость {PAYMENT_RUB} оплачено"
+        out, mappings = pii.transform_secrets(text)
+        assert "[PaymentInfo_" in out
+        assert len(mappings) >= 1
+
+    def test_usd_detected(self):
+        text = f"цена {PAYMENT_USD} включая НДС"
+        out, mappings = pii.transform_secrets(text)
+        assert "[PaymentInfo_" in out
+
+    def test_plain_number_unchanged(self):
+        # No currency — not a payment amount
+        text = "артикул 12345 наименование"
+        out, mappings = pii.transform_secrets(text)
+        assert "[PaymentInfo_" not in out
+
+    def test_payment_info_roundtrip(self):
+        original = f"сумма {PAYMENT_RUB} списана"
+        transformed, mappings = pii.transform_secrets(original)
+        restored = restore_text(transformed, mappings)
+        assert restored == original
