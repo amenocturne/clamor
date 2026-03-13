@@ -6,7 +6,7 @@ default:
     @just --list
 
 # Reinstall all registered installations (falls back to interactive if no registry)
-install:
+install: deny-read-install
     uv run install.py --all
 
 # Install preset interactively
