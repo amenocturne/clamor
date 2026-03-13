@@ -33,6 +33,17 @@
       ]
     }
   ],
+  "PostToolUse": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "clamor hook",
+          "timeout": 5
+        }
+      ]
+    }
+  ],
   "UserPromptSubmit": [
     {
       "hooks": [
