@@ -1,16 +1,5 @@
 use std::collections::BTreeMap;
 
-use crate::commands::{get_commands, Commands};
-
-/// A project entry ready for YAML serialization.
-struct ProjectEntry {
-    path: String,
-    tech: Vec<String>,
-    format_cmd: Option<String>,
-    lint_cmd: Option<String>,
-    test_cmd: Option<String>,
-}
-
 /// Generate WORKSPACE.yaml content from a map of (relative_path -> tech_stack).
 pub fn generate_yaml(projects: &BTreeMap<String, Vec<String>>) -> String {
     let mut lines = Vec::new();
@@ -18,8 +7,7 @@ pub fn generate_yaml(projects: &BTreeMap<String, Vec<String>>) -> String {
     lines.push("projects:".to_string());
 
     for (key, tech) in projects {
-        let entry = build_entry(key, tech);
-        write_project(&mut lines, key, &entry);
+        write_project(&mut lines, key, tech);
     }
 
     let mut output = lines.join("\n");
@@ -27,39 +15,13 @@ pub fn generate_yaml(projects: &BTreeMap<String, Vec<String>>) -> String {
     output
 }
 
-fn build_entry(key: &str, tech: &[String]) -> ProjectEntry {
-    let Commands {
-        format_cmd,
-        lint_cmd,
-        test_cmd,
-    } = get_commands(tech);
-
-    ProjectEntry {
-        path: format!("./{}", key),
-        tech: tech.to_vec(),
-        format_cmd,
-        lint_cmd,
-        test_cmd,
-    }
-}
-
-fn write_project(lines: &mut Vec<String>, key: &str, entry: &ProjectEntry) {
+fn write_project(lines: &mut Vec<String>, key: &str, tech: &[String]) {
     lines.push(format!("  {}:", key));
-    lines.push(format!("    path: \"{}\"", entry.path));
+    lines.push(format!("    path: \"./{key}\""));
     lines.push("    description: \"TODO: describe this project\"".to_string());
-    lines.push(format!("    tech: {}", flow_list(&entry.tech)));
+    lines.push(format!("    tech: {}", flow_list(tech)));
     lines.push(format!("    explore_when: {}", flow_list(&[])));
     lines.push(format!("    entry_points: {}", flow_list(&[])));
-
-    if let Some(ref cmd) = entry.format_cmd {
-        lines.push(format!("    format_cmd: {}", cmd));
-    }
-    if let Some(ref cmd) = entry.lint_cmd {
-        lines.push(format!("    lint_cmd: {}", cmd));
-    }
-    if let Some(ref cmd) = entry.test_cmd {
-        lines.push(format!("    test_cmd: {}", cmd));
-    }
 }
 
 /// Format a list in YAML flow style: [item1, item2]
@@ -91,19 +53,6 @@ mod tests {
         assert!(yaml.contains("tech: [cargo, rust]"));
         assert!(yaml.contains("explore_when: []"));
         assert!(yaml.contains("entry_points: []"));
-        assert!(yaml.contains("format_cmd: cargo fmt"));
-        assert!(yaml.contains("lint_cmd: cargo clippy"));
-        assert!(yaml.contains("test_cmd: cargo test"));
-    }
-
-    #[test]
-    fn unknown_tech_no_commands() {
-        let mut projects = BTreeMap::new();
-        projects.insert("misc/docs".to_string(), vec!["unknown".to_string()]);
-
-        let yaml = generate_yaml(&projects);
-
-        assert!(yaml.contains("tech: [unknown]"));
         assert!(!yaml.contains("format_cmd"));
         assert!(!yaml.contains("lint_cmd"));
         assert!(!yaml.contains("test_cmd"));
@@ -136,14 +85,5 @@ mod tests {
     fn multi_item_flow_list() {
         let items = vec!["cargo".to_string(), "rust".to_string()];
         assert_eq!(flow_list(&items), "[cargo, rust]");
-    }
-
-    #[test]
-    fn sbt_commands_with_quotes() {
-        let mut projects = BTreeMap::new();
-        projects.insert("my-scala".to_string(), vec!["sbt".to_string(), "scala".to_string()]);
-
-        let yaml = generate_yaml(&projects);
-        assert!(yaml.contains("lint_cmd: sbt 'scalafixAll --check'"));
     }
 }

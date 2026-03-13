@@ -1,4 +1,3 @@
-mod commands;
 mod detect;
 mod scan;
 mod yaml;
