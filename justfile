@@ -81,6 +81,18 @@ clamor-install:
         clamor resume
     fi
 
+# Build deny-read binary (debug)
+deny-read-build:
+    cargo build --manifest-path tools/deny-read/Cargo.toml
+
+# Build and install deny-read binary to ~/.local/bin
+deny-read-install:
+    cargo build --release --manifest-path tools/deny-read/Cargo.toml
+    mkdir -p ~/.local/bin
+    rm -f ~/.local/bin/deny-read
+    cp tools/deny-read/target/release/deny-read ~/.local/bin/deny-read
+    @echo "deny-read installed to ~/.local/bin/deny-read"
+
 # Aliases
 alias i := install
 alias l := list

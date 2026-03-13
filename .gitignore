@@ -28,5 +28,8 @@ skills/**/.venv/
 # Machine-specific installation registry
 installations.yaml
 
+# Rust build artifacts
+tools/*/target/
+
 # Claude Code local state
 .claude/

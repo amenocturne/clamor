@@ -5,7 +5,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "{hook_dir}/hook.py",
+          "command": "deny-read",
           "timeout": 5
         }
       ]
