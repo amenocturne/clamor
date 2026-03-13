@@ -6,7 +6,7 @@ author: amenocturne
 
 # Todo — Cross-Session Task Tracking
 
-Track progress on multi-session work using markdown task files in `.claude/tasks/<project>/`.
+Track progress on multi-session work using markdown task files in `.claude/tasks/`.
 
 ## When to Use
 
@@ -24,28 +24,25 @@ Track progress on multi-session work using markdown task files in `.claude/tasks
 
 ## Directory Structure
 
-Tasks live in the **working directory's** `.claude/tasks/` — that's the directory where Claude was launched, NOT inside individual project directories.
+Tasks live in the **project's** `.claude/tasks/` — inside the project directory itself, not at a workspace root.
 
 ```
-<working-directory>/
+<project>/
 └── .claude/tasks/
-    └── <project-name>/
-        ├── feature-a.md
-        └── feature-b.md
+    ├── feature-a.md
+    └── feature-b.md
 ```
 
-In a multi-project workspace, this means all projects share one `.claude/tasks/` at the workspace root. Do NOT create `.claude/tasks/` inside project subdirectories.
+In a multi-project workspace, each project has its own `.claude/tasks/`. The workspace skill handles navigating to the correct project first; tasks are always at `.claude/tasks/` relative to the project root.
 
-- Agent must specify the project name when creating tasks
 - One file per spec/feature/work stream
-- If the user is working in a single-project repo, use the repo name as project name
 
 ## Setup
 
 When creating `.claude/tasks/` for the first time:
 
-1. Create the directory: `.claude/tasks/<project>/` in the **working directory** (workspace root)
-2. Add `.claude/tasks/` to the working directory's `.gitignore` if not already there
+1. Create the directory: `.claude/tasks/` in the **project root**
+2. Add `.claude/tasks/` to the project's `.gitignore` if not already there
 
 ## Task File Format
 
@@ -99,10 +96,11 @@ What's done, what's blocked, where to pick up next.
 
 When the user says something like "continue working on X" or "pick up project Y":
 
-1. Check `.claude/tasks/<project>/` in the **working directory** for matching task files
-2. Read the relevant file(s)
-3. Start from where Current State indicates
-4. If multiple task files exist and it's unclear which one, ask the user
+1. Navigate to the project directory (workspace routing handles this)
+2. Check `.claude/tasks/` for matching task files
+3. Read the relevant file(s)
+4. Start from where Current State indicates
+5. If multiple task files exist and it's unclear which one, ask the user
 
 If the user only specifies a project name, list available task files and ask which to continue.
 

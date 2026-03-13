@@ -1,0 +1,8 @@
+{
+  "name": "worktree",
+  "version": "0.1.0",
+  "description": "Git worktree management for parallel agent isolation",
+  "abstract": "Provides conventions and scripts for creating isolated git worktrees when multiple agents work on the same repo simultaneously. Includes auto-cleanup on agent stop via hook.",
+  "author": "amenocturne",
+  "keywords": ["worktree", "isolation", "parallel", "agents", "git"]
+}

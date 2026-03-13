@@ -5,6 +5,7 @@ skills:
   - workspace
   - documentation
   - orchestrator
+  - worktree
   - brainstorm
   - idea-roaster
   - creative-freedom
@@ -32,6 +33,7 @@ hooks:
   - clamor
   - deny-read
   - tts
+  - worktree
 pipelines: []
 external:
   - github.com/anthropics/skills/skill-creator

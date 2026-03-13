@@ -105,6 +105,28 @@ Use whatever agent type fits the task:
 
 For critical evaluation, use `idea-roaster` skill in main context, or spawn as subagent when clean context matters (e.g., ideas saved to file, want unpolluted analysis).
 
+### Parallel Isolation
+
+When spawning multiple implementation agents that work on the **same repository** simultaneously, use `isolation: "worktree"` on Agent tool calls:
+
+```
+Agent(
+  prompt: "Implement feature X...",
+  isolation: "worktree"
+)
+```
+
+This gives each agent an isolated git worktree — no file conflicts, no index locks. Claude Code handles worktree creation and returns changes as a diff.
+
+**When to use isolation:**
+- Two or more agents writing code in the same repo at the same time
+- Parallel implementation tasks (not just research)
+
+**When NOT needed:**
+- Explore/research agents (read-only, no conflicts)
+- Sequential tasks (only one agent active at a time)
+- Agents working on different repos
+
 ### Subagent Instructions
 
 Every subagent prompt should request:
