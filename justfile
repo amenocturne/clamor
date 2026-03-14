@@ -6,7 +6,7 @@ default:
     @just --list
 
 # Reinstall all registered installations (falls back to interactive if no registry)
-install: deny-read-install graph-colors-install generate-workspace-install
+install: deny-read-install graph-colors-install generate-workspace-install notification-install
     uv run install.py --all
 
 # Install preset interactively
@@ -116,6 +116,18 @@ generate-workspace-install:
     rm -f ~/.local/bin/generate-workspace
     cp tools/generate-workspace/target/release/generate-workspace ~/.local/bin/generate-workspace
     @echo "generate-workspace installed to ~/.local/bin/generate-workspace"
+
+# Build notification binary (debug)
+notification-build:
+    cargo build --manifest-path tools/notification/Cargo.toml
+
+# Build and install notification binary to ~/.local/bin
+notification-install:
+    cargo build --release --manifest-path tools/notification/Cargo.toml
+    mkdir -p ~/.local/bin
+    rm -f ~/.local/bin/notification
+    cp tools/notification/target/release/notification ~/.local/bin/notification
+    @echo "notification installed to ~/.local/bin/notification"
 
 # Aliases
 alias i := install

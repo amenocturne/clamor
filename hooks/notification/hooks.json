@@ -4,7 +4,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "{hook_dir}/hook.py",
+          "command": "notification",
           "timeout": 5
         }
       ]
@@ -16,7 +16,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "{hook_dir}/hook.py",
+          "command": "notification",
           "timeout": 5
         }
       ]

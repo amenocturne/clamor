@@ -56,12 +56,14 @@ def extract_modified_files(entries: list[dict], project_dir: Path) -> list[Path]
     return list(modified)
 
 
-def format_markdown(project_dir: Path):
+def format_markdown(files: list[Path]):
     """Format markdown files with Prettier."""
+    md_files = [f for f in files if f.suffix == ".md"]
+    if not md_files:
+        return True
     try:
         subprocess.run(
-            ["npx", "--yes", "prettier", "--write", "**/*.md"],
-            cwd=project_dir,
+            ["npx", "--yes", "prettier", "--write"] + [str(f) for f in md_files],
             capture_output=True,
             timeout=60,
         )
@@ -225,7 +227,7 @@ def main():
     if modified_files:
         print(f"Found {len(modified_files)} modified file(s)")
 
-    format_markdown(project_dir)
+    format_markdown(files_to_commit)
 
     commit_msg = f"Log: {date_folder} {timestamp}"
     if git_commit(project_dir, commit_msg, files_to_commit):
