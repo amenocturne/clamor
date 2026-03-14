@@ -124,5 +124,34 @@ export const update = (model: Model, msg: Msg): Model => {
 				...model,
 				pastReviews: model.pastReviews.filter((r) => r.filename !== msg.filename),
 			};
+		case "openFileSearch":
+			return { ...model, fileSearchOpen: true, fileSearchQuery: "", fileSearchSelectedIdx: 0 };
+		case "closeFileSearch":
+			return { ...model, fileSearchOpen: false, fileSearchQuery: "", fileSearchSelectedIdx: 0 };
+		case "setFileSearchQuery":
+			return { ...model, fileSearchQuery: msg.query, fileSearchSelectedIdx: 0 };
+		case "fileSearchNavigate": {
+			const diffData = model.data?.diffs[model.activeView];
+			const files = diffData?.files ?? [];
+			const query = model.fileSearchQuery.toLowerCase();
+			const matchCount = query
+				? files.filter((f) => f.path.toLowerCase().includes(query)).length
+				: files.length;
+			if (matchCount === 0) return model;
+			const next = model.fileSearchSelectedIdx + msg.direction;
+			return {
+				...model,
+				fileSearchSelectedIdx: Math.max(0, Math.min(matchCount - 1, next)),
+			};
+		}
+		case "toggleDir": {
+			const dirs = new Set(model.collapsedDirs);
+			if (dirs.has(msg.path)) {
+				dirs.delete(msg.path);
+			} else {
+				dirs.add(msg.path);
+			}
+			return { ...model, collapsedDirs: dirs };
+		}
 	}
 };

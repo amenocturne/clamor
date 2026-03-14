@@ -262,6 +262,126 @@
     .file-stats-add { color: var(--diff-add-text); }
     .file-stats-del { color: var(--diff-del-text); }
 
+    /* === File Tree === */
+    .file-tree-dir {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 0;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: var(--font-xs);
+      font-family: var(--font-code);
+      color: var(--text-secondary);
+      user-select: none;
+    }
+
+    .file-tree-dir:hover {
+      background: var(--bg-hover);
+    }
+
+    .file-tree-chevron {
+      font-size: 10px;
+      width: 12px;
+      text-align: center;
+      flex-shrink: 0;
+      color: var(--text-dim);
+    }
+
+    .file-tree-file {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 2px 0;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: var(--font-xs);
+      font-family: var(--font-code);
+      color: var(--text-secondary);
+    }
+
+    .file-tree-file:hover {
+      background: var(--bg-hover);
+    }
+
+    /* === File Search Overlay === */
+    .file-search-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: flex;
+      justify-content: center;
+      padding-top: 80px;
+      background: rgba(0, 0, 0, 0.4);
+    }
+
+    .file-search-dialog {
+      width: 500px;
+      max-height: 400px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+      display: flex;
+      flex-direction: column;
+      align-self: flex-start;
+    }
+
+    .file-search-input {
+      width: 100%;
+      padding: 12px 16px;
+      background: var(--bg-primary);
+      border: none;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+      font-size: var(--font-sm);
+      outline: none;
+    }
+
+    .file-search-input::placeholder {
+      color: var(--text-dim);
+    }
+
+    .file-search-results {
+      overflow-y: auto;
+      max-height: 350px;
+    }
+
+    .file-search-item {
+      padding: 6px 16px;
+      cursor: pointer;
+      font-family: var(--font-code);
+      font-size: var(--font-xs);
+      color: var(--text-secondary);
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .file-search-item:hover,
+    .file-search-item.selected {
+      background: var(--bg-surface);
+      color: var(--text-primary);
+    }
+
+    .file-search-filename {
+      color: var(--text-primary);
+    }
+
+    .file-search-dir {
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+
+    .file-search-empty {
+      padding: 16px;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: var(--font-xs);
+    }
+
     /* === Comment List (sidebar) === */
     .comment-list-item {
       display: flex;

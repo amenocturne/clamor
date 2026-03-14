@@ -116,6 +116,26 @@ const navigateCommit = (direction: 1 | -1): void => {
 // --- Global Keyboard Shortcuts ---
 
 document.addEventListener("keydown", (e) => {
+	// Cmd+O / Ctrl+O: Open file search (always available)
+	if (e.key === "o" && (e.metaKey || e.ctrlKey)) {
+		e.preventDefault();
+		if (model.fileSearchOpen) {
+			dispatch({ type: "closeFileSearch" });
+		} else {
+			dispatch({ type: "openFileSearch" });
+		}
+		return;
+	}
+
+	// When file search is open, let its own input handle keys
+	if (model.fileSearchOpen) {
+		if (e.key === "Escape") {
+			e.preventDefault();
+			dispatch({ type: "closeFileSearch" });
+		}
+		return;
+	}
+
 	const target = e.target as HTMLElement;
 	const isInput = target.tagName === "TEXTAREA" || target.tagName === "INPUT";
 

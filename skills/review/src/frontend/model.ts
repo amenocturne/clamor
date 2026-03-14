@@ -13,4 +13,8 @@ export const initialModel: Model = {
 	error: null,
 	pastReviews: [],
 	viewingPastReview: null,
+	fileSearchOpen: false,
+	fileSearchQuery: "",
+	fileSearchSelectedIdx: 0,
+	collapsedDirs: new Set(),
 };

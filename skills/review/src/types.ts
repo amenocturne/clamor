@@ -113,6 +113,10 @@ export type Model = {
 	readonly error: string | null;
 	readonly pastReviews: readonly PastReviewMeta[];
 	readonly viewingPastReview: string | null;
+	readonly fileSearchOpen: boolean;
+	readonly fileSearchQuery: string;
+	readonly fileSearchSelectedIdx: number;
+	readonly collapsedDirs: ReadonlySet<string>;
 };
 
 // === Frontend Message Types ===
@@ -150,4 +154,9 @@ export type Msg =
 			readonly startLine: number;
 			readonly endLine: number;
 			readonly selectedText: string;
-	  };
+	  }
+	| { readonly type: "openFileSearch" }
+	| { readonly type: "closeFileSearch" }
+	| { readonly type: "setFileSearchQuery"; readonly query: string }
+	| { readonly type: "fileSearchNavigate"; readonly direction: 1 | -1 }
+	| { readonly type: "toggleDir"; readonly path: string };

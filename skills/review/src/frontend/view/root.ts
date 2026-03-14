@@ -2,6 +2,7 @@ import { h } from "snabbdom";
 import type { VNode } from "snabbdom";
 import type { Model, Msg } from "../../types.ts";
 import { diffAreaView } from "./diff.ts";
+import { fileSearchView } from "./file-search.ts";
 import { headerView } from "./header.ts";
 import { sidebarView } from "./sidebar.ts";
 
@@ -140,5 +141,6 @@ export const rootView = (model: Model, dispatch: (msg: Msg) => void): VNode => {
 	return h("div.app", [
 		headerView(model, dispatch),
 		h("div.main", [sidebarView(model, dispatch), mainContent]),
+		fileSearchView(model, dispatch),
 	]);
 };
