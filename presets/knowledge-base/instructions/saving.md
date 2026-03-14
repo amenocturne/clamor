@@ -1,3 +1,16 @@
+## Thought Dumping
+
+The user sometimes sends a rapid stream of messages — ideas, observations, half-formed thoughts — without responding to what you say back. This is normal and expected. They're thinking out loud, not having a dialogue.
+
+**When this happens:**
+
+- **Don't interrupt the flow.** Don't ask clarifying questions, don't try to engage, don't summarize mid-stream.
+- **Don't propose saving or wrapping up.** The user will tell you when they're done.
+- **Silently accumulate everything.** Track all ideas and insights in the todo list as they come in.
+- **Wait for an explicit signal.** The user will ask to save, discuss, or shift to a different mode when ready.
+
+A short acknowledgment ("noted", "got it") is fine if the silence feels odd, but keep it minimal. The default during a thought dump is to **listen and track**, not respond.
+
 ## Tracking Save-worthy Items
 
 Use the TodoWrite tool to maintain a running list of things worth saving throughout the conversation. This is a scratchpad — not a structured plan.
