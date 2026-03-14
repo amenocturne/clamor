@@ -1,6 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
+use rand::rngs::SmallRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
+
 use crate::graph::Graph;
+
+const SEED: u64 = 42;
 
 /// Run Louvain community detection on the graph.
 /// Returns communities as Vec<Vec<String>>, sorted by size descending.
@@ -13,7 +19,7 @@ pub fn detect_communities(graph: &Graph, min_size: usize) -> Vec<Vec<String>> {
             .filter(|(_, neighbors)| !neighbors.is_empty())
             .map(|(name, _)| name.clone())
             .collect();
-        v.sort(); // deterministic order
+        v.sort(); // deterministic base order
         v
     };
 
@@ -53,56 +59,54 @@ pub fn detect_communities(graph: &Graph, min_size: usize) -> Vec<Vec<String>> {
         return Vec::new();
     }
 
-    // Phase 1 initial assignment: each node in its own community
-    let mut community: Vec<usize> = (0..n).collect();
-    let degrees: Vec<f64> = (0..n)
+    let mut rng = SmallRng::seed_from_u64(SEED);
+
+    let initial_degrees: Vec<f64> = (0..n)
         .map(|i| adj.get(&i).map_or(0.0, |nbrs| nbrs.values().sum()))
         .collect();
 
+    // Multi-level Louvain: progressively coarsen the graph.
+    // Once communities are formed at a level, they're frozen into super-nodes.
+    // cumulative_mapping[original_node] = current-level super-node
+    let mut cumulative_mapping: Vec<usize> = (0..n).collect();
+    let mut current_adj = adj;
+    let mut current_n = n;
+    let mut current_degrees = initial_degrees;
+
     loop {
-        let improved = phase1(&adj, &mut community, &degrees, m, n);
+        let mut community: Vec<usize> = (0..current_n).collect();
+        let improved = phase1(
+            &current_adj,
+            &mut community,
+            &current_degrees,
+            m,
+            current_n,
+            &mut rng,
+        );
+
         if !improved {
             break;
         }
 
-        // Phase 2: aggregate into super-nodes
-        let (new_adj, new_community, new_degrees, new_n, mapping) =
-            aggregate(&adj, &community, &degrees, n);
+        let (new_adj, _new_community, new_degrees, new_n, mapping) =
+            aggregate(&current_adj, &community, &current_degrees, current_n);
 
-        if new_n == n {
-            break; // no reduction
-        }
-
-        // Update community assignments back to original nodes
-        // mapping[old_idx] = new_idx in aggregated graph
-        // new_community[new_idx] = community in aggregated graph
-        // We need to track original node -> final community
-        // For simplicity, we track through the mapping
-
-        // Replace working state with aggregated graph
-        let _old_n = n;
-        let n_inner = new_n;
-        let adj_inner = new_adj;
-        let degrees_inner = new_degrees;
-        let mut community_inner = new_community;
-
-        // Run phase 1 on aggregated graph
-        let improved2 = phase1(&adj_inner, &mut community_inner, &degrees_inner, m, n_inner);
-
-        // Map back: for each original node, find its final community
-        for c in community.iter_mut() {
-            let super_node = mapping[*c];
-            *c = community_inner[super_node];
-        }
-
-        if !improved2 {
+        if new_n == current_n {
             break;
         }
+
+        for cm in cumulative_mapping.iter_mut() {
+            *cm = mapping[*cm];
+        }
+
+        current_adj = new_adj;
+        current_n = new_n;
+        current_degrees = new_degrees;
     }
 
-    // Group nodes by community
+    // Group nodes by their final super-node
     let mut groups: HashMap<usize, Vec<String>> = HashMap::new();
-    for (i, &comm) in community.iter().enumerate() {
+    for (i, &comm) in cumulative_mapping.iter().enumerate() {
         groups.entry(comm).or_default().push(connected[i].clone());
     }
 
@@ -126,28 +130,39 @@ pub fn detect_communities(graph: &Graph, min_size: usize) -> Vec<Vec<String>> {
     communities
 }
 
-/// Phase 1: local moves. Returns true if any improvement was made.
+/// Phase 1: local moves with randomized node visit order (matching NetworkX).
+/// Returns true if any improvement was made.
 fn phase1(
     adj: &HashMap<usize, HashMap<usize, f64>>,
     community: &mut [usize],
     degrees: &[f64],
     m: f64,
     n: usize,
+    rng: &mut SmallRng,
 ) -> bool {
     let mut improved = false;
     let two_m = 2.0 * m;
 
+    // Node visit order — shuffled each pass like NetworkX
+    let mut order: Vec<usize> = (0..n).collect();
+
     loop {
+        order.shuffle(rng);
         let mut moved = false;
 
-        for i in 0..n {
+        for &i in &order {
             let ki = degrees[i];
             let current_comm = community[i];
 
-            // Compute edges from i to each neighboring community
+            // Compute edges from i to each neighboring community (exclude self-loops:
+            // self-loops represent internal community structure in aggregated graphs
+            // and should not count as edges to the community for modularity gain)
             let mut comm_edges: HashMap<usize, f64> = HashMap::new();
             if let Some(neighbors) = adj.get(&i) {
                 for (&j, &w) in neighbors {
+                    if j == i {
+                        continue;
+                    }
                     let cj = community[j];
                     *comm_edges.entry(cj).or_default() += w;
                 }
@@ -213,14 +228,14 @@ type AdjMap = HashMap<usize, HashMap<usize, f64>>;
 type AggregateResult = (AdjMap, Vec<usize>, Vec<f64>, usize, Vec<usize>);
 
 /// Phase 2: aggregate communities into super-nodes.
-fn aggregate(
-    adj: &AdjMap,
-    community: &[usize],
-    degrees: &[f64],
-    n: usize,
-) -> AggregateResult {
+fn aggregate(adj: &AdjMap, community: &[usize], degrees: &[f64], n: usize) -> AggregateResult {
     // Collect unique community IDs and assign new indices
-    let mut comm_ids: Vec<usize> = community.iter().copied().collect::<HashSet<_>>().into_iter().collect();
+    let mut comm_ids: Vec<usize> = community
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
     comm_ids.sort();
     let comm_to_new: HashMap<usize, usize> = comm_ids
         .iter()
@@ -230,12 +245,10 @@ fn aggregate(
     let new_n = comm_ids.len();
 
     // mapping[old_node] = new_node_index
-    let mapping: Vec<usize> = community
-        .iter()
-        .map(|&c| comm_to_new[&c])
-        .collect();
+    let mapping: Vec<usize> = community.iter().map(|&c| comm_to_new[&c]).collect();
 
-    // Build new adjacency
+    // Build new adjacency (self-loops included — they represent internal community edges
+    // and are essential for correct modularity computation at higher levels)
     let mut new_adj: HashMap<usize, HashMap<usize, f64>> = HashMap::new();
     for i in 0..n {
         let ci = mapping[i];
@@ -247,13 +260,7 @@ fn aggregate(
         }
     }
 
-    // Remove self-loops from adjacency for community detection purposes
-    // (self-loops represent internal edges — they don't affect modularity optimization)
-    for (&node, neighbors) in new_adj.iter_mut() {
-        neighbors.remove(&node);
-    }
-
-    // New degrees (sum of edge weights including self-loops counted in original)
+    // New degrees (sum of constituent original degrees)
     let mut new_degrees = vec![0.0_f64; new_n];
     for (i, &d) in degrees.iter().enumerate() {
         new_degrees[mapping[i]] += d;
@@ -272,12 +279,8 @@ mod tests {
     fn make_graph(edges: &[(&str, &str)]) -> Graph {
         let mut g: Graph = HashMap::new();
         for (a, b) in edges {
-            g.entry(a.to_string())
-                .or_default()
-                .insert(b.to_string());
-            g.entry(b.to_string())
-                .or_default()
-                .insert(a.to_string());
+            g.entry(a.to_string()).or_default().insert(b.to_string());
+            g.entry(b.to_string()).or_default().insert(a.to_string());
         }
         g
     }
@@ -297,15 +300,17 @@ mod tests {
         let graph = make_graph(&edges);
         let communities = detect_communities(&graph, 2);
 
-        // Should detect 2 communities
-        assert_eq!(communities.len(), 2, "Expected 2 communities, got {communities:?}");
+        assert_eq!(
+            communities.len(),
+            2,
+            "Expected 2 communities, got {communities:?}"
+        );
     }
 
     #[test]
     fn filters_small_clusters() {
         let edges = [("a", "b"), ("b", "c"), ("a", "c")];
         let graph = make_graph(&edges);
-        // min_size 10 should filter out the single 3-node cluster
         let communities = detect_communities(&graph, 10);
         assert!(communities.is_empty());
     }
@@ -315,5 +320,260 @@ mod tests {
         let graph: Graph = HashMap::new();
         let communities = detect_communities(&graph, 1);
         assert!(communities.is_empty());
+    }
+
+    // -- Known-structure graphs from the literature --
+
+    /// Zachary's Karate Club: 34 members, split into 2 factions.
+    /// Standard benchmark for community detection — expected: 2-4 communities.
+    /// Edges from: W. W. Zachary, "An information flow model for conflict and fission
+    /// in small groups", Journal of Anthropological Research, 1977.
+    #[test]
+    fn zachary_karate_club() {
+        let edges = [
+            ("1", "2"),
+            ("1", "3"),
+            ("1", "4"),
+            ("1", "5"),
+            ("1", "6"),
+            ("1", "7"),
+            ("1", "8"),
+            ("1", "9"),
+            ("1", "11"),
+            ("1", "12"),
+            ("1", "13"),
+            ("1", "14"),
+            ("1", "18"),
+            ("1", "20"),
+            ("1", "22"),
+            ("1", "32"),
+            ("2", "3"),
+            ("2", "4"),
+            ("2", "8"),
+            ("2", "14"),
+            ("2", "18"),
+            ("2", "20"),
+            ("2", "22"),
+            ("2", "31"),
+            ("3", "4"),
+            ("3", "8"),
+            ("3", "9"),
+            ("3", "10"),
+            ("3", "14"),
+            ("3", "28"),
+            ("3", "29"),
+            ("3", "33"),
+            ("4", "8"),
+            ("4", "13"),
+            ("4", "14"),
+            ("5", "7"),
+            ("5", "11"),
+            ("6", "7"),
+            ("6", "11"),
+            ("6", "17"),
+            ("7", "17"),
+            ("9", "31"),
+            ("9", "33"),
+            ("9", "34"),
+            ("10", "34"),
+            ("14", "34"),
+            ("15", "33"),
+            ("15", "34"),
+            ("16", "33"),
+            ("16", "34"),
+            ("19", "33"),
+            ("19", "34"),
+            ("20", "34"),
+            ("21", "33"),
+            ("21", "34"),
+            ("23", "33"),
+            ("23", "34"),
+            ("24", "26"),
+            ("24", "28"),
+            ("24", "30"),
+            ("24", "33"),
+            ("24", "34"),
+            ("25", "26"),
+            ("25", "28"),
+            ("25", "32"),
+            ("26", "32"),
+            ("27", "30"),
+            ("27", "34"),
+            ("28", "34"),
+            ("29", "32"),
+            ("29", "34"),
+            ("30", "33"),
+            ("30", "34"),
+            ("31", "33"),
+            ("31", "34"),
+            ("32", "33"),
+            ("32", "34"),
+            ("33", "34"),
+        ];
+        let graph = make_graph(&edges);
+        let communities = detect_communities(&graph, 1);
+
+        // Known ground truth: 2 factions (Mr Hi vs Officer).
+        // Louvain typically finds 2-4 communities. Must find at least 2.
+        assert!(
+            communities.len() >= 2 && communities.len() <= 5,
+            "Karate club: expected 2-5 communities, got {} → {communities:?}",
+            communities.len()
+        );
+
+        // All 34 members must be assigned
+        let total: usize = communities.iter().map(|c| c.len()).sum();
+        assert_eq!(total, 34, "All 34 members must be assigned");
+    }
+
+    /// Four cliques of 5 nodes each, connected in a ring by single bridge edges.
+    /// Clear community structure — must detect exactly 4 communities.
+    #[test]
+    fn four_cliques_ring() {
+        let mut edges: Vec<(&str, &str)> = Vec::new();
+
+        // Clique A: a0-a4 (fully connected)
+        let a = ["a0", "a1", "a2", "a3", "a4"];
+        for i in 0..5 {
+            for j in (i + 1)..5 {
+                edges.push((a[i], a[j]));
+            }
+        }
+        // Clique B
+        let b = ["b0", "b1", "b2", "b3", "b4"];
+        for i in 0..5 {
+            for j in (i + 1)..5 {
+                edges.push((b[i], b[j]));
+            }
+        }
+        // Clique C
+        let c = ["c0", "c1", "c2", "c3", "c4"];
+        for i in 0..5 {
+            for j in (i + 1)..5 {
+                edges.push((c[i], c[j]));
+            }
+        }
+        // Clique D
+        let d = ["d0", "d1", "d2", "d3", "d4"];
+        for i in 0..5 {
+            for j in (i + 1)..5 {
+                edges.push((d[i], d[j]));
+            }
+        }
+
+        // Ring bridges: A-B, B-C, C-D, D-A
+        edges.push(("a4", "b0"));
+        edges.push(("b4", "c0"));
+        edges.push(("c4", "d0"));
+        edges.push(("d4", "a0"));
+
+        let graph = make_graph(&edges);
+        let communities = detect_communities(&graph, 1);
+
+        assert_eq!(
+            communities.len(),
+            4,
+            "Four cliques ring: expected 4 communities, got {} → {communities:?}",
+            communities.len()
+        );
+        for c in &communities {
+            assert_eq!(
+                c.len(),
+                5,
+                "Each clique should have 5 nodes, got {}",
+                c.len()
+            );
+        }
+    }
+
+    /// Barbell graph: two cliques of 10 connected by a single path of 3 nodes.
+    /// Should detect 2 main communities (path nodes join one side or the other).
+    #[test]
+    fn barbell_graph() {
+        let mut edges: Vec<(String, String)> = Vec::new();
+
+        // Left clique: L0-L9
+        for i in 0..10 {
+            for j in (i + 1)..10 {
+                edges.push((format!("L{i}"), format!("L{j}")));
+            }
+        }
+        // Right clique: R0-R9
+        for i in 0..10 {
+            for j in (i + 1)..10 {
+                edges.push((format!("R{i}"), format!("R{j}")));
+            }
+        }
+        // Bridge path: L9 - P0 - P1 - P2 - R0
+        edges.push(("L9".into(), "P0".into()));
+        edges.push(("P0".into(), "P1".into()));
+        edges.push(("P1".into(), "P2".into()));
+        edges.push(("P2".into(), "R0".into()));
+
+        let edge_refs: Vec<(&str, &str)> = edges
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .collect();
+        let graph = make_graph(&edge_refs);
+        let communities = detect_communities(&graph, 1);
+
+        // Should detect 2 main communities (bridge nodes absorbed into one side)
+        assert!(
+            communities.len() >= 2 && communities.len() <= 4,
+            "Barbell: expected 2-4 communities, got {} → {communities:?}",
+            communities.len()
+        );
+
+        let total: usize = communities.iter().map(|c| c.len()).sum();
+        assert_eq!(total, 23, "All 23 nodes must be assigned");
+    }
+
+    /// Disconnected components should become separate communities.
+    #[test]
+    fn disconnected_components() {
+        let edges = [
+            // Triangle 1
+            ("x1", "x2"),
+            ("x2", "x3"),
+            ("x1", "x3"),
+            // Triangle 2 (disconnected)
+            ("y1", "y2"),
+            ("y2", "y3"),
+            ("y1", "y3"),
+            // Triangle 3 (disconnected)
+            ("z1", "z2"),
+            ("z2", "z3"),
+            ("z1", "z3"),
+        ];
+        let graph = make_graph(&edges);
+        let communities = detect_communities(&graph, 1);
+
+        assert_eq!(
+            communities.len(),
+            3,
+            "Disconnected components: expected 3 communities, got {communities:?}"
+        );
+    }
+
+    /// Star graph: one hub connected to many leaves.
+    /// All nodes should be in a single community.
+    #[test]
+    fn star_graph_single_community() {
+        let mut edges = Vec::new();
+        for i in 0..20 {
+            edges.push((
+                "hub",
+                Box::leak(format!("leaf{i}").into_boxed_str()) as &str,
+            ));
+        }
+        let edge_refs: Vec<(&str, &str)> = edges.iter().map(|&(a, b)| (a, b)).collect();
+        let graph = make_graph(&edge_refs);
+        let communities = detect_communities(&graph, 1);
+
+        assert_eq!(
+            communities.len(),
+            1,
+            "Star graph: expected 1 community, got {communities:?}"
+        );
     }
 }

@@ -22,10 +22,7 @@ pub struct ColorGroup {
 }
 
 /// Read existing graph.json, merge in new colorGroups, write back.
-pub fn write_graph_json(
-    vault: &Path,
-    groups: &[ColorGroup],
-) -> anyhow::Result<()> {
+pub fn write_graph_json(vault: &Path, groups: &[ColorGroup]) -> anyhow::Result<()> {
     let graph_json_path = vault.join(".obsidian").join("graph.json");
 
     let mut settings: Value = if graph_json_path.exists() {

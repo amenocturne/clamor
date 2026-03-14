@@ -133,14 +133,8 @@ mod tests {
     #[test]
     fn undirected_edges() {
         let mut graph: Graph = HashMap::new();
-        graph
-            .entry("a".into())
-            .or_default()
-            .insert("b".into());
-        graph
-            .entry("b".into())
-            .or_default()
-            .insert("a".into());
+        graph.entry("a".into()).or_default().insert("b".into());
+        graph.entry("b".into()).or_default().insert("a".into());
         assert_eq!(degree(&graph, "a"), 1);
         assert_eq!(degree(&graph, "b"), 1);
     }
