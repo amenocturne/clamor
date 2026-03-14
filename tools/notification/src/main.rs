@@ -1,6 +1,10 @@
-use notify_rust::Notification;
+use mac_notification_sys::*;
 use serde::Deserialize;
+use std::fs;
 use std::io::{self, Read};
+use std::path::PathBuf;
+
+const ICNS_BYTES: &[u8] = include_bytes!("../AppIcon.icns");
 
 #[derive(Deserialize, Default)]
 struct HookInput {
@@ -8,6 +12,18 @@ struct HookInput {
     hook_event_name: String,
     #[serde(default)]
     notification_type: String,
+}
+
+fn icns_path() -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    let path = home.join(".claude/assets/claude-code.icns");
+
+    if !path.exists() {
+        fs::create_dir_all(path.parent()?).ok()?;
+        fs::write(&path, ICNS_BYTES).ok()?;
+    }
+
+    Some(path)
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,12 +42,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         _ => return Ok(()),
     };
 
-    Notification::new()
-        .summary("Claude Code")
-        .body(message)
-        .sound_name("Tink")
-        .show()?;
+    let icon = icns_path();
+    let mut n = Notification::new();
+    n.title("Claude Code").message(message).sound("Tink");
 
+    if let Some(ref icon) = icon {
+        n.app_icon(icon.to_str().unwrap_or_default());
+    }
+
+    n.send()?;
     Ok(())
 }
 
