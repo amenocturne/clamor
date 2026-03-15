@@ -28,12 +28,42 @@ def get_client() -> httpx.Client:
 
 
 def check_server() -> bool:
+    """Check if pinchtab server is running AND browser is connected."""
+    try:
+        with get_client() as client:
+            r = client.get("/health")
+            if r.status_code != 200:
+                return False
+            data = r.json()
+            return data.get("status") == "ok"
+    except (httpx.ConnectError, httpx.ReadError):
+        return False
+
+
+def server_is_listening() -> bool:
+    """Check if something is listening on the pinchtab port (even if disconnected)."""
     try:
         with get_client() as client:
             r = client.get("/health")
             return r.status_code == 200
-    except httpx.ConnectError:
+    except (httpx.ConnectError, httpx.ReadError):
         return False
+
+
+def kill_server() -> None:
+    """Kill any pinchtab process holding the port."""
+    try:
+        result = subprocess.run(
+            ["lsof", "-ti", f":{DEFAULT_PORT}"],
+            capture_output=True,
+            text=True,
+        )
+        for pid in result.stdout.strip().split("\n"):
+            if pid:
+                subprocess.run(["kill", pid], capture_output=True)
+        time.sleep(1)
+    except Exception:
+        pass
 
 
 def check_installed() -> bool:
@@ -44,7 +74,7 @@ def check_installed() -> bool:
 
 
 def ensure_server() -> None:
-    """Start pinchtab server if not running."""
+    """Start pinchtab server if not running, restart if browser disconnected."""
     if check_server():
         return
 
@@ -55,6 +85,11 @@ def ensure_server() -> None:
         )
         sys.exit(1)
 
+    # Kill zombie server that's listening but has a dead browser
+    if server_is_listening():
+        click.echo("Pinchtab server has disconnected browser, restarting...", err=True)
+        kill_server()
+
     click.echo("Starting pinchtab server...", err=True)
     subprocess.Popen(
         ["pinchtab"],
@@ -62,7 +97,7 @@ def ensure_server() -> None:
         stderr=subprocess.DEVNULL,
     )
 
-    for _ in range(10):
+    for _ in range(15):
         time.sleep(0.5)
         if check_server():
             return
@@ -92,6 +127,10 @@ def start(headed: bool, port: int):
     if port != DEFAULT_PORT:
         env["BRIDGE_PORT"] = str(port)
 
+    if server_is_listening():
+        click.echo("Killing disconnected pinchtab server...", err=True)
+        kill_server()
+
     click.echo(
         f"Starting pinchtab server on port {port}{'(headed)' if headed else ''}..."
     )
@@ -99,8 +138,7 @@ def start(headed: bool, port: int):
         ["pinchtab"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env
     )
 
-    # Wait for server to start
-    for _ in range(10):
+    for _ in range(15):
         time.sleep(0.5)
         if check_server():
             click.echo("Server started successfully")
