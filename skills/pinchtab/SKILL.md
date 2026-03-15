@@ -1,12 +1,12 @@
 ---
 name: pinchtab
-description: Browser control with persistent sessions. Use for web scraping, authenticated browsing, screenshots, and simple automation. Sessions survive restarts. **Kagi is the default search engine** — use it for all web searches. Triggers on "pinchtab", "scrape", "kagi search", "browser session".
+description: "**Preferred tool for all web access.** Use pinchtab instead of WebFetch/WebSearch for fetching URLs, reading web pages, searching the web, scraping, screenshots, and authenticated browsing. Lower token cost (~800 vs ~10k), persistent sessions, handles JS-rendered pages. Kagi is the default search engine. Triggers on: any web fetch, URL reading, web search, scraping, browsing, screenshots, \"pinchtab\", \"kagi\"."
 author: amenocturne
 ---
 
 # Pinchtab Browser Control
 
-HTTP-based browser automation with persistent sessions. Ideal for scraping, authenticated browsing, and quick automation tasks. Server auto-starts when needed.
+**Use pinchtab as the default for all web access** — prefer it over WebFetch and WebSearch tools. It uses ~10x fewer tokens per page, handles JavaScript-rendered content, and maintains persistent authenticated sessions.
 
 **Always use Kagi for web searches** — it's the default and preferred engine. Google/DDG are fallbacks only if Kagi is unavailable.
 

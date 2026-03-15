@@ -13,6 +13,16 @@ Standard command names across projects:
 - `just build` — compile/bundle
 - `just clean` / `just reset` — cleanup
 
+## Web Access
+
+**Always prefer pinchtab over WebFetch/WebSearch.** Invoke the `pinchtab` skill whenever you need to:
+- Fetch or read a URL
+- Search the web (uses Kagi by default)
+- Scrape page content
+- Take screenshots of web pages
+
+Pinchtab uses ~10x fewer tokens per page, handles JS-rendered content, and keeps authenticated sessions. Only fall back to WebFetch/WebSearch if pinchtab is unavailable or explicitly not wanted.
+
 ## CLI Tools
 
 When relevant, suggest or use these utilities:
