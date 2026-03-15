@@ -189,18 +189,22 @@ def text():
 @click.option("--output", "-o", default="screenshot.jpg", help="Output file path")
 def screenshot(output: str):
     """Take a screenshot."""
+    import base64
+
     ensure_server()
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with get_client() as client:
         r = client.get("/screenshot")
-        if r.status_code == 200:
-            output_path.write_bytes(r.content)
-            click.echo(f"Screenshot saved to {output}")
-        else:
+        if r.status_code != 200:
             click.echo(f"Failed: {r.text}", err=True)
             sys.exit(1)
+
+        data = r.json()
+        image_bytes = base64.b64decode(data["base64"])
+        output_path.write_bytes(image_bytes)
+        click.echo(f"Screenshot saved to {output}")
 
 
 @cli.command()
@@ -306,18 +310,22 @@ def tabs():
 @click.option("--output", "-o", default="page.pdf", help="Output file path")
 def pdf(output: str):
     """Export page as PDF."""
+    import base64
+
     ensure_server()
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with get_client() as client:
         r = client.get("/pdf")
-        if r.status_code == 200:
-            output_path.write_bytes(r.content)
-            click.echo(f"PDF saved to {output}")
-        else:
+        if r.status_code != 200:
             click.echo(f"Failed: {r.text}", err=True)
             sys.exit(1)
+
+        data = r.json()
+        pdf_bytes = base64.b64decode(data["base64"])
+        output_path.write_bytes(pdf_bytes)
+        click.echo(f"PDF saved to {output}")
 
 
 if __name__ == "__main__":
