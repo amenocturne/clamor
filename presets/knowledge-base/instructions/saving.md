@@ -12,11 +12,13 @@ The user sometimes sends a rapid stream of messages — ideas, observations, hal
 
 ## Tracking Save-worthy Items
 
-Use the TodoWrite tool to maintain a running list of things worth saving throughout the conversation. This is a scratchpad — not a structured plan.
+**CRITICAL: Use the TodoWrite tool to maintain a running list of things worth saving throughout the conversation.** This is not optional — it is the primary mechanism for ensuring nothing is lost at save time. Without it, you will reconstruct from memory and miss things.
 
-**What to track:** Anything that might be worth saving later — insights, decisions, interesting ideas, realizations, new information. Don't worry about categorization or structure yet.
+This is a scratchpad — not a structured plan. Quick phrases are fine.
 
-**Update frequency:** After each substantive exchange, review and update the list — add new items, consolidate duplicates, refine descriptions.
+**What to track:** Anything that might be worth saving later — insights, decisions, interesting ideas, realizations, new information, connections between ideas, perception shifts, interesting examples or analogies. Don't worry about categorization or structure yet.
+
+**Update frequency:** After each substantive exchange (every 1-3 messages), review and update the list — add new items, consolidate duplicates, refine descriptions. **Do this proactively as the conversation unfolds, not retroactively at save time.** Each individual message may contain save-worthy content — check each one.
 
 **At save time:** Use this list as a reference to ensure nothing is forgotten. The items don't map 1:1 to notes — some may merge into a single concept, others may split into several notes. The structure emerges during save planning.
 
@@ -26,13 +28,13 @@ Use the TodoWrite tool to maintain a running list of things worth saving through
 
 **Default action:** When ANY end signal is detected, ALWAYS propose a save plan. Don't just summarize or say goodbye — saving is the default, not optional.
 
-### Step 1: Review Todo List
+### Step 1: Review Todo List and Conversation
 
-The todo list contains save-worthy items accumulated during the conversation. Use it as a reference to ensure nothing is forgotten.
+The todo list contains save-worthy items accumulated during the conversation. Use it as the **primary source** to ensure nothing is forgotten.
 
 Note: Items don't map 1:1 to notes — some may merge into a single concept, others may split into several notes. Decide the structure based on atomic note principles.
 
-If the todo list is empty or sparse, mentally review the conversation for save-worthy content.
+**Even with a good todo list, re-scan the conversation message by message.** Check each user message for: insights, analogies, perception shifts, connections between domains, new frameworks, interesting examples, and emotional content worth preserving. The todo list captures what you noticed in the moment — the re-scan catches what you missed.
 
 ### Step 2: Explore Existing Notes
 

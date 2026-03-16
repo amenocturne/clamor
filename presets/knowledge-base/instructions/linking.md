@@ -72,6 +72,10 @@ Right approach:
 - Add "See also: [[C]]" to A and B
 - Keep A and B focused on their original concepts
 
+**Don't embed examples inline — link out.** A note about a principle should list examples as one-line links, not contain paragraphs explaining each example. If an example needs explanation, it belongs in its own note. The principle note says *what* and links to *where* — it doesn't re-explain what the linked notes already say.
+
+Anti-pattern: a note about "composability" that contains full paragraphs about Balatro, chess, Unix, and music. Fix: one-line links to `[[balatro]]`, `[[chess-aggressive-strategies]]`, `[[unix-philosophy-web-development]]` — each carries its own explanation.
+
 **Preserve conceptual boundaries.** Similar-sounding concepts may have different meanings. When linking, understand what each concept specifically means before claiming equivalence.
 
 ### Unique Note Names

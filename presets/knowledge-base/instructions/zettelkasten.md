@@ -7,6 +7,7 @@ These apply to `core/`, `ideas/`, `insights/`, and `knowledge/`:
 3. **Brevity** — notes should be quick to read, not articles
 4. **Wiki links only** — no `#tags`, use `[[wiki links]]` for all structure
 5. **Links as tags** — add topic links even if the target doesn't exist yet (e.g., `[[MOC-psychology]]`)
+6. **Synthesis = new note** — when connecting ideas produces a new insight, that's a separate note, not inline content. A note about concept A should not contain paragraphs explaining how A relates to B, C, D — link to them and let each note carry its own weight. If the connection itself is the insight, it deserves its own note.
 
 ## Naming Conventions
 
