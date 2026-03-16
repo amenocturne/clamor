@@ -1,6 +1,6 @@
 ---
 name: spectrogram
-description: Audio spectrogram generator. Use when user wants to visually analyze audio, "listen" to a track, understand sound design, or inspect mix/mastering. Generates spectrogram + waveform images optimized for LLM visual analysis.
+description: Audio spectrogram generator. Use when the user asks you to listen to, analyze, or compare audio — sound design, mixing, mastering, genre identification. Generates spectrogram + waveform images optimized for LLM visual analysis.
 author: amenocturne
 ---
 
@@ -9,13 +9,6 @@ author: amenocturne
 Generate spectrogram images from audio files so Claude can visually analyze how music sounds.
 
 > Run commands via justfile: `just -f <skill-path>/justfile <recipe> [flags]`
-
-## When to Use
-
-- User shares an audio file and wants analysis
-- Discussing sound design, mixing, or mastering
-- Comparing tracks or identifying genre characteristics
-- Any time Claude needs to "hear" something
 
 ## Recipes
 
