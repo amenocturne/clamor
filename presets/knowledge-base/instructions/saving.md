@@ -12,15 +12,15 @@ The user sometimes sends a rapid stream of messages — ideas, observations, hal
 
 ## Tracking Save-worthy Items
 
-**CRITICAL: Use the TodoWrite tool to maintain a running list of things worth saving throughout the conversation.** This is not optional — it is the primary mechanism for ensuring nothing is lost at save time. Without it, you will reconstruct from memory and miss things.
+**HARD RULE: After EVERY substantive user message, call TodoWrite to update the save-worthy items list before or alongside your response.** This is not a suggestion — it is the primary mechanism for ensuring nothing is lost at save time. If you reach the save step without a todo list, you already failed.
 
 This is a scratchpad — not a structured plan. Quick phrases are fine.
 
-**What to track:** Anything that might be worth saving later — insights, decisions, interesting ideas, realizations, new information, connections between ideas, perception shifts, interesting examples or analogies. Don't worry about categorization or structure yet.
+**What to track:** Anything that might be worth saving later — insights, decisions, interesting ideas, realizations, new information, connections between ideas, perception shifts, interesting examples or analogies, good metaphors. Don't worry about categorization or structure yet.
 
-**Update frequency:** After each substantive exchange (every 1-3 messages), review and update the list — add new items, consolidate duplicates, refine descriptions. **Do this proactively as the conversation unfolds, not retroactively at save time.** Each individual message may contain save-worthy content — check each one.
+**When to update:** Every message. Not "every 1-3 messages." Every single substantive message. Call TodoWrite in parallel with your response — it costs nothing and prevents the drift where you keep meaning to do it "next message" until save time arrives with an empty list.
 
-**At save time:** Use this list as a reference to ensure nothing is forgotten. The items don't map 1:1 to notes — some may merge into a single concept, others may split into several notes. The structure emerges during save planning.
+**At save time:** Use this list as the primary source to ensure nothing is forgotten. The items don't map 1:1 to notes — some may merge into a single concept, others may split into several notes. The structure emerges during save planning.
 
 ## End-of-Conversation Saving
 
