@@ -35,6 +35,7 @@ pub enum DashboardAction {
     SelectLast,
     AttachSelected,
     ClearSelection,
+    ShowHelp,
     ConfirmYes,
     Cancel,
     Quit,
@@ -82,6 +83,7 @@ pub enum InputMode {
     Filtering {
         query: String,
     },
+    Help,
 }
 
 /// Process a keyboard event and return the corresponding action.
@@ -104,6 +106,7 @@ pub fn handle_input(
         InputMode::TypingAdopt { .. } => handle_adopt_input(event),
         InputMode::ConfirmEmptySpawn { .. } => handle_confirm_input(event),
         InputMode::Filtering { .. } => handle_filter_input(event),
+        InputMode::Help => handle_help_input(event),
     }
 }
 
@@ -133,6 +136,7 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
         KeyCode::Char('G') => DashboardAction::SelectLast,
         KeyCode::Enter => DashboardAction::AttachSelected,
         KeyCode::Char('/') => DashboardAction::StartFilter,
+        KeyCode::Char('?') => DashboardAction::ShowHelp,
         KeyCode::Char(c) => match key_map.get(&c) {
             Some(agent_id) => DashboardAction::Attach(agent_id.clone()),
             None => DashboardAction::Refresh,
@@ -238,6 +242,13 @@ fn handle_filter_input(event: KeyEvent) -> DashboardAction {
         KeyCode::Esc => DashboardAction::Cancel,
         KeyCode::Backspace => DashboardAction::FilterInput(PromptEdit::Backspace),
         KeyCode::Char(c) => DashboardAction::FilterInput(PromptEdit::Char(c)),
+        _ => DashboardAction::Refresh,
+    }
+}
+
+fn handle_help_input(event: KeyEvent) -> DashboardAction {
+    match event.code {
+        KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => DashboardAction::Cancel,
         _ => DashboardAction::Refresh,
     }
 }

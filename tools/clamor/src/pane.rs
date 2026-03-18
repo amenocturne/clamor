@@ -92,7 +92,7 @@ impl PaneView {
     }
 
     /// Total scrollback lines available (set to MAX, read clamped value).
-    fn scrollback_len(&mut self) -> usize {
+    pub fn scrollback_len(&mut self) -> usize {
         self.parser.screen_mut().set_scrollback(usize::MAX);
         let len = self.parser.screen().scrollback();
         self.parser.screen_mut().set_scrollback(0);

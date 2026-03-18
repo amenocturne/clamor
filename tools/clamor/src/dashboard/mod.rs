@@ -476,6 +476,7 @@ fn build_overlay<'a>(
         InputMode::WaitingEdit => render::Overlay::PendingEdit,
         InputMode::EditingDescription { input, .. } => render::Overlay::EditInput { input },
         InputMode::Filtering { query } => render::Overlay::FilterInput { query },
+        InputMode::Help => render::Overlay::Help,
     }
 }
 
@@ -493,9 +494,16 @@ fn render_terminal_view(
 
     if let Some(pv) = pane_views.get_mut(agent_id) {
         let sel = pv.selection.clone();
+        let scroll_offset = pv.scroll_offset;
+        let scroll_info = if scroll_offset > 0 {
+            let scrollback_total = pv.scrollback_len();
+            Some((scroll_offset, scrollback_total))
+        } else {
+            None
+        };
         let screen = pv.scrolled_screen();
         terminal.draw(|frame| {
-            render::render_terminal(frame, screen, agent, &sel);
+            render::render_terminal(frame, screen, agent, &sel, scroll_info);
         })?;
     }
 
@@ -1166,6 +1174,10 @@ async fn handle_dashboard_event(
                     }
                 }
                 *input_mode = InputMode::Normal;
+            }
+
+            DashboardAction::ShowHelp => {
+                *input_mode = InputMode::Help;
             }
 
             DashboardAction::ClearSelection => {
