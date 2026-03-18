@@ -48,6 +48,7 @@ pub enum Overlay<'a> {
     FilterActive {
         query: &'a str,
     },
+    Help,
 }
 
 /// Return a flat list of agent IDs in the same order they appear on the dashboard.
@@ -168,16 +169,22 @@ pub fn render(
         Overlay::EditInput { input } => {
             render_edit_popup(frame, area, input);
         }
+        Overlay::Help => {
+            render_help_popup(frame, area);
+        }
         _ => {}
     }
 }
 
 /// Render the terminal view for an agent (title bar + PseudoTerminal).
+///
+/// `scroll_info` is `Some((offset, total))` when scrolled up, `None` at live view.
 pub fn render_terminal(
     frame: &mut Frame,
     screen: &vt100::Screen,
     agent: &Agent,
     selection: &Option<Selection>,
+    scroll_info: Option<(usize, usize)>,
 ) {
     let area = frame.area();
     let chunks = Layout::vertical([
@@ -194,6 +201,17 @@ pub fn render_terminal(
         AgentState::Lost => "lost",
     };
     let duration = format_duration(agent.started_at);
+    let hint_text = match scroll_info {
+        Some((offset, total)) => {
+            let pct = if total > 0 {
+                100 - (offset * 100 / total)
+            } else {
+                100
+            };
+            format!("{}%  ^F back  ^J bottom", pct)
+        }
+        None => "^F back".to_string(),
+    };
     pane::render_title_bar(
         frame,
         chunks[0],
@@ -204,7 +222,7 @@ pub fn render_terminal(
             duration: &duration,
             color,
             focused: true,
-            hint: Some("^F back  ^J bottom"),
+            hint: Some(&hint_text),
         },
     );
 
@@ -314,7 +332,9 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay) {
             Span::styled("key]", Style::default().fg(Color::Cyan)),
             Span::raw(" kill  "),
             Span::styled("[q]", Style::default().fg(Color::Cyan)),
-            Span::raw("uit"),
+            Span::raw("uit  "),
+            Span::styled("[?]", Style::default().fg(Color::Cyan)),
+            Span::raw(" help"),
         ])),
     };
     frame.render_widget(footer, area);
@@ -489,12 +509,24 @@ fn render_agent_line(da: &DisplayAgent, width: usize) -> Line<'static> {
 
     let duration = format_duration(da.agent.started_at);
 
+    // Build tool suffix: "  ToolName 2m" in very dim style
+    let tool_suffix = if !da.killed && da.agent.state != AgentState::Done {
+        da.agent.last_tool.as_ref().map(|tool| {
+            let tool_display = truncate(tool, 20);
+            let activity_ago = format_duration(da.agent.last_activity_at);
+            format!("  {} {}", tool_display, activity_ago)
+        })
+    } else {
+        None
+    };
+    let tool_suffix_len = tool_suffix.as_ref().map_or(0, |s| s.len());
+
     // state_label is 5 or 6 chars — normalize to 6 for "killed"
     let state_display = format!("{:<6}", state_label);
 
     // Calculate available space for description:
-    // key(5) + state(6) + spacing(4) + duration(~8) + padding(2)
-    let overhead = key_str.len() + 6 + 4 + duration.len() + 2;
+    // key(5) + state(6) + spacing(4) + duration(~8) + padding(2) + tool_suffix
+    let overhead = key_str.len() + 6 + 4 + duration.len() + 2 + tool_suffix_len;
     let desc_width = width.saturating_sub(overhead);
     let description = truncate(&da.agent.title, desc_width);
 
@@ -516,14 +548,23 @@ fn render_agent_line(da: &DisplayAgent, width: usize) -> Line<'static> {
 
     let duration_style = Style::default().fg(Color::DarkGray);
 
-    Line::from(vec![
+    let mut spans = vec![
         Span::styled(key_str, key_style),
         Span::styled(state_display, state_style),
         Span::raw("  "),
         Span::styled(padded_desc, desc_style),
         Span::raw("  "),
         Span::styled(duration, duration_style),
-    ])
+    ];
+
+    if let Some(suffix) = tool_suffix {
+        spans.push(Span::styled(
+            suffix,
+            Style::default().fg(Color::Rgb(60, 60, 60)),
+        ));
+    }
+
+    Line::from(spans)
 }
 
 pub fn format_duration(started_at: chrono::DateTime<Utc>) -> String {
@@ -759,6 +800,78 @@ fn render_edit_popup(frame: &mut Frame, area: Rect, input: &str) {
     let display = format!("{input}\u{258e}");
     let prompt = Paragraph::new(Line::from(Span::raw(display))).wrap(Wrap { trim: false });
     frame.render_widget(prompt, inner);
+}
+
+fn render_help_popup(frame: &mut Frame, area: Rect) {
+    let width = 40u16;
+    let height = 16u16;
+    let popup = popup_area(area, width, height);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(" Help ");
+
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let lines = vec![
+        Line::from(Span::styled(
+            " Keybindings",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            " \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::from(vec![
+            Span::styled(" J / K / \u{2191}\u{2193}", Style::default().fg(Color::Cyan)),
+            Span::raw("    navigate"),
+        ]),
+        Line::from(vec![
+            Span::styled(" Enter", Style::default().fg(Color::Cyan)),
+            Span::raw("          attach"),
+        ]),
+        Line::from(vec![
+            Span::styled(" g / G", Style::default().fg(Color::Cyan)),
+            Span::raw("          first / last"),
+        ]),
+        Line::from(vec![
+            Span::styled(" /", Style::default().fg(Color::Cyan)),
+            Span::raw("              filter"),
+        ]),
+        Line::from(vec![
+            Span::styled(" c", Style::default().fg(Color::Cyan)),
+            Span::raw("              create"),
+        ]),
+        Line::from(vec![
+            Span::styled(" C", Style::default().fg(Color::Cyan)),
+            Span::raw("              create ($EDITOR)"),
+        ]),
+        Line::from(vec![
+            Span::styled(" e", Style::default().fg(Color::Cyan)),
+            Span::raw(" + key        edit description"),
+        ]),
+        Line::from(vec![
+            Span::styled(" X", Style::default().fg(Color::Cyan)),
+            Span::raw(" + key        kill"),
+        ]),
+        Line::from(vec![
+            Span::styled(" R", Style::default().fg(Color::Cyan)),
+            Span::raw("              adopt session"),
+        ]),
+        Line::from(vec![
+            Span::styled(" Esc", Style::default().fg(Color::Cyan)),
+            Span::raw("            clear selection"),
+        ]),
+        Line::from(vec![
+            Span::styled(" q", Style::default().fg(Color::Cyan)),
+            Span::raw("              quit"),
+        ]),
+    ];
+
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 /// Render selection highlight by flipping selected cells to REVERSED style.
