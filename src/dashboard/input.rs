@@ -26,8 +26,13 @@ pub enum DashboardAction {
     AdoptStart,
     AdoptInput(PromptEdit),
     AdoptSubmitted,
+    StartFilter,
+    FilterInput(PromptEdit),
+    FilterAccept,
     SelectNext,
     SelectPrev,
+    SelectFirst,
+    SelectLast,
     AttachSelected,
     CleanStale,
     DismissStale,
@@ -44,6 +49,8 @@ pub enum PromptEdit {
     Backspace,
     DeleteWord,
     DeleteLine,
+    HistoryPrev,
+    HistoryNext,
 }
 
 /// Dashboard input mode.
@@ -79,6 +86,9 @@ pub enum InputMode {
         agent_id: String,
         input: String,
     },
+    Filtering {
+        query: String,
+    },
 }
 
 /// Process a keyboard event and return the corresponding action.
@@ -102,6 +112,7 @@ pub fn handle_input(
         InputMode::StalePrompt { .. } => handle_stale_input(event),
         InputMode::StaleAgent { .. } => handle_stale_input(event),
         InputMode::ConfirmEmptySpawn { .. } => handle_confirm_input(event),
+        InputMode::Filtering { .. } => handle_filter_input(event),
     }
 }
 
@@ -127,7 +138,10 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
         KeyCode::Char('k') if event.modifiers.contains(KeyModifiers::SHIFT) => {
             DashboardAction::SelectPrev
         }
+        KeyCode::Char('g') => DashboardAction::SelectFirst,
+        KeyCode::Char('G') => DashboardAction::SelectLast,
         KeyCode::Enter => DashboardAction::AttachSelected,
+        KeyCode::Char('/') => DashboardAction::StartFilter,
         KeyCode::Char(c) => match key_map.get(&c) {
             Some(agent_id) => DashboardAction::Attach(agent_id.clone()),
             None => DashboardAction::Refresh,
@@ -195,6 +209,8 @@ fn handle_prompt_input(event: KeyEvent) -> DashboardAction {
         KeyCode::Enter => DashboardAction::PromptSubmitted,
         KeyCode::Esc => DashboardAction::Cancel,
         KeyCode::Tab | KeyCode::BackTab => DashboardAction::PromptToggleField,
+        KeyCode::Up => DashboardAction::PromptInput(PromptEdit::HistoryPrev),
+        KeyCode::Down => DashboardAction::PromptInput(PromptEdit::HistoryNext),
         KeyCode::Backspace => DashboardAction::PromptInput(PromptEdit::Backspace),
         KeyCode::Char(c) => DashboardAction::PromptInput(PromptEdit::Char(c)),
         _ => DashboardAction::Refresh,
@@ -226,6 +242,19 @@ fn handle_confirm_input(event: KeyEvent) -> DashboardAction {
     match event.code {
         KeyCode::Char('y') => DashboardAction::ConfirmYes,
         KeyCode::Char('n') | KeyCode::Esc => DashboardAction::Cancel,
+        _ => DashboardAction::Refresh,
+    }
+}
+
+fn handle_filter_input(event: KeyEvent) -> DashboardAction {
+    if let Some(edit) = check_text_shortcut(&event) {
+        return DashboardAction::FilterInput(edit);
+    }
+    match event.code {
+        KeyCode::Enter => DashboardAction::FilterAccept,
+        KeyCode::Esc => DashboardAction::Cancel,
+        KeyCode::Backspace => DashboardAction::FilterInput(PromptEdit::Backspace),
+        KeyCode::Char(c) => DashboardAction::FilterInput(PromptEdit::Char(c)),
         _ => DashboardAction::Refresh,
     }
 }

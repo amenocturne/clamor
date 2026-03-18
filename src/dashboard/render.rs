@@ -48,6 +48,12 @@ pub enum Overlay<'a> {
     EditInput {
         input: &'a str,
     },
+    FilterInput {
+        query: &'a str,
+    },
+    FilterActive {
+        query: &'a str,
+    },
 }
 
 /// Return a flat list of agent IDs in the same order they appear on the dashboard.
@@ -55,7 +61,11 @@ pub enum Overlay<'a> {
 /// The ordering matches `build_groups`: folders sorted alphabetically (config folders
 /// first, then any extra folders from agents), agents within each folder sorted by
 /// `started_at`.
-pub fn ordered_agent_ids(config: &ClamorConfig, agents: &HashMap<String, &Agent>) -> Vec<String> {
+pub fn ordered_agent_ids(
+    config: &ClamorConfig,
+    agents: &HashMap<String, &Agent>,
+    filter_query: &str,
+) -> Vec<String> {
     let mut folder_keys: Vec<&String> = config.folders.keys().collect();
     folder_keys.sort();
 
@@ -74,12 +84,20 @@ pub fn ordered_agent_ids(config: &ClamorConfig, agents: &HashMap<String, &Agent>
         .chain(extra_folders)
         .collect();
 
+    let q = filter_query.to_lowercase();
+
     let mut ids = Vec::new();
     for folder_key in &all_folder_keys {
         let mut folder_agents: Vec<(&String, &&Agent)> = agents
             .iter()
             .filter(|(_, a)| a.folder == *folder_key)
             .collect();
+
+        if !q.is_empty() {
+            folder_agents.retain(|(_, a)| {
+                a.title.to_lowercase().contains(&q) || a.folder.to_lowercase().contains(&q)
+            });
+        }
 
         if folder_agents.is_empty() {
             continue;
@@ -102,11 +120,12 @@ pub fn render(
     killed_ids: &[String],
     overlay: &Overlay,
     selected_index: Option<usize>,
+    filter_query: &str,
 ) {
     let area = frame.area();
 
     // Build display agents grouped by folder
-    let groups = build_groups(config, agents, killed_ids);
+    let groups = build_groups(config, agents, killed_ids, filter_query);
 
     // Count stats (exclude killed from count)
     let total = agents.len()
@@ -266,6 +285,26 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay) {
                     .add_modifier(Modifier::BOLD),
             ),
         ])),
+        Overlay::FilterInput { query } => Paragraph::new(Line::from(vec![
+            Span::raw(" filter: "),
+            Span::styled(
+                format!("{query}\u{258e}"),
+                Style::default().fg(Color::White),
+            ),
+        ])),
+        Overlay::FilterActive { query } => Paragraph::new(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                format!("filter: {query}  ",),
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::ITALIC),
+            ),
+            Span::styled("[/]", Style::default().fg(Color::Cyan)),
+            Span::raw(" edit  "),
+            Span::styled("[Esc]", Style::default().fg(Color::Cyan)),
+            Span::raw(" clear"),
+        ])),
         _ => Paragraph::new(Line::from(vec![
             Span::raw(" "),
             Span::styled("[J/K]", Style::default().fg(Color::Cyan)),
@@ -280,6 +319,8 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay) {
             Span::raw("dit  "),
             Span::styled("[R]", Style::default().fg(Color::Cyan)),
             Span::raw(" adopt  "),
+            Span::styled("[/]", Style::default().fg(Color::Cyan)),
+            Span::raw(" filter  "),
             Span::styled("[X", Style::default().fg(Color::Cyan)),
             Span::raw("+"),
             Span::styled("key]", Style::default().fg(Color::Cyan)),
@@ -301,6 +342,7 @@ fn build_groups<'a>(
     config: &ClamorConfig,
     agents: &HashMap<String, &'a Agent>,
     killed_ids: &[String],
+    filter_query: &str,
 ) -> Vec<AgentGroup<'a>> {
     // Collect folder names from config, sorted
     let mut folder_keys: Vec<&String> = config.folders.keys().collect();
@@ -324,11 +366,19 @@ fn build_groups<'a>(
         .chain(extra_folders)
         .collect();
 
+    let q = filter_query.to_lowercase();
+
     for folder_key in &all_folder_keys {
         let mut folder_agents: Vec<(&String, &&Agent)> = agents
             .iter()
             .filter(|(_, a)| a.folder == *folder_key)
             .collect();
+
+        if !q.is_empty() {
+            folder_agents.retain(|(_, a)| {
+                a.title.to_lowercase().contains(&q) || a.folder.to_lowercase().contains(&q)
+            });
+        }
 
         if folder_agents.is_empty() {
             continue;
@@ -365,6 +415,7 @@ fn render_body(
     let mut lines: Vec<Line> = Vec::new();
     let width = area.width as usize;
     let mut agent_idx = 0usize;
+    let mut selected_line: Option<usize> = None;
 
     for (i, group) in groups.iter().enumerate() {
         if i > 0 {
@@ -381,22 +432,40 @@ fn render_body(
             let mut line = render_agent_line(da, width);
             if selected_index == Some(agent_idx) {
                 line = highlight_line(line);
+                selected_line = Some(lines.len());
             }
             lines.push(line);
             agent_idx += 1;
         }
     }
 
-    let body = Paragraph::new(lines);
+    // Scroll viewport so the selected line stays visible with a 2-line margin
+    let viewport_height = area.height as usize;
+    let scroll_offset = if let Some(sel_line) = selected_line {
+        if viewport_height == 0 || lines.len() <= viewport_height {
+            0
+        } else {
+            let margin = 2usize;
+            let min_offset = sel_line.saturating_sub(viewport_height.saturating_sub(1 + margin));
+            let max_offset = sel_line.saturating_sub(margin);
+            // Clamp: pick min_offset if we need to scroll down, keep current if in range
+            // Since we don't persist scroll state, just ensure selected is visible
+            min_offset.max(0).min(max_offset)
+        }
+    } else {
+        0
+    };
+
+    let body = Paragraph::new(lines).scroll((scroll_offset as u16, 0));
     frame.render_widget(body, area);
 }
 
 fn highlight_line(line: Line<'static>) -> Line<'static> {
-    let spans: Vec<Span<'static>> = line
-        .spans
-        .into_iter()
-        .map(|span| span.patch_style(Style::default().bg(Color::Rgb(40, 40, 40))))
-        .collect();
+    let bg = Style::default().bg(Color::Rgb(40, 40, 40));
+    let mut spans = vec![Span::styled("▎", Style::default().fg(Color::Cyan))];
+    for span in line.spans {
+        spans.push(span.patch_style(bg));
+    }
     Line::from(spans)
 }
 
