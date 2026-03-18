@@ -34,6 +34,7 @@ pub enum DashboardAction {
     SelectFirst,
     SelectLast,
     AttachSelected,
+    ClearSelection,
     ConfirmYes,
     Cancel,
     Quit,
@@ -136,7 +137,7 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
             Some(agent_id) => DashboardAction::Attach(agent_id.clone()),
             None => DashboardAction::Refresh,
         },
-        KeyCode::Esc => DashboardAction::Refresh,
+        KeyCode::Esc => DashboardAction::ClearSelection,
         _ => DashboardAction::Refresh,
     }
 }

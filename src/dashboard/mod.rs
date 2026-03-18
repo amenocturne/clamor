@@ -1168,6 +1168,10 @@ async fn handle_dashboard_event(
                 *input_mode = InputMode::Normal;
             }
 
+            DashboardAction::ClearSelection => {
+                *selected_index = None;
+            }
+
             DashboardAction::Refresh => {}
         }
     }
