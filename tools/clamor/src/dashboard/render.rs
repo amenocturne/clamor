@@ -50,6 +50,50 @@ pub enum Overlay<'a> {
     },
 }
 
+/// Return a flat list of agent IDs in the same order they appear on the dashboard.
+///
+/// The ordering matches `build_groups`: folders sorted alphabetically (config folders
+/// first, then any extra folders from agents), agents within each folder sorted by
+/// `started_at`.
+pub fn ordered_agent_ids(config: &ClamorConfig, agents: &HashMap<String, &Agent>) -> Vec<String> {
+    let mut folder_keys: Vec<&String> = config.folders.keys().collect();
+    folder_keys.sort();
+
+    let mut extra_folders: Vec<String> = agents
+        .values()
+        .map(|a| a.folder.clone())
+        .filter(|f| !config.folders.contains_key(f))
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    extra_folders.sort();
+
+    let all_folder_keys: Vec<String> = folder_keys
+        .iter()
+        .map(|k| (*k).clone())
+        .chain(extra_folders)
+        .collect();
+
+    let mut ids = Vec::new();
+    for folder_key in &all_folder_keys {
+        let mut folder_agents: Vec<(&String, &&Agent)> = agents
+            .iter()
+            .filter(|(_, a)| a.folder == *folder_key)
+            .collect();
+
+        if folder_agents.is_empty() {
+            continue;
+        }
+
+        folder_agents.sort_by_key(|(_, a)| a.started_at);
+
+        for (id, _) in folder_agents {
+            ids.push(id.clone());
+        }
+    }
+    ids
+}
+
 /// Render the full dashboard frame.
 pub fn render(
     frame: &mut Frame,
@@ -57,6 +101,7 @@ pub fn render(
     agents: &HashMap<String, &Agent>,
     killed_ids: &[String],
     overlay: &Overlay,
+    selected_index: Option<usize>,
 ) {
     let area = frame.area();
 
@@ -85,7 +130,7 @@ pub fn render(
 
     render_header(frame, chunks[0], total, needs_input);
     render_separator(frame, chunks[1]);
-    render_body(frame, chunks[2], &groups);
+    render_body(frame, chunks[2], &groups, selected_index);
     render_footer(frame, chunks[3], overlay);
 
     // Render overlay popups on top
@@ -223,7 +268,9 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay) {
         ])),
         _ => Paragraph::new(Line::from(vec![
             Span::raw(" "),
-            Span::styled("[key]", Style::default().fg(Color::Cyan)),
+            Span::styled("[↑↓]", Style::default().fg(Color::Cyan)),
+            Span::raw(" select  "),
+            Span::styled("[⏎]", Style::default().fg(Color::Cyan)),
             Span::raw(" attach  "),
             Span::styled("[c]", Style::default().fg(Color::Cyan)),
             Span::raw("reate  "),
@@ -309,9 +356,15 @@ fn build_groups<'a>(
     groups
 }
 
-fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup]) {
+fn render_body(
+    frame: &mut Frame,
+    area: Rect,
+    groups: &[AgentGroup],
+    selected_index: Option<usize>,
+) {
     let mut lines: Vec<Line> = Vec::new();
     let width = area.width as usize;
+    let mut agent_idx = 0usize;
 
     for (i, group) in groups.iter().enumerate() {
         if i > 0 {
@@ -325,12 +378,26 @@ fn render_body(frame: &mut Frame, area: Rect, groups: &[AgentGroup]) {
         )));
 
         for da in &group.agents {
-            lines.push(render_agent_line(da, width));
+            let mut line = render_agent_line(da, width);
+            if selected_index == Some(agent_idx) {
+                line = highlight_line(line);
+            }
+            lines.push(line);
+            agent_idx += 1;
         }
     }
 
     let body = Paragraph::new(lines);
     frame.render_widget(body, area);
+}
+
+fn highlight_line(line: Line<'static>) -> Line<'static> {
+    let spans: Vec<Span<'static>> = line
+        .spans
+        .into_iter()
+        .map(|span| span.patch_style(Style::default().bg(Color::Rgb(40, 40, 40))))
+        .collect();
+    Line::from(spans)
 }
 
 fn render_agent_line(da: &DisplayAgent, width: usize) -> Line<'static> {
@@ -495,7 +562,7 @@ fn render_prompt_popup(
     active_field: &PromptField,
 ) {
     let width = area.width.min(70);
-    let height = (area.height * 2 / 5).clamp(10, 20);
+    let height = (area.height * 3 / 5).clamp(10, 30);
     let popup = popup_area(area, width, height);
     frame.render_widget(Clear, popup);
 
@@ -536,22 +603,47 @@ fn render_prompt_popup(
         desc_text.to_string()
     };
 
-    let lines = vec![
+    let desc_width = inner.width as usize;
+    let wrapped_desc: Vec<String> = if desc_width == 0 {
+        vec![desc_display]
+    } else {
+        let chars: Vec<char> = desc_display.chars().collect();
+        if chars.is_empty() {
+            vec![String::new()]
+        } else {
+            chars
+                .chunks(desc_width)
+                .map(|chunk| chunk.iter().collect())
+                .collect()
+        }
+    };
+
+    // 5 fixed lines: title + blank + "Description:" label + blank before hint + hint
+    let desc_area_height = (inner.height as usize).saturating_sub(5);
+    let visible_desc: &[String] = if wrapped_desc.len() > desc_area_height && desc_area_height > 0 {
+        &wrapped_desc[wrapped_desc.len() - desc_area_height..]
+    } else {
+        &wrapped_desc
+    };
+
+    let mut lines = vec![
         Line::from(vec![
             Span::styled("Title: ", title_label_style),
             Span::raw(title_display),
         ]),
         Line::from(""),
         Line::from(Span::styled("Description:", desc_label_style)),
-        Line::from(Span::raw(desc_display)),
-        Line::from(""),
-        Line::from(Span::styled(
-            "Tab switch \u{00b7} empty = interactive session",
-            Style::default().fg(Color::DarkGray),
-        )),
     ];
+    for line in visible_desc {
+        lines.push(Line::from(Span::raw(line.clone())));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Tab switch \u{00b7} empty = interactive session",
+        Style::default().fg(Color::DarkGray),
+    )));
 
-    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+    let paragraph = Paragraph::new(lines);
     frame.render_widget(paragraph, inner);
 }
 

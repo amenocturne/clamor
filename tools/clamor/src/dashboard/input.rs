@@ -26,6 +26,9 @@ pub enum DashboardAction {
     AdoptStart,
     AdoptInput(PromptEdit),
     AdoptSubmitted,
+    SelectNext,
+    SelectPrev,
+    AttachSelected,
     CleanStale,
     DismissStale,
     ConfirmYes,
@@ -116,6 +119,9 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
         }
         KeyCode::Char('e') => DashboardAction::PendingEdit,
         KeyCode::Char('R') => DashboardAction::AdoptStart,
+        KeyCode::Down => DashboardAction::SelectNext,
+        KeyCode::Up => DashboardAction::SelectPrev,
+        KeyCode::Enter => DashboardAction::AttachSelected,
         KeyCode::Char(c) => match key_map.get(&c) {
             Some(agent_id) => DashboardAction::Attach(agent_id.clone()),
             None => DashboardAction::Refresh,
