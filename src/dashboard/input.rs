@@ -119,6 +119,10 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
         }
         KeyCode::Char('e') => DashboardAction::PendingEdit,
         KeyCode::Char('R') => DashboardAction::AdoptStart,
+        KeyCode::Char('J') => DashboardAction::SelectNext,
+        KeyCode::Char('j') if event.modifiers.contains(KeyModifiers::SHIFT) => {
+            DashboardAction::SelectNext
+        }
         KeyCode::Down => DashboardAction::SelectNext,
         KeyCode::Up => DashboardAction::SelectPrev,
         KeyCode::Enter => DashboardAction::AttachSelected,
