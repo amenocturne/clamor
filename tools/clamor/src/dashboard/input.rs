@@ -34,8 +34,6 @@ pub enum DashboardAction {
     SelectFirst,
     SelectLast,
     AttachSelected,
-    CleanStale,
-    DismissStale,
     ConfirmYes,
     Cancel,
     Quit,
@@ -71,12 +69,6 @@ pub enum InputMode {
     TypingAdopt {
         input: String,
     },
-    StalePrompt {
-        count: usize,
-    },
-    StaleAgent {
-        agent_id: String,
-    },
     ConfirmEmptySpawn {
         folder_name: String,
         folder_path: String,
@@ -109,8 +101,6 @@ pub fn handle_input(
         InputMode::PickingFolder { folder_count, .. } => handle_folder_pick(event, *folder_count),
         InputMode::TypingPrompt { .. } => handle_prompt_input(event),
         InputMode::TypingAdopt { .. } => handle_adopt_input(event),
-        InputMode::StalePrompt { .. } => handle_stale_input(event),
-        InputMode::StaleAgent { .. } => handle_stale_input(event),
         InputMode::ConfirmEmptySpawn { .. } => handle_confirm_input(event),
         InputMode::Filtering { .. } => handle_filter_input(event),
     }
@@ -226,14 +216,6 @@ fn handle_adopt_input(event: KeyEvent) -> DashboardAction {
         KeyCode::Esc => DashboardAction::Cancel,
         KeyCode::Backspace => DashboardAction::AdoptInput(PromptEdit::Backspace),
         KeyCode::Char(c) => DashboardAction::AdoptInput(PromptEdit::Char(c)),
-        _ => DashboardAction::Refresh,
-    }
-}
-
-fn handle_stale_input(event: KeyEvent) -> DashboardAction {
-    match event.code {
-        KeyCode::Char('y') => DashboardAction::CleanStale,
-        KeyCode::Char('n') | KeyCode::Esc => DashboardAction::DismissStale,
         _ => DashboardAction::Refresh,
     }
 }

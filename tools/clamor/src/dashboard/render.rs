@@ -37,12 +37,6 @@ pub enum Overlay<'a> {
     AdoptInput {
         input: &'a str,
     },
-    StaleAgents {
-        count: usize,
-    },
-    StaleAgent {
-        description: &'a str,
-    },
     ConfirmEmptySpawn,
     PendingEdit,
     EditInput {
@@ -167,12 +161,6 @@ pub fn render(
         }
         Overlay::AdoptInput { input } => {
             render_adopt_popup(frame, area, input);
-        }
-        Overlay::StaleAgents { count } => {
-            render_stale_popup(frame, area, *count);
-        }
-        Overlay::StaleAgent { description } => {
-            render_stale_agent_popup(frame, area, description);
         }
         Overlay::ConfirmEmptySpawn => {
             render_confirm_empty_popup(frame, area);
@@ -732,61 +720,6 @@ fn render_adopt_popup(frame: &mut Frame, area: Rect, input: &str) {
     let display = format!("{input}\u{258e}");
     let prompt = Paragraph::new(Line::from(Span::raw(display))).wrap(Wrap { trim: false });
     frame.render_widget(prompt, inner);
-}
-
-fn render_stale_popup(frame: &mut Frame, area: Rect, count: usize) {
-    let width = area.width.min(58);
-    let popup = popup_area(area, width, 7);
-    frame.render_widget(Clear, popup);
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
-        .title(" Stale agents ");
-
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
-
-    let text = vec![
-        Line::from(format!(
-            " {count} agent(s) lost from a previous daemon session."
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            " You can resume them: claude --resume <session-id>",
-            Style::default().fg(Color::DarkGray),
-        )),
-        Line::from(""),
-        Line::from(" [y] clean up    [n] keep"),
-    ];
-    frame.render_widget(Paragraph::new(text), inner);
-}
-
-fn render_stale_agent_popup(frame: &mut Frame, area: Rect, description: &str) {
-    let width = area.width.min(58);
-    let popup = popup_area(area, width, 7);
-    frame.render_widget(Clear, popup);
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
-        .title(" Stale session ");
-
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
-
-    let desc = truncate(description, (width - 4) as usize);
-    let text = vec![
-        Line::from(format!(" \"{}\" is from a previous daemon.", desc)),
-        Line::from(""),
-        Line::from(Span::styled(
-            " Resume outside clamor: claude --resume <session-id>",
-            Style::default().fg(Color::DarkGray),
-        )),
-        Line::from(""),
-        Line::from(" [y] remove    [n] keep"),
-    ];
-    frame.render_widget(Paragraph::new(text), inner);
 }
 
 fn render_confirm_empty_popup(frame: &mut Frame, area: Rect) {

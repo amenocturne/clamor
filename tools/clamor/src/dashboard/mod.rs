@@ -66,29 +66,58 @@ fn ensure_daemon() -> Result<()> {
     Ok(())
 }
 
-async fn reconcile_state(client: &mut DaemonClient) -> Result<usize> {
+async fn reconcile_state(client: &mut DaemonClient, pty_rows: u16, pty_cols: u16) -> Result<()> {
     let daemon_agents = client.list_agents().await?;
     let daemon_ids: std::collections::HashSet<String> =
         daemon_agents.iter().map(|a| a.id.clone()).collect();
 
-    let lost_count = with_state(|state| {
-        let mut count = 0;
-        for (id, agent) in state.agents.iter_mut() {
-            if agent.state != AgentState::Lost && !daemon_ids.contains(id) {
-                agent.state = AgentState::Lost;
-                count += 1;
+    let state = ClamorState::load()?;
+    let mut to_resume: Vec<(String, String, String)> = Vec::new(); // (id, cwd, session_id)
+    let mut to_remove: Vec<String> = Vec::new();
+
+    for (id, agent) in &state.agents {
+        if !daemon_ids.contains(id) {
+            if let Some(ref session_id) = agent.session_id {
+                to_resume.push((id.clone(), agent.cwd.clone(), session_id.clone()));
+            } else {
+                to_remove.push(id.clone());
             }
         }
-        count
-    })?;
-    Ok(lost_count)
+    }
+
+    // Resume agents with session IDs
+    for (id, cwd, session_id) in &to_resume {
+        let cmd = crate::spawn::build_resume_cmd(session_id);
+        let env = vec![("CLAMOR_AGENT_ID".to_string(), id.clone())];
+        let _ = client
+            .spawn_agent(id, cwd, &cmd, &env, pty_rows, pty_cols)
+            .await;
+    }
+
+    // Update state: mark resumed agents as Working, remove non-resumable ones
+    if !to_resume.is_empty() || !to_remove.is_empty() {
+        with_state(|state| {
+            for (id, _, _) in &to_resume {
+                if let Some(agent) = state.agents.get_mut(id) {
+                    agent.state = AgentState::Working;
+                    agent.last_activity_at = chrono::Utc::now();
+                }
+            }
+            for id in &to_remove {
+                state.agents.remove(id);
+            }
+        })?;
+    }
+
+    Ok(())
 }
 
 pub async fn run(config: &ClamorConfig, attach_to: Option<String>) -> Result<()> {
     ensure_daemon()?;
     let mut client = DaemonClient::connect().await?;
 
-    let lost_count = reconcile_state(&mut client).await?;
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
+    reconcile_state(&mut client, term_rows, term_cols).await?;
 
     let state_source = StateSource::new(config);
 
@@ -96,15 +125,7 @@ pub async fn run(config: &ClamorConfig, attach_to: Option<String>) -> Result<()>
     let mut terminal = setup_terminal()?;
     execute!(io::stdout(), EnableBracketedPaste, EnableMouseCapture)?;
 
-    let result = main_loop(
-        &mut terminal,
-        config,
-        &mut client,
-        attach_to,
-        lost_count,
-        &state_source,
-    )
-    .await;
+    let result = main_loop(&mut terminal, config, &mut client, attach_to, &state_source).await;
 
     execute!(io::stdout(), DisableBracketedPaste, DisableMouseCapture)?;
     restore_terminal(&mut terminal)?;
@@ -147,14 +168,9 @@ async fn main_loop(
     config: &ClamorConfig,
     client: &mut DaemonClient,
     attach_to: Option<String>,
-    lost_count: usize,
     state_source: &StateSource,
 ) -> Result<()> {
-    let mut input_mode = if lost_count > 0 && attach_to.is_none() {
-        InputMode::StalePrompt { count: lost_count }
-    } else {
-        InputMode::Normal
-    };
+    let mut input_mode = InputMode::Normal;
     let mut killed_at: HashMap<String, Instant> = HashMap::new();
     let kill_linger = Duration::from_secs(3);
     let mut pane_views: HashMap<String, PaneView> = HashMap::new();
@@ -173,9 +189,7 @@ async fn main_loop(
             .is_none_or(|a| a.state == AgentState::Lost);
 
         if is_lost {
-            input_mode = InputMode::StaleAgent {
-                agent_id: agent_id.clone(),
-            };
+            // Agent was not auto-resumed or doesn't exist — stay on dashboard
             AppMode::Dashboard
         } else {
             let (term_cols, term_rows) = crossterm::terminal::size()?;
@@ -409,7 +423,7 @@ fn render_dashboard(
     let agent_refs: HashMap<String, &Agent> =
         state.agents.iter().map(|(id, a)| (id.clone(), a)).collect();
 
-    let overlay = build_overlay(input_mode, sorted_folders, &state, filter_query);
+    let overlay = build_overlay(input_mode, sorted_folders, filter_query);
 
     terminal.draw(|frame| {
         render::render(
@@ -429,7 +443,6 @@ fn render_dashboard(
 fn build_overlay<'a>(
     input_mode: &'a InputMode,
     sorted_folders: &'a [(String, String)],
-    state: &'a ClamorState,
     filter_query: &'a str,
 ) -> render::Overlay<'a> {
     match input_mode {
@@ -459,15 +472,6 @@ fn build_overlay<'a>(
             active_field,
         },
         InputMode::TypingAdopt { input } => render::Overlay::AdoptInput { input },
-        InputMode::StalePrompt { count } => render::Overlay::StaleAgents { count: *count },
-        InputMode::StaleAgent { ref agent_id } => {
-            let desc = state
-                .agents
-                .get(agent_id)
-                .map(|a| a.title.as_str())
-                .unwrap_or("unknown");
-            render::Overlay::StaleAgent { description: desc }
-        }
         InputMode::ConfirmEmptySpawn { .. } => render::Overlay::ConfirmEmptySpawn,
         InputMode::WaitingEdit => render::Overlay::PendingEdit,
         InputMode::EditingDescription { input, .. } => render::Overlay::EditInput { input },
@@ -631,13 +635,10 @@ async fn handle_dashboard_event(
             DashboardAction::Attach(ref agent_id) => {
                 *input_mode = InputMode::Normal;
                 if let Some(agent) = state.agents.get(agent_id) {
-                    if agent.state == AgentState::Lost {
-                        *input_mode = InputMode::StaleAgent {
-                            agent_id: agent_id.clone(),
-                        };
-                    } else {
+                    if agent.state != AgentState::Lost {
                         return Ok(LoopAction::SwitchToTerminal(agent_id.clone()));
                     }
+                    // Lost agent — wasn't auto-resumed (no session_id), ignore
                 }
             }
 
@@ -1067,25 +1068,6 @@ async fn handle_dashboard_event(
                 *input_mode = InputMode::Normal;
             }
 
-            DashboardAction::CleanStale => {
-                if let InputMode::StaleAgent { ref agent_id } = input_mode {
-                    let id = agent_id.clone();
-                    let _ = with_state(|state| {
-                        state.agents.remove(&id);
-                    });
-                } else {
-                    let _ = with_state(|state| {
-                        state.agents.retain(|_, a| a.state != AgentState::Lost);
-                    });
-                }
-                state_source.invalidate();
-                *input_mode = InputMode::Normal;
-            }
-
-            DashboardAction::DismissStale => {
-                *input_mode = InputMode::Normal;
-            }
-
             DashboardAction::SelectNext => {
                 let agent_ids = render::ordered_agent_ids(config, &agent_refs, filter_query);
                 if agent_ids.is_empty() {
@@ -1115,13 +1097,10 @@ async fn handle_dashboard_event(
                     let agent_ids = render::ordered_agent_ids(config, &agent_refs, filter_query);
                     if let Some(agent_id) = agent_ids.get(idx) {
                         if let Some(agent) = state.agents.get(agent_id) {
-                            if agent.state == AgentState::Lost {
-                                *input_mode = InputMode::StaleAgent {
-                                    agent_id: agent_id.clone(),
-                                };
-                            } else {
+                            if agent.state != AgentState::Lost {
                                 return Ok(LoopAction::SwitchToTerminal(agent_id.clone()));
                             }
+                            // Lost agent — wasn't auto-resumed (no session_id), ignore
                         }
                     }
                 }
