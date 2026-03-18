@@ -1,0 +1,7 @@
+{
+  "name": "dev-cycle",
+  "version": "1.0.0",
+  "description": "Full automated development cycle: implement → review → test per task, async DAG scheduling",
+  "author": "amenocturne",
+  "tags": ["orchestration", "workflow", "development", "automation"]
+}

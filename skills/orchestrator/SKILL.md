@@ -127,6 +127,32 @@ This gives each agent an isolated git worktree — no file conflicts, no index l
 - Sequential tasks (only one agent active at a time)
 - Agents working on different repos
 
+### Event-Driven DAG Scheduling
+
+For complex task graphs, prefer event-driven dispatch over phase-by-phase execution:
+
+```
+State per task: pending | running | done | failed
+
+Loop:
+  1. Find all `pending` tasks whose dependencies are all `done`
+  2. Fire them as background agents immediately → move to `running`
+  3. On each completion → process result, move to `done` or `failed`
+  4. Re-evaluate: any newly unblocked tasks? → go to 1
+  5. Stop when all tasks are `done`, or escalate on unrecoverable `failed`
+```
+
+This fires tasks the moment their deps are satisfied — not at phase boundaries. Independent tasks run simultaneously; dependent tasks wait only as long as needed.
+
+**Dependency format when presenting a plan:**
+```
+Phase 1: [task-a, task-b]           (parallel — no deps)
+Phase 2: [task-c]                   (depends on: task-a, task-b)
+Phase 3: [task-d, task-e]           (depends on: task-c; parallel with each other)
+```
+
+Use this scheduling model whenever: the task graph has explicit dependencies, or multiple independent tasks could run in parallel and speed matters.
+
 ### Subagent Instructions
 
 Every subagent prompt should request:
