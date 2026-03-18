@@ -113,18 +113,20 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
             DashboardAction::SpawnEditor
         }
         KeyCode::Char('c') => DashboardAction::SpawnInline,
-        KeyCode::Char('K') => DashboardAction::PendingKill,
-        KeyCode::Char('k') if event.modifiers.contains(KeyModifiers::SHIFT) => {
+        KeyCode::Char('X') => DashboardAction::PendingKill,
+        KeyCode::Char('x') if event.modifiers.contains(KeyModifiers::SHIFT) => {
             DashboardAction::PendingKill
         }
         KeyCode::Char('e') => DashboardAction::PendingEdit,
         KeyCode::Char('R') => DashboardAction::AdoptStart,
-        KeyCode::Char('J') => DashboardAction::SelectNext,
+        KeyCode::Char('J') | KeyCode::Down => DashboardAction::SelectNext,
         KeyCode::Char('j') if event.modifiers.contains(KeyModifiers::SHIFT) => {
             DashboardAction::SelectNext
         }
-        KeyCode::Down => DashboardAction::SelectNext,
-        KeyCode::Up => DashboardAction::SelectPrev,
+        KeyCode::Char('K') | KeyCode::Up => DashboardAction::SelectPrev,
+        KeyCode::Char('k') if event.modifiers.contains(KeyModifiers::SHIFT) => {
+            DashboardAction::SelectPrev
+        }
         KeyCode::Enter => DashboardAction::AttachSelected,
         KeyCode::Char(c) => match key_map.get(&c) {
             Some(agent_id) => DashboardAction::Attach(agent_id.clone()),

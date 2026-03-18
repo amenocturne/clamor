@@ -1,6 +1,6 @@
 use crate::agent::Agent;
 
-const KEY_POOL: &[char] = &['a', 's', 'd', 'f', 'j', 'k', 'l', 'g', 'h'];
+const KEY_POOL: &[char] = &['a', 's', 'd', 'f', 'l', 'g', 'h'];
 
 /// Find the next available key from the pool that isn't already assigned.
 pub fn next_available_key(agents: &[&Agent]) -> Option<char> {
