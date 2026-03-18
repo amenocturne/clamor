@@ -268,7 +268,7 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay) {
         ])),
         _ => Paragraph::new(Line::from(vec![
             Span::raw(" "),
-            Span::styled("[↑↓]", Style::default().fg(Color::Cyan)),
+            Span::styled("[J/K]", Style::default().fg(Color::Cyan)),
             Span::raw(" select  "),
             Span::styled("[⏎]", Style::default().fg(Color::Cyan)),
             Span::raw(" attach  "),
@@ -280,7 +280,7 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay) {
             Span::raw("dit  "),
             Span::styled("[R]", Style::default().fg(Color::Cyan)),
             Span::raw(" adopt  "),
-            Span::styled("[K", Style::default().fg(Color::Cyan)),
+            Span::styled("[X", Style::default().fg(Color::Cyan)),
             Span::raw("+"),
             Span::styled("key]", Style::default().fg(Color::Cyan)),
             Span::raw(" kill  "),
