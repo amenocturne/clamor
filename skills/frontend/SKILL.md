@@ -163,10 +163,32 @@ vnode = patch(vnode, view(model, dispatch))
 - CSS variables for everything themeable
 - No CSS frameworks (no Tailwind, no Bootstrap)
 
+## Effect TS
+
+Use Effect selectively based on project complexity — not as a default.
+
+**Decision tree:**
+1. Does the project have complex async orchestration, retries, streams, or service dependencies? → **Use full Effect runtime**
+2. Just need runtime validation / typed schemas? → **Use `Effect/Schema` standalone** (better zod, no runtime overhead)
+3. Simple Snabbdom + Elm Architecture UI? → **Skip Effect** — the architecture already enforces purity by structure
+
+**When using Effect:**
+- `Effect<A, E, R>` for typed errors + dependency injection (same mental model as ZIO)
+- Generators (`Effect.gen`) for readable async flows
+- Layers for DI — swap live services for test mocks
+- Schema for validation at system boundaries
+
+**When NOT using Effect:**
+- Pure UI rendering (view functions, CSS, layout)
+- Simple state transitions that Elm Architecture handles cleanly
+- Projects where bundle size matters and complexity doesn't justify the runtime
+
+Effect is a runtime, not a zero-cost abstraction. Convention enforces purity, not the compiler (unlike Elm). Don't adopt it just because it's functional — adopt it when the problem demands typed error channels and structured concurrency.
+
 ## Minimal Dependencies
 
 **Add packages for:**
-- Snabbdom, PixiJS, d3.js, crypto libraries
+- Snabbdom, PixiJS, d3.js, crypto libraries, Effect (when decision tree says yes)
 
 **Implement yourself:**
 - Small utilities (debounce, throttle), date formatting (use Intl), array helpers
