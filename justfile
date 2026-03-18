@@ -52,8 +52,6 @@ clamor-install:
     OLD_HASH=""
     [[ -f ~/.clamor/daemon.hash ]] && OLD_HASH=$(cat ~/.clamor/daemon.hash)
 
-    NEED_RESUME=false
-
     if [ -S ~/.clamor/clamor.sock ]; then
         if [[ "$NEW_HASH" != "$OLD_HASH" ]]; then
             echo "Clamor daemon code changed — restart required."
@@ -62,7 +60,6 @@ clamor-install:
             if [[ $rc -ne 0 && $rc -le 128 ]]; then
                 exit 0
             fi
-            NEED_RESUME=true
         else
             echo "Daemon running — no daemon code changes, hot-swapping binary."
         fi
@@ -74,12 +71,6 @@ clamor-install:
     cp "$CLAMOR_DIR/target/release/clamor" ~/.local/bin/clamor
     echo "$NEW_HASH" > ~/.clamor/daemon.hash
     echo "clamor installed to ~/.local/bin/clamor"
-
-    if [[ "$NEED_RESUME" == "true" ]]; then
-        echo ""
-        echo "Resuming sessions..."
-        clamor resume
-    fi
 
 # Build deny-read binary (debug)
 deny-read-build:
