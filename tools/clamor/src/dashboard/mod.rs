@@ -26,7 +26,7 @@ use crate::config::{resolve_path, ClamorConfig};
 use crate::daemon;
 use crate::pane::{self, PaneView};
 use crate::protocol::DaemonMessage;
-use crate::state::{with_state, ClamorState};
+use crate::state::{with_state, ClamorState, PromptHistoryEntry};
 use crate::watcher::StateSource;
 
 use input::{DashboardAction, InputMode, PromptEdit, PromptField};
@@ -50,6 +50,7 @@ fn apply_edit(s: &mut String, edit: &PromptEdit) {
             }
         }
         PromptEdit::DeleteLine => s.clear(),
+        PromptEdit::HistoryPrev | PromptEdit::HistoryNext => {}
     }
 }
 
@@ -160,6 +161,9 @@ async fn main_loop(
     let mut last_agent_id: Option<String> = None;
     let mut prompt_draft: Option<(String, String, String, String)> = None;
     let mut selected_index: Option<usize> = None;
+    let mut history_index: Option<usize> = None;
+    let mut history_stash: Option<(String, String)> = None;
+    let mut filter_query = String::new();
 
     let mut mode = if let Some(ref agent_id) = attach_to {
         let state = state_source.get();
@@ -264,6 +268,9 @@ async fn main_loop(
                                 state_source,
                                 &mut prompt_draft,
                                 &mut selected_index,
+                                &mut filter_query,
+                                &mut history_index,
+                                &mut history_stash,
                             ).await?
                         }
                         AppMode::Terminal { ref agent_id } => {
@@ -348,6 +355,7 @@ async fn main_loop(
                                 &sorted_folders,
                                 state_source,
                                 selected_index,
+                                &filter_query,
                             )?;
                         }
                         AppMode::Terminal { ref agent_id } => {
@@ -384,6 +392,7 @@ enum LoopAction {
     SwitchToDashboard,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_dashboard(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     config: &ClamorConfig,
@@ -392,6 +401,7 @@ fn render_dashboard(
     sorted_folders: &[(String, String)],
     state_source: &StateSource,
     selected_index: Option<usize>,
+    filter_query: &str,
 ) -> Result<()> {
     let state = state_source.get();
     let killed_ids: Vec<String> = killed_at.keys().cloned().collect();
@@ -399,7 +409,7 @@ fn render_dashboard(
     let agent_refs: HashMap<String, &Agent> =
         state.agents.iter().map(|(id, a)| (id.clone(), a)).collect();
 
-    let overlay = build_overlay(input_mode, sorted_folders, &state);
+    let overlay = build_overlay(input_mode, sorted_folders, &state, filter_query);
 
     terminal.draw(|frame| {
         render::render(
@@ -409,6 +419,7 @@ fn render_dashboard(
             &killed_ids,
             &overlay,
             selected_index,
+            filter_query,
         );
     })?;
 
@@ -419,9 +430,18 @@ fn build_overlay<'a>(
     input_mode: &'a InputMode,
     sorted_folders: &'a [(String, String)],
     state: &'a ClamorState,
+    filter_query: &'a str,
 ) -> render::Overlay<'a> {
     match input_mode {
-        InputMode::Normal => render::Overlay::None,
+        InputMode::Normal => {
+            if !filter_query.is_empty() {
+                render::Overlay::FilterActive {
+                    query: filter_query,
+                }
+            } else {
+                render::Overlay::None
+            }
+        }
         InputMode::WaitingKill => render::Overlay::PendingKill,
         InputMode::PickingFolder { .. } => render::Overlay::FolderPicker {
             folders: sorted_folders,
@@ -451,6 +471,7 @@ fn build_overlay<'a>(
         InputMode::ConfirmEmptySpawn { .. } => render::Overlay::ConfirmEmptySpawn,
         InputMode::WaitingEdit => render::Overlay::PendingEdit,
         InputMode::EditingDescription { input, .. } => render::Overlay::EditInput { input },
+        InputMode::Filtering { query } => render::Overlay::FilterInput { query },
     }
 }
 
@@ -490,6 +511,9 @@ async fn handle_dashboard_event(
     state_source: &StateSource,
     prompt_draft: &mut Option<(String, String, String, String)>,
     selected_index: &mut Option<usize>,
+    filter_query: &mut String,
+    history_index: &mut Option<usize>,
+    history_stash: &mut Option<(String, String)>,
 ) -> Result<LoopAction> {
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
     let pty_rows = term_rows.saturating_sub(1);
@@ -508,7 +532,7 @@ async fn handle_dashboard_event(
     let agent_refs: HashMap<String, &Agent> =
         state.agents.iter().map(|(id, a)| (id.clone(), a)).collect();
     {
-        let agent_ids = render::ordered_agent_ids(config, &agent_refs);
+        let agent_ids = render::ordered_agent_ids(config, &agent_refs, filter_query);
         if let Some(idx) = *selected_index {
             if agent_ids.is_empty() {
                 *selected_index = None;
@@ -529,10 +553,15 @@ async fn handle_dashboard_event(
             InputMode::EditingDescription { .. } => {
                 DashboardAction::EditInput(PromptEdit::Paste(text.clone()))
             }
+            InputMode::Filtering { .. } => {
+                DashboardAction::FilterInput(PromptEdit::Paste(text.clone()))
+            }
             _ => DashboardAction::Refresh,
         };
         match action {
             DashboardAction::PromptInput(edit) => {
+                *history_index = None;
+                *history_stash = None;
                 if let InputMode::TypingPrompt {
                     ref mut title,
                     ref mut description,
@@ -557,6 +586,13 @@ async fn handle_dashboard_event(
                     apply_edit(input, &edit);
                 }
             }
+            DashboardAction::FilterInput(edit) => {
+                if let InputMode::Filtering { ref mut query } = input_mode {
+                    apply_edit(query, &edit);
+                    *filter_query = query.clone();
+                    *selected_index = None;
+                }
+            }
             _ => {}
         }
         return Ok(LoopAction::Continue);
@@ -579,6 +615,16 @@ async fn handle_dashboard_event(
             }
         }
 
+        // Esc in Normal mode clears active filter
+        if matches!(input_mode, InputMode::Normal)
+            && key_event.code == KeyCode::Esc
+            && !filter_query.is_empty()
+        {
+            filter_query.clear();
+            *selected_index = None;
+            return Ok(LoopAction::Continue);
+        }
+
         match input::handle_input(*key_event, &key_map, input_mode) {
             DashboardAction::Quit => return Ok(LoopAction::Quit),
 
@@ -596,6 +642,8 @@ async fn handle_dashboard_event(
             }
 
             DashboardAction::SpawnInline => {
+                *history_index = None;
+                *history_stash = None;
                 if sorted_folders.len() == 1 {
                     let (name, path) = &sorted_folders[0];
                     if let Some((draft_folder_name, draft_folder_path, draft_title, draft_desc)) =
@@ -690,6 +738,8 @@ async fn handle_dashboard_event(
             }
 
             DashboardAction::FolderPicked(idx) => {
+                *history_index = None;
+                *history_stash = None;
                 let for_editor = matches!(
                     input_mode,
                     InputMode::PickingFolder {
@@ -800,11 +850,56 @@ async fn handle_dashboard_event(
                     ..
                 } = input_mode
                 {
-                    let target = match active_field {
-                        PromptField::Title => title,
-                        PromptField::Description => description,
-                    };
-                    apply_edit(target, &edit);
+                    match edit {
+                        PromptEdit::HistoryPrev => {
+                            let state = state_source.get();
+                            let history = &state.prompt_history;
+                            if !history.is_empty() {
+                                if history_index.is_none() {
+                                    *history_stash = Some((title.clone(), description.clone()));
+                                }
+                                let new_idx = match *history_index {
+                                    None => 0,
+                                    Some(i) => (i + 1).min(history.len() - 1),
+                                };
+                                *history_index = Some(new_idx);
+                                if let Some(entry) = history.get(new_idx) {
+                                    *title = entry.title.clone();
+                                    *description = entry.description.clone();
+                                }
+                            }
+                        }
+                        PromptEdit::HistoryNext => {
+                            if let Some(idx) = *history_index {
+                                if idx == 0 {
+                                    *history_index = None;
+                                    if let Some((stashed_title, stashed_desc)) =
+                                        history_stash.take()
+                                    {
+                                        *title = stashed_title;
+                                        *description = stashed_desc;
+                                    }
+                                } else {
+                                    let new_idx = idx - 1;
+                                    *history_index = Some(new_idx);
+                                    let state = state_source.get();
+                                    if let Some(entry) = state.prompt_history.get(new_idx) {
+                                        *title = entry.title.clone();
+                                        *description = entry.description.clone();
+                                    }
+                                }
+                            }
+                        }
+                        _ => {
+                            *history_index = None;
+                            *history_stash = None;
+                            let target = match active_field {
+                                PromptField::Title => title,
+                                PromptField::Description => description,
+                            };
+                            apply_edit(target, &edit);
+                        }
+                    }
                 }
             }
 
@@ -845,11 +940,24 @@ async fn handle_dashboard_event(
                             &ctx,
                         )
                         .await;
+                        if !title_trimmed.is_empty() {
+                            let entry = PromptHistoryEntry {
+                                title: title_trimmed,
+                                description: desc_trimmed,
+                            };
+                            let _ = with_state(|state| {
+                                state.prompt_history.retain(|e| e != &entry);
+                                state.prompt_history.insert(0, entry);
+                                state.prompt_history.truncate(50);
+                            });
+                        }
                         submitted = true;
                     }
                 }
                 if submitted {
                     *prompt_draft = None;
+                    *history_index = None;
+                    *history_stash = None;
                     *input_mode = InputMode::Normal;
                 }
             }
@@ -979,7 +1087,7 @@ async fn handle_dashboard_event(
             }
 
             DashboardAction::SelectNext => {
-                let agent_ids = render::ordered_agent_ids(config, &agent_refs);
+                let agent_ids = render::ordered_agent_ids(config, &agent_refs, filter_query);
                 if agent_ids.is_empty() {
                     *selected_index = None;
                 } else {
@@ -991,7 +1099,7 @@ async fn handle_dashboard_event(
             }
 
             DashboardAction::SelectPrev => {
-                let agent_ids = render::ordered_agent_ids(config, &agent_refs);
+                let agent_ids = render::ordered_agent_ids(config, &agent_refs, filter_query);
                 if agent_ids.is_empty() {
                     *selected_index = None;
                 } else {
@@ -1004,7 +1112,7 @@ async fn handle_dashboard_event(
 
             DashboardAction::AttachSelected => {
                 if let Some(idx) = *selected_index {
-                    let agent_ids = render::ordered_agent_ids(config, &agent_refs);
+                    let agent_ids = render::ordered_agent_ids(config, &agent_refs, filter_query);
                     if let Some(agent_id) = agent_ids.get(idx) {
                         if let Some(agent) = state.agents.get(agent_id) {
                             if agent.state == AgentState::Lost {
@@ -1019,8 +1127,49 @@ async fn handle_dashboard_event(
                 }
             }
 
+            DashboardAction::SelectFirst => {
+                let agent_ids = render::ordered_agent_ids(config, &agent_refs, filter_query);
+                if agent_ids.is_empty() {
+                    *selected_index = None;
+                } else {
+                    *selected_index = Some(0);
+                }
+            }
+
+            DashboardAction::SelectLast => {
+                let agent_ids = render::ordered_agent_ids(config, &agent_refs, filter_query);
+                if agent_ids.is_empty() {
+                    *selected_index = None;
+                } else {
+                    *selected_index = Some(agent_ids.len() - 1);
+                }
+            }
+
+            DashboardAction::StartFilter => {
+                *input_mode = InputMode::Filtering {
+                    query: filter_query.clone(),
+                };
+            }
+
+            DashboardAction::FilterInput(edit) => {
+                if let InputMode::Filtering { ref mut query } = input_mode {
+                    apply_edit(query, &edit);
+                    *filter_query = query.clone();
+                    *selected_index = None;
+                }
+            }
+
+            DashboardAction::FilterAccept => {
+                *input_mode = InputMode::Normal;
+            }
+
             DashboardAction::Cancel => {
-                if let InputMode::TypingPrompt {
+                *history_index = None;
+                *history_stash = None;
+                if let InputMode::Filtering { .. } = &*input_mode {
+                    filter_query.clear();
+                    *selected_index = None;
+                } else if let InputMode::TypingPrompt {
                     folder_name,
                     folder_path,
                     title,

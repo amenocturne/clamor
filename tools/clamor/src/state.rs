@@ -9,10 +9,18 @@ use serde::{Deserialize, Serialize};
 use crate::agent::Agent;
 use crate::config::ClamorConfig;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PromptHistoryEntry {
+    pub title: String,
+    pub description: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ClamorState {
     #[serde(default)]
     pub agents: HashMap<String, Agent>,
+    #[serde(default)]
+    pub prompt_history: Vec<PromptHistoryEntry>,
 }
 
 impl ClamorState {
