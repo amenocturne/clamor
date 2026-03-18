@@ -158,6 +158,8 @@ async fn main_loop(
     let kill_linger = Duration::from_secs(3);
     let mut pane_views: HashMap<String, PaneView> = HashMap::new();
     let mut last_agent_id: Option<String> = None;
+    let mut prompt_draft: Option<(String, String, String, String)> = None;
+    let mut selected_index: Option<usize> = None;
 
     let mut mode = if let Some(ref agent_id) = attach_to {
         let state = state_source.get();
@@ -254,11 +256,14 @@ async fn main_loop(
                                 &ev,
                                 terminal,
                                 client,
+                                config,
                                 &mut input_mode,
                                 &mut killed_at,
                                 &sorted_folders,
                                 &last_agent_id,
                                 state_source,
+                                &mut prompt_draft,
+                                &mut selected_index,
                             ).await?
                         }
                         AppMode::Terminal { ref agent_id } => {
@@ -342,6 +347,7 @@ async fn main_loop(
                                 &killed_at,
                                 &sorted_folders,
                                 state_source,
+                                selected_index,
                             )?;
                         }
                         AppMode::Terminal { ref agent_id } => {
@@ -385,6 +391,7 @@ fn render_dashboard(
     killed_at: &HashMap<String, Instant>,
     sorted_folders: &[(String, String)],
     state_source: &StateSource,
+    selected_index: Option<usize>,
 ) -> Result<()> {
     let state = state_source.get();
     let killed_ids: Vec<String> = killed_at.keys().cloned().collect();
@@ -395,7 +402,14 @@ fn render_dashboard(
     let overlay = build_overlay(input_mode, sorted_folders, &state);
 
     terminal.draw(|frame| {
-        render::render(frame, config, &agent_refs, &killed_ids, &overlay);
+        render::render(
+            frame,
+            config,
+            &agent_refs,
+            &killed_ids,
+            &overlay,
+            selected_index,
+        );
     })?;
 
     Ok(())
@@ -468,11 +482,14 @@ async fn handle_dashboard_event(
     ev: &Event,
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     client: &mut DaemonClient,
+    config: &ClamorConfig,
     input_mode: &mut InputMode,
     killed_at: &mut HashMap<String, Instant>,
     sorted_folders: &[(String, String)],
     last_agent_id: &Option<String>,
     state_source: &StateSource,
+    prompt_draft: &mut Option<(String, String, String, String)>,
+    selected_index: &mut Option<usize>,
 ) -> Result<LoopAction> {
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
     let pty_rows = term_rows.saturating_sub(1);
@@ -484,6 +501,20 @@ async fn handle_dashboard_event(
     for (id, agent) in &state.agents {
         if let Some(k) = agent.key {
             key_map.insert(k, id.clone());
+        }
+    }
+
+    // Build agent refs for ordered_agent_ids and clamp selection
+    let agent_refs: HashMap<String, &Agent> =
+        state.agents.iter().map(|(id, a)| (id.clone(), a)).collect();
+    {
+        let agent_ids = render::ordered_agent_ids(config, &agent_refs);
+        if let Some(idx) = *selected_index {
+            if agent_ids.is_empty() {
+                *selected_index = None;
+            } else if idx >= agent_ids.len() {
+                *selected_index = Some(agent_ids.len() - 1);
+            }
         }
     }
 
@@ -567,13 +598,35 @@ async fn handle_dashboard_event(
             DashboardAction::SpawnInline => {
                 if sorted_folders.len() == 1 {
                     let (name, path) = &sorted_folders[0];
-                    *input_mode = InputMode::TypingPrompt {
-                        folder_name: name.clone(),
-                        folder_path: path.clone(),
-                        title: String::new(),
-                        description: String::new(),
-                        active_field: PromptField::Title,
-                    };
+                    if let Some((draft_folder_name, draft_folder_path, draft_title, draft_desc)) =
+                        prompt_draft.take()
+                    {
+                        if draft_folder_path == *path {
+                            *input_mode = InputMode::TypingPrompt {
+                                folder_name: draft_folder_name,
+                                folder_path: draft_folder_path,
+                                title: draft_title,
+                                description: draft_desc,
+                                active_field: PromptField::Title,
+                            };
+                        } else {
+                            *input_mode = InputMode::TypingPrompt {
+                                folder_name: name.clone(),
+                                folder_path: path.clone(),
+                                title: String::new(),
+                                description: String::new(),
+                                active_field: PromptField::Title,
+                            };
+                        }
+                    } else {
+                        *input_mode = InputMode::TypingPrompt {
+                            folder_name: name.clone(),
+                            folder_path: path.clone(),
+                            title: String::new(),
+                            description: String::new(),
+                            active_field: PromptField::Title,
+                        };
+                    }
                 } else if sorted_folders.is_empty() {
                     *input_mode = InputMode::Normal;
                 } else {
@@ -688,6 +741,30 @@ async fn handle_dashboard_event(
                                 };
                             }
                         }
+                    } else if let Some((
+                        draft_folder_name,
+                        draft_folder_path,
+                        draft_title,
+                        draft_desc,
+                    )) = prompt_draft.take()
+                    {
+                        if draft_folder_path == *path {
+                            *input_mode = InputMode::TypingPrompt {
+                                folder_name: draft_folder_name,
+                                folder_path: draft_folder_path,
+                                title: draft_title,
+                                description: draft_desc,
+                                active_field: PromptField::Title,
+                            };
+                        } else {
+                            *input_mode = InputMode::TypingPrompt {
+                                folder_name: name.clone(),
+                                folder_path: path.clone(),
+                                title: String::new(),
+                                description: String::new(),
+                                active_field: PromptField::Title,
+                            };
+                        }
                     } else {
                         *input_mode = InputMode::TypingPrompt {
                             folder_name: name.clone(),
@@ -772,6 +849,7 @@ async fn handle_dashboard_event(
                     }
                 }
                 if submitted {
+                    *prompt_draft = None;
                     *input_mode = InputMode::Normal;
                 }
             }
@@ -900,7 +978,65 @@ async fn handle_dashboard_event(
                 *input_mode = InputMode::Normal;
             }
 
+            DashboardAction::SelectNext => {
+                let agent_ids = render::ordered_agent_ids(config, &agent_refs);
+                if agent_ids.is_empty() {
+                    *selected_index = None;
+                } else {
+                    *selected_index = Some(match *selected_index {
+                        None => 0,
+                        Some(i) => (i + 1).min(agent_ids.len() - 1),
+                    });
+                }
+            }
+
+            DashboardAction::SelectPrev => {
+                let agent_ids = render::ordered_agent_ids(config, &agent_refs);
+                if agent_ids.is_empty() {
+                    *selected_index = None;
+                } else {
+                    *selected_index = Some(match *selected_index {
+                        None => agent_ids.len() - 1,
+                        Some(i) => i.saturating_sub(1),
+                    });
+                }
+            }
+
+            DashboardAction::AttachSelected => {
+                if let Some(idx) = *selected_index {
+                    let agent_ids = render::ordered_agent_ids(config, &agent_refs);
+                    if let Some(agent_id) = agent_ids.get(idx) {
+                        if let Some(agent) = state.agents.get(agent_id) {
+                            if agent.state == AgentState::Lost {
+                                *input_mode = InputMode::StaleAgent {
+                                    agent_id: agent_id.clone(),
+                                };
+                            } else {
+                                return Ok(LoopAction::SwitchToTerminal(agent_id.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+
             DashboardAction::Cancel => {
+                if let InputMode::TypingPrompt {
+                    folder_name,
+                    folder_path,
+                    title,
+                    description,
+                    ..
+                } = &*input_mode
+                {
+                    if !title.is_empty() || !description.is_empty() {
+                        *prompt_draft = Some((
+                            folder_name.clone(),
+                            folder_path.clone(),
+                            title.clone(),
+                            description.clone(),
+                        ));
+                    }
+                }
                 *input_mode = InputMode::Normal;
             }
 
@@ -1032,9 +1168,15 @@ async fn handle_terminal_event(
                                 }
 
                                 if !pv.alternate_screen() {
-                                    if mouse_event.row <= pane_area.y + 1 {
+                                    let scroll_zone = 3u16;
+                                    if mouse_event.row < pane_area.y.saturating_add(scroll_zone) {
+                                        let distance = pane_area
+                                            .y
+                                            .saturating_add(scroll_zone)
+                                            .saturating_sub(mouse_event.row);
+                                        let speed = (distance as usize).clamp(1, 5);
                                         let old = pv.scroll_offset;
-                                        pv.scroll_up(1);
+                                        pv.scroll_up(speed);
                                         let delta = (pv.scroll_offset - old) as u16;
                                         if delta > 0 {
                                             if let Some(ref mut sel) = pv.selection {
@@ -1046,10 +1188,17 @@ async fn handle_terminal_event(
                                             }
                                         }
                                     } else if mouse_event.row
-                                        >= pane_area.y + pane_area.height.saturating_sub(2)
+                                        >= pane_area.y.saturating_add(
+                                            pane_area.height.saturating_sub(scroll_zone),
+                                        )
                                     {
+                                        let edge_start = pane_area.y.saturating_add(
+                                            pane_area.height.saturating_sub(scroll_zone),
+                                        );
+                                        let distance = mouse_event.row.saturating_sub(edge_start);
+                                        let speed = (distance as usize + 1).clamp(1, 5);
                                         let old = pv.scroll_offset;
-                                        pv.scroll_down(1);
+                                        pv.scroll_down(speed);
                                         let delta = (old - pv.scroll_offset) as u16;
                                         if delta > 0 {
                                             if let Some(ref mut sel) = pv.selection {
