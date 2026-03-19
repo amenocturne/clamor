@@ -47,12 +47,31 @@ mod tests {
     }
 
     #[test]
-    fn no_key_pool_conflicts_with_reserved_keys() {
-        use super::super::input::RESERVED_KEYS;
-        for key in KEY_POOL {
+    fn no_key_pool_conflicts_with_dashboard_bindings() {
+        use super::super::input::{handle_input, DashboardAction, InputMode};
+        use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+
+        // Build a key_map where every KEY_POOL char maps to a sentinel agent ID.
+        let mut key_map: std::collections::HashMap<char, String> = std::collections::HashMap::new();
+        for &k in KEY_POOL {
+            key_map.insert(k, format!("agent-{k}"));
+        }
+
+        let mode = InputMode::Normal;
+
+        for &k in KEY_POOL {
+            let event = KeyEvent {
+                code: KeyCode::Char(k),
+                modifiers: KeyModifiers::NONE,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            };
+            let action = handle_input(event, &key_map, &mode);
             assert!(
-                !RESERVED_KEYS.contains(key),
-                "KEY_POOL contains '{key}' which is reserved by a dashboard keybinding"
+                matches!(action, DashboardAction::Attach(_)),
+                "KEY_POOL char '{k}' is intercepted by a dashboard keybinding \
+                 instead of reaching the Attach catch-all. \
+                 Remove '{k}' from KEY_POOL or change the keybinding."
             );
         }
     }
