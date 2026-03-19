@@ -396,7 +396,7 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay, batch_count: 
                 Span::raw(" select  "),
                 Span::styled("[v]", Style::default().fg(Color::Cyan)),
                 Span::raw(" mark  "),
-                Span::styled("[X]", Style::default().fg(Color::Cyan)),
+                Span::styled("[x]", Style::default().fg(Color::Cyan)),
                 Span::raw(" kill  "),
                 Span::styled("[c]", Style::default().fg(Color::Cyan)),
                 Span::raw("reate  "),
@@ -1034,7 +1034,7 @@ fn render_help_popup(frame: &mut Frame, area: Rect) {
             Span::raw(" + key        edit description"),
         ]),
         Line::from(vec![
-            Span::styled(" X", Style::default().fg(Color::Cyan)),
+            Span::styled(" x", Style::default().fg(Color::Cyan)),
             Span::raw(" + key        kill (batch if selected)"),
         ]),
         Line::from(vec![

@@ -142,10 +142,7 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
             DashboardAction::SpawnEditor
         }
         KeyCode::Char('c') => DashboardAction::SpawnInline,
-        KeyCode::Char('X') => DashboardAction::PendingKill,
-        KeyCode::Char('x') if event.modifiers.contains(KeyModifiers::SHIFT) => {
-            DashboardAction::PendingKill
-        }
+        KeyCode::Char('x') => DashboardAction::PendingKill,
         KeyCode::Char('e') => DashboardAction::PendingEdit,
         KeyCode::Char('R') => DashboardAction::AdoptStart,
         KeyCode::Char('J') | KeyCode::Down => DashboardAction::SelectNext,
