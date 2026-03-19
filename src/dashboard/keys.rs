@@ -1,6 +1,6 @@
 use crate::agent::Agent;
 
-const KEY_POOL: &[char] = &['a', 's', 'd', 'f', 'l', 'g', 'h'];
+const KEY_POOL: &[char] = &['a', 's', 'd', 'f', 'l'];
 
 /// Find the next available key from the pool that isn't already assigned.
 pub fn next_available_key(agents: &[&Agent]) -> Option<char> {
@@ -44,6 +44,17 @@ mod tests {
         let a2 = make_agent(Some('s'));
         let agents: Vec<&Agent> = vec![&a1, &a2];
         assert_eq!(next_available_key(&agents), Some('d'));
+    }
+
+    #[test]
+    fn no_key_pool_conflicts_with_reserved_keys() {
+        use super::super::input::RESERVED_KEYS;
+        for key in KEY_POOL {
+            assert!(
+                !RESERVED_KEYS.contains(key),
+                "KEY_POOL contains '{key}' which is reserved by a dashboard keybinding"
+            );
+        }
     }
 
     #[test]
