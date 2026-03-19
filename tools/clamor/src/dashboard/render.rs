@@ -556,7 +556,7 @@ fn render_body(
 }
 
 fn highlight_line(line: Line<'static>) -> Line<'static> {
-    let bg = Style::default().bg(Color::Rgb(30, 30, 30));
+    let bg = Style::default().bg(Color::Rgb(50, 48, 58));
     let mut spans = vec![Span::styled("▎", Style::default().fg(Color::Cyan))];
     for span in line.spans {
         spans.push(span.patch_style(bg));
@@ -565,7 +565,7 @@ fn highlight_line(line: Line<'static>) -> Line<'static> {
 }
 
 fn mark_selected(line: Line<'static>) -> Line<'static> {
-    let bg = Style::default().bg(Color::Rgb(30, 30, 30));
+    let bg = Style::default().bg(Color::Rgb(50, 48, 58));
     Line::from(
         line.spans
             .into_iter()
