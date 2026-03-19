@@ -20,13 +20,17 @@ Clamor fixes this without replacing your workflow. It's *not* a new terminal, *n
 
 **Persistent sessions** — Agents live in a background daemon, not your terminal. Close the dashboard, reopen it — everything's still running. Terminal crash? SSH disconnect? Doesn't matter.
 
-**Jump keys** — Each agent gets a home-row key (`a`/`s`/`d`/`f`/`j`/`k`/`l`/`g`/`h`). One keypress to attach, `Ctrl+F` to detach. Switching between agents is instant.
+**Jump keys** — Each agent gets a home-row key (`a`/`s`/`d`/`f`/`j`/`k`/`l`/`h`, overflow to `1`–`0`). One keypress to attach, `Ctrl+F` to detach. Switching between agents is instant.
 
 **Live state tracking** — The dashboard shows each agent's actual state (working/waiting/done). Spot stalled agents immediately.
 
 **Color-coded title bar** — When attached, a title bar shows the project name and a distinct color so you always know where you are. No squinting at tab names.
 
-**Session adoption** — Already have Claude Code sessions from before? Spawn a new agent with just a title, then `/resume` into the session you want.
+**Auto-resume** — The daemon automatically resumes agent sessions on restart. Terminal crash, SSH disconnect, daemon restart — agents pick up where they left off.
+
+**Session adoption** — Already have Claude Code sessions from before? Press `R` in the dashboard to adopt an existing session into Clamor.
+
+**Batch operations** — Select multiple agents with `v`, select all with `V`, then act on the selection. Filter agents by name with `/`.
 
 **Non-blocking hooks** — State tracking uses non-blocking file locks. Clamor never slows down your Claude Code sessions.
 
@@ -106,15 +110,23 @@ clamor stop             Stop the daemon
 
 ### Dashboard keys
 
-| Key       | Action                        |
-| --------- | ----------------------------- |
-| `a`–`h`   | Jump to agent                 |
-| `c`       | Create agent (inline prompt)  |
-| `C`       | Create agent ($EDITOR prompt) |
-| `K` + key | Kill agent                    |
-| `e` + key | Edit agent description        |
-| `x`       | Clean finished agents         |
-| `q`       | Quit dashboard                |
+| Key            | Action                           |
+| -------------- | -------------------------------- |
+| `a`–`h`, `1`–`0` | Jump to agent                 |
+| `J` / `K`      | Navigate agent list (vim-style)  |
+| `g` / `G`      | Jump to first / last agent       |
+| `Enter`        | Attach to selected agent         |
+| `c`            | Create agent (inline prompt)     |
+| `C`            | Create agent ($EDITOR prompt)    |
+| `x` + key      | Kill agent (with confirmation)   |
+| `e` + key      | Edit agent description           |
+| `v`            | Toggle select agent              |
+| `V`            | Select / deselect all            |
+| `/`            | Filter agents by name            |
+| `R`            | Adopt existing Claude session    |
+| `?`            | Help popup                       |
+| `Esc`          | Clear selection                  |
+| `q`            | Quit dashboard                   |
 
 ### Terminal keys
 
