@@ -92,6 +92,10 @@ pub const COPY_MODE_SHORTCUTS: &[Shortcut] = &[
         description: "toggle selection",
     },
     Shortcut {
+        keys: "V",
+        description: "toggle line selection",
+    },
+    Shortcut {
         keys: "y",
         description: "yank to clipboard + exit",
     },

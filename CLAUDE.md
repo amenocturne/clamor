@@ -68,7 +68,8 @@ Current protocol messages include `Hello { version }` for version exchange betwe
 ### Copy mode
 
 - `h`/`j`/`k`/`l` or arrows — move cursor
-- `v` — toggle selection
+- `v` — toggle selection (character-wise)
+- `V` — toggle selection (line-wise)
 - `y` — yank selection to clipboard + exit
 - `0`/`$` — start/end of line
 - `Ctrl+U`/`Ctrl+D` — half page up/down
