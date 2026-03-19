@@ -82,6 +82,10 @@ async fn main() -> Result<()> {
         Some(Command::Config) => {
             spawn::open_config()?;
         }
+        Some(Command::DefaultTheme) => {
+            let theme = config::ThemeConfig::default();
+            println!("{}", serde_json::to_string_pretty(&theme)?);
+        }
         Some(Command::Hook) => {
             hook::run();
         }
