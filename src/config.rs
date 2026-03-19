@@ -34,26 +34,76 @@ pub struct DashboardConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThemeConfig {
-    /// Background color for cursor-selected and batch-selected agent rows.
-    /// Accepts hex "#32303a" or RGB array [50, 48, 58].
-    #[serde(default = "default_highlight_color")]
-    pub highlight_color: RgbColor,
+    /// Background for selected rows. Tune to be slightly lighter than your terminal bg.
+    #[serde(default = "defaults::highlight")]
+    pub highlight: RgbColor,
+    /// Accent color: keybinding hints, borders, selection marker.
+    #[serde(default = "defaults::accent")]
+    pub accent: RgbColor,
+    /// Status: working agents.
+    #[serde(default = "defaults::status_working")]
+    pub status_working: RgbColor,
+    /// Status: agents waiting for input.
+    #[serde(default = "defaults::status_input")]
+    pub status_input: RgbColor,
+    /// Status: finished agents.
+    #[serde(default = "defaults::status_done")]
+    pub status_done: RgbColor,
+    /// Secondary text: durations, metadata.
+    #[serde(default = "defaults::dimmed")]
+    pub dimmed: RgbColor,
+    /// Batch selection marker color.
+    #[serde(default = "defaults::batch_marker")]
+    pub batch_marker: RgbColor,
+}
+
+impl RgbColor {
+    pub fn to_ratatui(self) -> ratatui::style::Color {
+        ratatui::style::Color::Rgb(self.0[0], self.0[1], self.0[2])
+    }
+}
+
+mod defaults {
+    use super::RgbColor;
+    pub fn highlight() -> RgbColor {
+        RgbColor([50, 48, 58])
+    }
+    pub fn accent() -> RgbColor {
+        RgbColor([0, 255, 255])
+    } // cyan
+    pub fn status_working() -> RgbColor {
+        RgbColor([0, 255, 0])
+    } // green
+    pub fn status_input() -> RgbColor {
+        RgbColor([255, 255, 0])
+    } // yellow
+    pub fn status_done() -> RgbColor {
+        RgbColor([128, 128, 128])
+    } // gray
+    pub fn dimmed() -> RgbColor {
+        RgbColor([128, 128, 128])
+    } // gray
+    pub fn batch_marker() -> RgbColor {
+        RgbColor([255, 255, 0])
+    } // yellow
 }
 
 impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
-            highlight_color: default_highlight_color(),
+            highlight: defaults::highlight(),
+            accent: defaults::accent(),
+            status_working: defaults::status_working(),
+            status_input: defaults::status_input(),
+            status_done: defaults::status_done(),
+            dimmed: defaults::dimmed(),
+            batch_marker: defaults::batch_marker(),
         }
     }
 }
 
 fn default_refresh_interval() -> f64 {
     1.0
-}
-
-fn default_highlight_color() -> RgbColor {
-    RgbColor([50, 48, 58])
 }
 
 /// RGB color that deserializes from either "#rrggbb" or [r, g, b].
