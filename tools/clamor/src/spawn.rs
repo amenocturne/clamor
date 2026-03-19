@@ -194,7 +194,7 @@ pub async fn adopt_session(
         folder: folder_name,
         cwd: cwd_str.clone(),
         initial_prompt: Some(format!("--resume {session_id}")),
-        state: AgentState::Working,
+        state: AgentState::Input,
         started_at: now,
         last_activity_at: now,
         last_tool: None,
