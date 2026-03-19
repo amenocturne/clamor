@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::path::PathBuf;
 
 use anyhow::Context;
-use serde::{Deserialize, Serialize};
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ClamorConfig {
@@ -27,17 +29,73 @@ pub struct DashboardConfig {
     #[serde(default)]
     pub watch_mode: WatchMode,
     /// Background color for cursor-selected and batch-selected agent rows.
-    /// RGB array like [50, 48, 58]. Tune to match your terminal background.
+    /// Accepts hex "#32303a" or RGB array [50, 48, 58].
     #[serde(default = "default_highlight_color")]
-    pub highlight_color: [u8; 3],
+    pub highlight_color: RgbColor,
 }
 
 fn default_refresh_interval() -> f64 {
     1.0
 }
 
-fn default_highlight_color() -> [u8; 3] {
-    [50, 48, 58]
+fn default_highlight_color() -> RgbColor {
+    RgbColor([50, 48, 58])
+}
+
+/// RGB color that deserializes from either "#rrggbb" or [r, g, b].
+#[derive(Debug, Clone, Copy)]
+pub struct RgbColor(pub [u8; 3]);
+
+impl Serialize for RgbColor {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format!(
+            "#{:02x}{:02x}{:02x}",
+            self.0[0], self.0[1], self.0[2]
+        ))
+    }
+}
+
+impl<'de> Deserialize<'de> for RgbColor {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ColorVisitor;
+
+        impl<'de> Visitor<'de> for ColorVisitor {
+            type Value = RgbColor;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "hex color \"#rrggbb\" or RGB array [r, g, b]")
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<RgbColor, E> {
+                let hex = v.strip_prefix('#').unwrap_or(v);
+                if hex.len() != 6 {
+                    return Err(E::custom(format!(
+                        "expected 6 hex digits, got {}",
+                        hex.len()
+                    )));
+                }
+                let r = u8::from_str_radix(&hex[0..2], 16).map_err(E::custom)?;
+                let g = u8::from_str_radix(&hex[2..4], 16).map_err(E::custom)?;
+                let b = u8::from_str_radix(&hex[4..6], 16).map_err(E::custom)?;
+                Ok(RgbColor([r, g, b]))
+            }
+
+            fn visit_seq<A: de::SeqAccess<'de>>(self, mut seq: A) -> Result<RgbColor, A::Error> {
+                let r = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &"3"))?;
+                let g = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &"3"))?;
+                let b = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(2, &"3"))?;
+                Ok(RgbColor([r, g, b]))
+            }
+        }
+
+        deserializer.deserialize_any(ColorVisitor)
+    }
 }
 
 impl Default for DashboardConfig {

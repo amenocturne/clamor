@@ -175,7 +175,7 @@ pub fn render(
         selected_index,
         filter_query,
         selected_agents,
-        config.dashboard.highlight_color,
+        config.dashboard.highlight_color.0,
     );
     render_footer(frame, chunks[3], overlay, batch_count);
 
