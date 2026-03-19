@@ -10,6 +10,7 @@ use ratatui::Frame;
 
 use crate::agent::{Agent, AgentState};
 use crate::config::{ClamorConfig, ThemeConfig};
+use crate::dashboard::shortcuts::{self, Shortcut};
 use crate::pane::{self, Selection};
 
 use super::input::PromptField;
@@ -1024,9 +1025,53 @@ fn render_edit_popup(frame: &mut Frame, area: Rect, input: &str) {
     frame.render_widget(prompt, inner);
 }
 
+/// Build help lines from a shortcut slice with a section header.
+fn shortcut_lines<'a>(title: &'a str, items: &'a [Shortcut], key_width: usize) -> Vec<Line<'a>> {
+    let mut lines = vec![
+        Line::from(Span::styled(
+            format!(" {title}"),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            format!(" {}", "\u{2500}".repeat(key_width + 20)),
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+    for s in items {
+        let padding = " ".repeat(key_width.saturating_sub(s.keys.len()));
+        lines.push(Line::from(vec![
+            Span::styled(format!(" {}", s.keys), Style::default().fg(Color::Cyan)),
+            Span::raw(format!("{padding}  {}", s.description)),
+        ]));
+    }
+    lines
+}
+
 fn render_help_popup(frame: &mut Frame, area: Rect) {
-    let width = 40u16;
-    let height = 19u16;
+    let sections: &[(&str, &[Shortcut])] = &[
+        ("Dashboard", shortcuts::DASHBOARD_SHORTCUTS),
+        ("Terminal", shortcuts::TERMINAL_SHORTCUTS),
+        ("Copy Mode", shortcuts::COPY_MODE_SHORTCUTS),
+    ];
+
+    // Find the widest key column across all sections
+    let key_width = sections
+        .iter()
+        .flat_map(|(_, items)| items.iter())
+        .map(|s| s.keys.len())
+        .max()
+        .unwrap_or(10);
+
+    let mut lines: Vec<Line> = Vec::new();
+    for (i, (title, items)) in sections.iter().enumerate() {
+        if i > 0 {
+            lines.push(Line::raw(""));
+        }
+        lines.extend(shortcut_lines(title, items, key_width));
+    }
+
+    let width = (key_width + 26).min(area.width as usize) as u16;
+    let height = (lines.len() as u16 + 2).min(area.height); // +2 for border
     let popup = popup_area(area, width, height);
     frame.render_widget(Clear, popup);
 
@@ -1037,70 +1082,6 @@ fn render_help_popup(frame: &mut Frame, area: Rect) {
 
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
-
-    let lines = vec![
-        Line::from(Span::styled(
-            " Keybindings",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(
-            " \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
-            Style::default().fg(Color::DarkGray),
-        )),
-        Line::from(vec![
-            Span::styled(" J / K / \u{2191}\u{2193}", Style::default().fg(Color::Cyan)),
-            Span::raw("    navigate"),
-        ]),
-        Line::from(vec![
-            Span::styled(" Enter", Style::default().fg(Color::Cyan)),
-            Span::raw("          attach"),
-        ]),
-        Line::from(vec![
-            Span::styled(" gg / G", Style::default().fg(Color::Cyan)),
-            Span::raw("         first / last"),
-        ]),
-        Line::from(vec![
-            Span::styled(" v", Style::default().fg(Color::Cyan)),
-            Span::raw("              toggle select"),
-        ]),
-        Line::from(vec![
-            Span::styled(" V", Style::default().fg(Color::Cyan)),
-            Span::raw("              select all / none"),
-        ]),
-        Line::from(vec![
-            Span::styled(" /", Style::default().fg(Color::Cyan)),
-            Span::raw("              filter"),
-        ]),
-        Line::from(vec![
-            Span::styled(" c", Style::default().fg(Color::Cyan)),
-            Span::raw("              create"),
-        ]),
-        Line::from(vec![
-            Span::styled(" C", Style::default().fg(Color::Cyan)),
-            Span::raw("              create ($EDITOR)"),
-        ]),
-        Line::from(vec![
-            Span::styled(" e", Style::default().fg(Color::Cyan)),
-            Span::raw(" + key        edit description"),
-        ]),
-        Line::from(vec![
-            Span::styled(" x", Style::default().fg(Color::Cyan)),
-            Span::raw(" + key        kill (batch if selected)"),
-        ]),
-        Line::from(vec![
-            Span::styled(" R", Style::default().fg(Color::Cyan)),
-            Span::raw("              adopt session"),
-        ]),
-        Line::from(vec![
-            Span::styled(" Esc", Style::default().fg(Color::Cyan)),
-            Span::raw("            clear selection"),
-        ]),
-        Line::from(vec![
-            Span::styled(" q", Style::default().fg(Color::Cyan)),
-            Span::raw("              quit"),
-        ]),
-    ];
-
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
