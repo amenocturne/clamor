@@ -65,6 +65,9 @@ pub enum Command {
     /// Open config in $EDITOR
     Config,
 
+    /// Print default theme as JSON
+    DefaultTheme,
+
     /// Internal: called by Claude Code hooks (reads stdin JSON)
     Hook,
 
