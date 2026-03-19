@@ -380,7 +380,7 @@ pub fn clean_agents() -> anyhow::Result<()> {
         let done_ids: Vec<String> = state
             .agents
             .iter()
-            .filter(|(_, a)| a.state == AgentState::Done || a.state == AgentState::Lost)
+            .filter(|(_, a)| a.state == AgentState::Done)
             .map(|(id, _)| id.clone())
             .collect();
 
@@ -427,7 +427,6 @@ pub fn list_agents() -> anyhow::Result<()> {
             AgentState::Working => "work",
             AgentState::Input => "input",
             AgentState::Done => "done",
-            AgentState::Lost => "lost",
         };
         let desc = truncate(&agent.title, desc_w);
         let time = format_duration(agent.started_at);

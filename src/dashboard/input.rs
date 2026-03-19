@@ -53,13 +53,20 @@ pub enum PromptEdit {
     HistoryNext,
 }
 
+/// Why the folder picker is being shown.
+pub enum FolderPickReason {
+    SpawnInline,
+    SpawnEditor,
+    Adopt,
+}
+
 /// Dashboard input mode.
 pub enum InputMode {
     Normal,
     WaitingKill,
     PickingFolder {
         folder_count: usize,
-        for_editor: bool,
+        reason: FolderPickReason,
     },
     TypingPrompt {
         folder_name: String,
@@ -70,6 +77,8 @@ pub enum InputMode {
     },
     TypingAdopt {
         input: String,
+        folder_name: String,
+        folder_path: String,
     },
     ConfirmEmptySpawn {
         folder_name: String,
