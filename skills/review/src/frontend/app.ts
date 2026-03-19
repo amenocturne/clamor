@@ -7,9 +7,10 @@ import {
 	styleModule,
 } from "snabbdom";
 import type { VNode } from "snabbdom";
-import type { Model, Msg, ReviewSubmission } from "../types.ts";
+import type { CommentSnapshot, Model, Msg, ReviewSubmission } from "../types.ts";
 import { initialModel } from "./model.ts";
 import { update } from "./update.ts";
+import { getDraftText, resetDraftKey } from "./view/comment.ts";
 import { rootView } from "./view/root.ts";
 
 const patch = init([classModule, propsModule, styleModule, eventListenersModule, attributesModule]);
@@ -17,7 +18,49 @@ const patch = init([classModule, propsModule, styleModule, eventListenersModule,
 let model: Model = initialModel;
 let vnode: VNode | Element = document.getElementById("app")!;
 
+// --- Undo/Redo for comment operations ---
+
+const MAX_UNDO = 50;
+const undoStack: CommentSnapshot[] = [];
+let redoStack: CommentSnapshot[] = [];
+
+const UNDOABLE_MSGS = new Set(["saveComment", "deleteComment", "editComment", "cancelComment"]);
+
+const captureSnapshot = (): CommentSnapshot => ({
+	comments: model.comments,
+	commentDraft: model.commentDraft ? { ...model.commentDraft, initialText: getDraftText() } : null,
+});
+
+const restoreSnapshot = (snapshot: CommentSnapshot): void => {
+	model = {
+		...model,
+		comments: snapshot.comments,
+		commentDraft: snapshot.commentDraft,
+	};
+	resetDraftKey();
+};
+
+const performUndo = (): void => {
+	if (undoStack.length === 0) return;
+	redoStack.push(captureSnapshot());
+	restoreSnapshot(undoStack.pop()!);
+	render();
+};
+
+const performRedo = (): void => {
+	if (redoStack.length === 0) return;
+	undoStack.push(captureSnapshot());
+	restoreSnapshot(redoStack.pop()!);
+	render();
+};
+
 const dispatch = (msg: Msg): void => {
+	if (UNDOABLE_MSGS.has(msg.type)) {
+		undoStack.push(captureSnapshot());
+		if (undoStack.length > MAX_UNDO) undoStack.shift();
+		redoStack = [];
+	}
+
 	const prev = model;
 	model = update(model, msg);
 
@@ -148,6 +191,20 @@ document.addEventListener("keydown", (e) => {
 
 	// Shortcuts below only fire when not focused in a text input
 	if (isInput) return;
+
+	// Cmd+Z / Ctrl+Z: Undo comment action
+	if (e.key === "z" && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+		e.preventDefault();
+		performUndo();
+		return;
+	}
+
+	// Cmd+Shift+Z / Ctrl+Shift+Z: Redo comment action
+	if (e.key === "z" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+		e.preventDefault();
+		performRedo();
+		return;
+	}
 
 	// j/k: Next/previous file
 	if (e.key === "j") {

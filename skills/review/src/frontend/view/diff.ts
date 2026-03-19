@@ -78,7 +78,7 @@ const startAutoScroll = (
 				const row = el.closest("tr[data-line]") as HTMLElement | null;
 				if (row && row.dataset.file === activeDragFile) {
 					const num = Number.parseInt(row.dataset.line!, 10);
-					if (!isNaN(num)) {
+					if (!Number.isNaN(num)) {
 						dispatch({ type: "updateDrag", endLine: num });
 					}
 				}

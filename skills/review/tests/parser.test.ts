@@ -35,7 +35,7 @@ index abc1234..def5678 100644
 			type: "context",
 			oldNum: 1,
 			newNum: 1,
-			content: "import { run } from \"./app\";",
+			content: 'import { run } from "./app";',
 		});
 		// empty context line
 		expect(hunk.lines[1]).toEqual({

@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { formatReview } from "../src/formatter.ts";
 import type { Commit, ReviewSubmission } from "../src/types.ts";
 
@@ -15,13 +15,13 @@ describe("formatReview", () => {
 	beforeEach(() => {
 		originalDate = globalThis.Date;
 		// Replace Date so new Date() returns fixed time, but preserve other Date functionality
-		const FixedDate = function (...args: unknown[]) {
+		const FixedDate = ((...args: unknown[]) => {
 			if (args.length === 0) {
 				return new originalDate(FIXED_DATE);
 			}
 			// @ts-ignore
 			return new originalDate(...args);
-		} as unknown as DateConstructor;
+		}) as unknown as DateConstructor;
 		FixedDate.prototype = originalDate.prototype;
 		FixedDate.now = () => FIXED_DATE.getTime();
 		FixedDate.parse = originalDate.parse;

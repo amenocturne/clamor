@@ -100,6 +100,11 @@ export type DragSelection = {
 	readonly selectedText?: string;
 };
 
+export type CommentSnapshot = {
+	readonly comments: readonly StoredComment[];
+	readonly commentDraft: CommentDraft | null;
+};
+
 export type Model = {
 	readonly data: ApiData | null;
 	readonly activeView: string; // "combined" | commit hash

@@ -9,6 +9,12 @@ let draftText = "";
 // Reset ephemeral state when a new draft opens
 let lastDraftKey: string | null = null;
 
+// Expose ephemeral state for undo/redo
+export const getDraftText = (): string => draftText;
+export const resetDraftKey = (): void => {
+	lastDraftKey = null;
+};
+
 // Track which element had focus before the comment box opened, for focus restoration
 let previousFocusElement: HTMLElement | null = null;
 
@@ -33,7 +39,7 @@ const draftKey = (model: Model): string | null => {
 
 const extractCode = (model: Model): string => {
 	if (!model.commentDraft || !model.data) return "";
-	const diffData = model.data.diffs[model.activeView] ?? model.data.diffs["combined"];
+	const diffData = model.data.diffs[model.activeView] ?? model.data.diffs.combined;
 	if (!diffData) return "";
 	const file = diffData.files.find((f) => f.path === model.commentDraft!.file);
 	if (!file) return "";
