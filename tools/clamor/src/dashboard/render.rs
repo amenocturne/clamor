@@ -175,6 +175,7 @@ pub fn render(
         selected_index,
         filter_query,
         selected_agents,
+        config.dashboard.highlight_color,
     );
     render_footer(frame, chunks[3], overlay, batch_count);
 
@@ -492,6 +493,7 @@ fn render_body(
     selected_index: Option<usize>,
     filter_query: &str,
     selected_agents: &HashSet<String>,
+    highlight_color: [u8; 3],
 ) {
     if groups.is_empty() && !filter_query.is_empty() {
         let msg = Paragraph::new(Line::from(Span::styled(
@@ -524,10 +526,10 @@ fn render_body(
             let batch_selected = selected_agents.contains(&da.agent.id);
             let mut line = render_agent_line(da, width, batch_selected);
             if selected_index == Some(agent_idx) {
-                line = highlight_line(line);
+                line = highlight_line(line, highlight_color);
                 selected_line = Some(lines.len());
             } else if batch_selected {
-                line = mark_selected(line);
+                line = mark_selected(line, highlight_color);
             }
             lines.push(line);
             agent_idx += 1;
@@ -555,8 +557,8 @@ fn render_body(
     frame.render_widget(body, area);
 }
 
-fn highlight_line(line: Line<'static>) -> Line<'static> {
-    let bg = Style::default().bg(Color::Rgb(50, 48, 58));
+fn highlight_line(line: Line<'static>, color: [u8; 3]) -> Line<'static> {
+    let bg = Style::default().bg(Color::Rgb(color[0], color[1], color[2]));
     let mut spans = vec![Span::styled("▎", Style::default().fg(Color::Cyan))];
     for span in line.spans {
         spans.push(span.patch_style(bg));
@@ -564,8 +566,8 @@ fn highlight_line(line: Line<'static>) -> Line<'static> {
     Line::from(spans)
 }
 
-fn mark_selected(line: Line<'static>) -> Line<'static> {
-    let bg = Style::default().bg(Color::Rgb(50, 48, 58));
+fn mark_selected(line: Line<'static>, color: [u8; 3]) -> Line<'static> {
+    let bg = Style::default().bg(Color::Rgb(color[0], color[1], color[2]));
     Line::from(
         line.spans
             .into_iter()
