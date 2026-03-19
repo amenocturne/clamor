@@ -37,6 +37,7 @@ pub struct CopyMode {
     pub cursor_col: u16,
     pub cursor_row: u16,            // screen-relative (0 = top of visible area)
     pub anchor: Option<(u16, u16)>, // selection anchor, set on `v`
+    pub line_select: bool,          // true = line-wise selection (V mode)
     pub pending_g: bool,            // true after first `g`, waiting for second `g`
 }
 
@@ -168,6 +169,7 @@ impl PaneView {
             cursor_col: 0,
             cursor_row: visible_rows.saturating_sub(1),
             anchor: None,
+            line_select: false,
             pending_g: false,
         });
         // Freeze at current position if not already scrolled
@@ -216,21 +218,50 @@ impl PaneView {
         self.update_copy_selection();
     }
 
-    /// Toggle selection anchor at current cursor position.
-    pub fn copy_toggle_selection(&mut self) {
+    /// Toggle character-wise selection anchor at current cursor position.
+    pub fn copy_toggle_selection(&mut self, visible_cols: u16) {
         let cm = match self.copy_mode.as_mut() {
             Some(cm) => cm,
             None => return,
         };
 
-        if cm.anchor.is_some() {
+        if cm.anchor.is_some() && !cm.line_select {
+            // Already in char select — toggle off
             cm.anchor = None;
+            cm.line_select = false;
             self.selection = None;
         } else {
+            // Enter char select (or switch from line select)
+            cm.line_select = false;
             cm.anchor = Some((cm.cursor_col, cm.cursor_row));
             self.selection = Some(Selection {
                 start: (cm.cursor_col, cm.cursor_row),
                 end: (cm.cursor_col, cm.cursor_row),
+                active: true,
+            });
+        }
+        let _ = visible_cols;
+    }
+
+    /// Toggle line-wise selection (V mode). Selects full lines.
+    pub fn copy_toggle_line_selection(&mut self, visible_cols: u16) {
+        let cm = match self.copy_mode.as_mut() {
+            Some(cm) => cm,
+            None => return,
+        };
+
+        if cm.anchor.is_some() && cm.line_select {
+            // Already in line select — toggle off
+            cm.anchor = None;
+            cm.line_select = false;
+            self.selection = None;
+        } else {
+            // Enter line select (or switch from char select)
+            cm.line_select = true;
+            cm.anchor = Some((0, cm.cursor_row));
+            self.selection = Some(Selection {
+                start: (0, cm.cursor_row),
+                end: (visible_cols.saturating_sub(1), cm.cursor_row),
                 active: true,
             });
         }
@@ -319,11 +350,25 @@ impl PaneView {
             None => return,
         };
         if let Some(anchor) = cm.anchor {
-            self.selection = Some(Selection {
-                start: anchor,
-                end: (cm.cursor_col, cm.cursor_row),
-                active: true,
-            });
+            if cm.line_select {
+                // Line-wise: always span full width, anchor col is 0
+                let (start_row, end_row) = if anchor.1 <= cm.cursor_row {
+                    (anchor.1, cm.cursor_row)
+                } else {
+                    (cm.cursor_row, anchor.1)
+                };
+                self.selection = Some(Selection {
+                    start: (0, start_row),
+                    end: (u16::MAX, end_row), // u16::MAX = full width, clamped at render
+                    active: true,
+                });
+            } else {
+                self.selection = Some(Selection {
+                    start: anchor,
+                    end: (cm.cursor_col, cm.cursor_row),
+                    active: true,
+                });
+            }
         }
     }
 }

@@ -1383,7 +1383,8 @@ fn handle_copy_mode_key(
         KeyCode::Char('G') => pv.copy_jump_edge(false, visible_rows),
 
         // Toggle selection
-        KeyCode::Char('v') => pv.copy_toggle_selection(),
+        KeyCode::Char('v') => pv.copy_toggle_selection(visible_cols),
+        KeyCode::Char('V') => pv.copy_toggle_line_selection(visible_cols),
 
         // Yank
         KeyCode::Char('y') => {

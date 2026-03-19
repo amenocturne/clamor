@@ -254,9 +254,9 @@ pub fn render_terminal(
                 } else {
                     100
                 };
-                format!("COPY  {}%  v:select  y:yank  q:exit", pct)
+                format!("COPY  {}%  v/V:select  y:yank  q:exit", pct)
             }
-            None => "COPY  v:select  y:yank  q:exit".to_string(),
+            None => "COPY  v/V:select  y:yank  q:exit".to_string(),
         }
     } else {
         match scroll_info {
