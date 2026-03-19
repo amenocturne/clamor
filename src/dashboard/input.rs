@@ -34,8 +34,11 @@ pub enum DashboardAction {
     SelectFirst,
     SelectLast,
     AttachSelected,
+    ToggleSelect,
+    ToggleSelectAll,
     ClearSelection,
     ShowHelp,
+    ShowQuitHint,
     ConfirmYes,
     Cancel,
     Quit,
@@ -84,6 +87,12 @@ pub enum InputMode {
         folder_name: String,
         folder_path: String,
     },
+    ConfirmKill {
+        agent_id: String,
+        title: String,
+    },
+    ConfirmBatchKill,
+    QuitHint,
     WaitingEdit,
     EditingDescription {
         agent_id: String,
@@ -102,7 +111,10 @@ pub fn handle_input(
     mode: &InputMode,
 ) -> DashboardAction {
     if event.modifiers.contains(KeyModifiers::CONTROL) && matches!(event.code, KeyCode::Char('c')) {
-        return DashboardAction::Quit;
+        return match mode {
+            InputMode::Normal => DashboardAction::ShowQuitHint,
+            _ => DashboardAction::Cancel,
+        };
     }
 
     match mode {
@@ -114,6 +126,9 @@ pub fn handle_input(
         InputMode::TypingPrompt { .. } => handle_prompt_input(event),
         InputMode::TypingAdopt { .. } => handle_adopt_input(event),
         InputMode::ConfirmEmptySpawn { .. } => handle_confirm_input(event),
+        InputMode::ConfirmKill { .. } => handle_confirm_kill_input(event),
+        InputMode::ConfirmBatchKill => handle_confirm_batch_kill(event),
+        InputMode::QuitHint => handle_quit_hint(event),
         InputMode::Filtering { .. } => handle_filter_input(event),
         InputMode::Help => handle_help_input(event),
     }
@@ -145,6 +160,8 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
         KeyCode::Char('G') => DashboardAction::SelectLast,
         KeyCode::Enter => DashboardAction::AttachSelected,
         KeyCode::Char('/') => DashboardAction::StartFilter,
+        KeyCode::Char('v') => DashboardAction::ToggleSelect,
+        KeyCode::Char('V') => DashboardAction::ToggleSelectAll,
         KeyCode::Char('?') => DashboardAction::ShowHelp,
         KeyCode::Char(c) => match key_map.get(&c) {
             Some(agent_id) => DashboardAction::Attach(agent_id.clone()),
@@ -239,6 +256,29 @@ fn handle_confirm_input(event: KeyEvent) -> DashboardAction {
         KeyCode::Char('y') => DashboardAction::ConfirmYes,
         KeyCode::Char('n') | KeyCode::Esc => DashboardAction::Cancel,
         _ => DashboardAction::Refresh,
+    }
+}
+
+fn handle_confirm_kill_input(event: KeyEvent) -> DashboardAction {
+    match event.code {
+        KeyCode::Enter => DashboardAction::ConfirmYes,
+        KeyCode::Esc | KeyCode::Char('n') => DashboardAction::Cancel,
+        _ => DashboardAction::Refresh,
+    }
+}
+
+fn handle_confirm_batch_kill(event: KeyEvent) -> DashboardAction {
+    match event.code {
+        KeyCode::Enter => DashboardAction::ConfirmYes,
+        KeyCode::Esc => DashboardAction::Cancel,
+        _ => DashboardAction::Refresh,
+    }
+}
+
+fn handle_quit_hint(event: KeyEvent) -> DashboardAction {
+    match event.code {
+        KeyCode::Char('q') => DashboardAction::Quit,
+        _ => DashboardAction::Cancel,
     }
 }
 
