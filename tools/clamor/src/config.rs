@@ -12,6 +12,8 @@ pub struct ClamorConfig {
     pub folders: HashMap<String, String>,
     #[serde(default)]
     pub dashboard: DashboardConfig,
+    #[serde(default)]
+    pub theme: ThemeConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -28,10 +30,22 @@ pub struct DashboardConfig {
     pub refresh_interval: f64,
     #[serde(default)]
     pub watch_mode: WatchMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeConfig {
     /// Background color for cursor-selected and batch-selected agent rows.
     /// Accepts hex "#32303a" or RGB array [50, 48, 58].
     #[serde(default = "default_highlight_color")]
     pub highlight_color: RgbColor,
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        Self {
+            highlight_color: default_highlight_color(),
+        }
+    }
 }
 
 fn default_refresh_interval() -> f64 {
@@ -103,7 +117,6 @@ impl Default for DashboardConfig {
         Self {
             refresh_interval: default_refresh_interval(),
             watch_mode: WatchMode::default(),
-            highlight_color: default_highlight_color(),
         }
     }
 }
