@@ -39,6 +39,7 @@ hooks:
   - graph-colors
   - clamor
   - deny-read
+  - smart-approve
   - tts
 pipelines: []
 external: []

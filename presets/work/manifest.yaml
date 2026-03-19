@@ -29,6 +29,7 @@ hooks:
   - link-proxy
   - workflow-check
   - deny-read
+  - smart-approve
   - tts
 pipelines: []
 external: []
