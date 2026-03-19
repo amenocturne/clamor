@@ -526,6 +526,8 @@ fn render_body(
             if selected_index == Some(agent_idx) {
                 line = highlight_line(line);
                 selected_line = Some(lines.len());
+            } else if batch_selected {
+                line = mark_selected(line);
             }
             lines.push(line);
             agent_idx += 1;
@@ -554,12 +556,22 @@ fn render_body(
 }
 
 fn highlight_line(line: Line<'static>) -> Line<'static> {
-    let bg = Style::default().bg(Color::Rgb(40, 40, 40));
+    let bg = Style::default().bg(Color::Rgb(20, 25, 35));
     let mut spans = vec![Span::styled("▎", Style::default().fg(Color::Cyan))];
     for span in line.spans {
         spans.push(span.patch_style(bg));
     }
     Line::from(spans)
+}
+
+fn mark_selected(line: Line<'static>) -> Line<'static> {
+    let bg = Style::default().bg(Color::Rgb(25, 23, 15));
+    Line::from(
+        line.spans
+            .into_iter()
+            .map(|span| span.patch_style(bg))
+            .collect::<Vec<_>>(),
+    )
 }
 
 fn render_agent_line(da: &DisplayAgent, width: usize, batch_selected: bool) -> Line<'static> {
