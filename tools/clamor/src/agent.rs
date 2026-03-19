@@ -7,7 +7,6 @@ pub enum AgentState {
     Working,
     Input,
     Done,
-    Lost,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

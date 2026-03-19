@@ -29,7 +29,7 @@ use crate::protocol::DaemonMessage;
 use crate::state::{with_state, ClamorState, PromptHistoryEntry};
 use crate::watcher::StateSource;
 
-use input::{DashboardAction, InputMode, PromptEdit, PromptField};
+use input::{DashboardAction, FolderPickReason, InputMode, PromptEdit, PromptField};
 
 fn apply_edit(s: &mut String, edit: &PromptEdit) {
     match edit {
@@ -183,13 +183,7 @@ async fn main_loop(
 
     let mut mode = if let Some(ref agent_id) = attach_to {
         let state = state_source.get();
-        let is_lost = state
-            .agents
-            .get(agent_id)
-            .is_none_or(|a| a.state == AgentState::Lost);
-
-        if is_lost {
-            // Agent was not auto-resumed or doesn't exist — stay on dashboard
+        if !state.agents.contains_key(agent_id) {
             AppMode::Dashboard
         } else {
             let (term_cols, term_rows) = crossterm::terminal::size()?;
@@ -471,7 +465,7 @@ fn build_overlay<'a>(
             description,
             active_field,
         },
-        InputMode::TypingAdopt { input } => render::Overlay::AdoptInput { input },
+        InputMode::TypingAdopt { input, .. } => render::Overlay::AdoptInput { input },
         InputMode::ConfirmEmptySpawn { .. } => render::Overlay::ConfirmEmptySpawn,
         InputMode::WaitingEdit => render::Overlay::PendingEdit,
         InputMode::EditingDescription { input, .. } => render::Overlay::EditInput { input },
@@ -589,7 +583,7 @@ async fn handle_dashboard_event(
                 }
             }
             DashboardAction::AdoptInput(edit) => {
-                if let InputMode::TypingAdopt { ref mut input } = input_mode {
+                if let InputMode::TypingAdopt { ref mut input, .. } = input_mode {
                     apply_edit(input, &edit);
                 }
             }
@@ -602,7 +596,7 @@ async fn handle_dashboard_event(
                 if let InputMode::Filtering { ref mut query } = input_mode {
                     apply_edit(query, &edit);
                     *filter_query = query.clone();
-                    *selected_index = None;
+                    *selected_index = Some(0);
                 }
             }
             _ => {}
@@ -642,11 +636,8 @@ async fn handle_dashboard_event(
 
             DashboardAction::Attach(ref agent_id) => {
                 *input_mode = InputMode::Normal;
-                if let Some(agent) = state.agents.get(agent_id) {
-                    if agent.state != AgentState::Lost {
-                        return Ok(LoopAction::SwitchToTerminal(agent_id.clone()));
-                    }
-                    // Lost agent — wasn't auto-resumed (no session_id), ignore
+                if state.agents.contains_key(agent_id) {
+                    return Ok(LoopAction::SwitchToTerminal(agent_id.clone()));
                 }
             }
 
@@ -658,7 +649,7 @@ async fn handle_dashboard_event(
                     if let Some((draft_folder_name, draft_folder_path, draft_title, draft_desc)) =
                         prompt_draft.take()
                     {
-                        if draft_folder_path == *path {
+                        if draft_folder_name == *name {
                             *input_mode = InputMode::TypingPrompt {
                                 folder_name: draft_folder_name,
                                 folder_path: draft_folder_path,
@@ -689,7 +680,7 @@ async fn handle_dashboard_event(
                 } else {
                     *input_mode = InputMode::PickingFolder {
                         folder_count: sorted_folders.len(),
-                        for_editor: false,
+                        reason: FolderPickReason::SpawnInline,
                     };
                 }
             }
@@ -741,7 +732,7 @@ async fn handle_dashboard_event(
                 } else {
                     *input_mode = InputMode::PickingFolder {
                         folder_count: sorted_folders.len(),
-                        for_editor: true,
+                        reason: FolderPickReason::SpawnEditor,
                     };
                 }
             }
@@ -749,89 +740,105 @@ async fn handle_dashboard_event(
             DashboardAction::FolderPicked(idx) => {
                 *history_index = None;
                 *history_stash = None;
-                let for_editor = matches!(
-                    input_mode,
-                    InputMode::PickingFolder {
-                        for_editor: true,
-                        ..
-                    }
-                );
+                let reason = match input_mode {
+                    InputMode::PickingFolder { reason, .. } => match reason {
+                        FolderPickReason::SpawnInline => FolderPickReason::SpawnInline,
+                        FolderPickReason::SpawnEditor => FolderPickReason::SpawnEditor,
+                        FolderPickReason::Adopt => FolderPickReason::Adopt,
+                    },
+                    _ => FolderPickReason::SpawnInline,
+                };
                 if let Some((name, path)) = sorted_folders.get(idx) {
-                    if for_editor {
-                        let folder_name_owned = name.clone();
-                        let folder_path_owned = path.clone();
-                        let mut editor_result: Option<(String, String)> = None;
-                        tokio::task::block_in_place(|| {
-                            suspend_tui(terminal, || match crate::spawn::read_task_from_editor() {
-                                Ok(result) => editor_result = Some(result),
-                                Err(e) => {
-                                    eprintln!("Error: {e}");
-                                    std::thread::sleep(Duration::from_secs(1));
-                                }
-                            })
-                        })?;
-                        *client = DaemonClient::connect().await?;
-                        match editor_result {
-                            Some((title, prompt)) => {
-                                let state = state_source.get();
-                                let ctx = SpawnContext {
-                                    current_state: &state,
-                                    state_source,
-                                    pty_rows,
-                                    pty_cols,
-                                };
-                                let _ = spawn_inline(
-                                    client,
-                                    &SpawnParams {
-                                        folder_name: &folder_name_owned,
-                                        folder_path: &folder_path_owned,
-                                        title: &title,
-                                        prompt: Some(&prompt),
+                    match reason {
+                        FolderPickReason::SpawnEditor => {
+                            let folder_name_owned = name.clone();
+                            let folder_path_owned = path.clone();
+                            let mut editor_result: Option<(String, String)> = None;
+                            tokio::task::block_in_place(|| {
+                                suspend_tui(
+                                    terminal,
+                                    || match crate::spawn::read_task_from_editor() {
+                                        Ok(result) => editor_result = Some(result),
+                                        Err(e) => {
+                                            eprintln!("Error: {e}");
+                                            std::thread::sleep(Duration::from_secs(1));
+                                        }
                                     },
-                                    &ctx,
                                 )
-                                .await;
-                                *input_mode = InputMode::Normal;
+                            })?;
+                            *client = DaemonClient::connect().await?;
+                            match editor_result {
+                                Some((title, prompt)) => {
+                                    let state = state_source.get();
+                                    let ctx = SpawnContext {
+                                        current_state: &state,
+                                        state_source,
+                                        pty_rows,
+                                        pty_cols,
+                                    };
+                                    let _ = spawn_inline(
+                                        client,
+                                        &SpawnParams {
+                                            folder_name: &folder_name_owned,
+                                            folder_path: &folder_path_owned,
+                                            title: &title,
+                                            prompt: Some(&prompt),
+                                        },
+                                        &ctx,
+                                    )
+                                    .await;
+                                    *input_mode = InputMode::Normal;
+                                }
+                                None => {
+                                    *input_mode = InputMode::ConfirmEmptySpawn {
+                                        folder_name: folder_name_owned,
+                                        folder_path: folder_path_owned,
+                                    };
+                                }
                             }
-                            None => {
-                                *input_mode = InputMode::ConfirmEmptySpawn {
-                                    folder_name: folder_name_owned,
-                                    folder_path: folder_path_owned,
+                        }
+                        FolderPickReason::SpawnInline => {
+                            if let Some((
+                                draft_folder_name,
+                                draft_folder_path,
+                                draft_title,
+                                draft_desc,
+                            )) = prompt_draft.take()
+                            {
+                                if draft_folder_name == *name {
+                                    *input_mode = InputMode::TypingPrompt {
+                                        folder_name: draft_folder_name,
+                                        folder_path: draft_folder_path,
+                                        title: draft_title,
+                                        description: draft_desc,
+                                        active_field: PromptField::Title,
+                                    };
+                                } else {
+                                    *input_mode = InputMode::TypingPrompt {
+                                        folder_name: name.clone(),
+                                        folder_path: path.clone(),
+                                        title: String::new(),
+                                        description: String::new(),
+                                        active_field: PromptField::Title,
+                                    };
+                                }
+                            } else {
+                                *input_mode = InputMode::TypingPrompt {
+                                    folder_name: name.clone(),
+                                    folder_path: path.clone(),
+                                    title: String::new(),
+                                    description: String::new(),
+                                    active_field: PromptField::Title,
                                 };
                             }
                         }
-                    } else if let Some((
-                        draft_folder_name,
-                        draft_folder_path,
-                        draft_title,
-                        draft_desc,
-                    )) = prompt_draft.take()
-                    {
-                        if draft_folder_path == *path {
-                            *input_mode = InputMode::TypingPrompt {
-                                folder_name: draft_folder_name,
-                                folder_path: draft_folder_path,
-                                title: draft_title,
-                                description: draft_desc,
-                                active_field: PromptField::Title,
-                            };
-                        } else {
-                            *input_mode = InputMode::TypingPrompt {
+                        FolderPickReason::Adopt => {
+                            *input_mode = InputMode::TypingAdopt {
+                                input: String::new(),
                                 folder_name: name.clone(),
                                 folder_path: path.clone(),
-                                title: String::new(),
-                                description: String::new(),
-                                active_field: PromptField::Title,
                             };
                         }
-                    } else {
-                        *input_mode = InputMode::TypingPrompt {
-                            folder_name: name.clone(),
-                            folder_path: path.clone(),
-                            title: String::new(),
-                            description: String::new(),
-                            active_field: PromptField::Title,
-                        };
                     }
                 } else {
                     *input_mode = InputMode::Normal;
@@ -1021,6 +1028,7 @@ async fn handle_dashboard_event(
             }
 
             DashboardAction::EditSubmitted => {
+                let mut submitted = false;
                 if let InputMode::EditingDescription { agent_id, input } = input_mode {
                     let new_title = input.trim().to_string();
                     if !new_title.is_empty() {
@@ -1031,9 +1039,12 @@ async fn handle_dashboard_event(
                             }
                         });
                         state_source.invalidate();
+                        submitted = true;
                     }
                 }
-                *input_mode = InputMode::Normal;
+                if submitted {
+                    *input_mode = InputMode::Normal;
+                }
             }
 
             DashboardAction::PendingKill => {
@@ -1047,22 +1058,38 @@ async fn handle_dashboard_event(
             }
 
             DashboardAction::AdoptStart => {
-                *input_mode = InputMode::TypingAdopt {
-                    input: String::new(),
-                };
+                if sorted_folders.len() == 1 {
+                    let (name, path) = &sorted_folders[0];
+                    *input_mode = InputMode::TypingAdopt {
+                        input: String::new(),
+                        folder_name: name.clone(),
+                        folder_path: path.clone(),
+                    };
+                } else if sorted_folders.is_empty() {
+                    *input_mode = InputMode::Normal;
+                } else {
+                    *input_mode = InputMode::PickingFolder {
+                        folder_count: sorted_folders.len(),
+                        reason: FolderPickReason::Adopt,
+                    };
+                }
             }
 
             DashboardAction::AdoptInput(edit) => {
-                if let InputMode::TypingAdopt { ref mut input } = input_mode {
+                if let InputMode::TypingAdopt { ref mut input, .. } = input_mode {
                     apply_edit(input, &edit);
                 }
             }
 
             DashboardAction::AdoptSubmitted => {
-                if let InputMode::TypingAdopt { input } = input_mode {
+                if let InputMode::TypingAdopt {
+                    input,
+                    folder_name,
+                    folder_path,
+                } = input_mode
+                {
                     let session_id = input.trim().to_string();
-                    if !session_id.is_empty() && !sorted_folders.is_empty() {
-                        let (folder_name, folder_path) = &sorted_folders[0];
+                    if !session_id.is_empty() {
                         let ctx = SpawnContext {
                             current_state: &state,
                             state_source,
@@ -1104,11 +1131,8 @@ async fn handle_dashboard_event(
                 if let Some(idx) = *selected_index {
                     let agent_ids = render::ordered_agent_ids(config, &agent_refs, filter_query);
                     if let Some(agent_id) = agent_ids.get(idx) {
-                        if let Some(agent) = state.agents.get(agent_id) {
-                            if agent.state != AgentState::Lost {
-                                return Ok(LoopAction::SwitchToTerminal(agent_id.clone()));
-                            }
-                            // Lost agent — wasn't auto-resumed (no session_id), ignore
+                        if state.agents.contains_key(agent_id) {
+                            return Ok(LoopAction::SwitchToTerminal(agent_id.clone()));
                         }
                     }
                 }
@@ -1142,11 +1166,12 @@ async fn handle_dashboard_event(
                 if let InputMode::Filtering { ref mut query } = input_mode {
                     apply_edit(query, &edit);
                     *filter_query = query.clone();
-                    *selected_index = None;
+                    *selected_index = Some(0);
                 }
             }
 
             DashboardAction::FilterAccept => {
+                *selected_index = Some(0);
                 *input_mode = InputMode::Normal;
             }
 

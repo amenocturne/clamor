@@ -142,9 +142,9 @@ pub fn render(
     ])
     .split(area);
 
-    render_header(frame, chunks[0], total, needs_input);
+    render_header(frame, chunks[0], total, needs_input, filter_query);
     render_separator(frame, chunks[1]);
-    render_body(frame, chunks[2], &groups, selected_index);
+    render_body(frame, chunks[2], &groups, selected_index, filter_query);
     render_footer(frame, chunks[3], overlay);
 
     // Render overlay popups on top
@@ -198,7 +198,6 @@ pub fn render_terminal(
         AgentState::Working => "working",
         AgentState::Input => "input",
         AgentState::Done => "done",
-        AgentState::Lost => "lost",
     };
     let duration = format_duration(agent.started_at);
     let hint_text = match scroll_info {
@@ -236,7 +235,13 @@ pub fn render_terminal(
     }
 }
 
-fn render_header(frame: &mut Frame, area: Rect, total: usize, needs_input: usize) {
+fn render_header(
+    frame: &mut Frame,
+    area: Rect,
+    total: usize,
+    needs_input: usize,
+    filter_query: &str,
+) {
     let mut spans = vec![
         Span::styled(
             "CLAMOR",
@@ -259,6 +264,16 @@ fn render_header(frame: &mut Frame, area: Rect, total: usize, needs_input: usize
     };
 
     spans.push(Span::styled(stats, Style::default().fg(Color::DarkGray)));
+
+    if !filter_query.is_empty() {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(
+            format!("filter: {filter_query}"),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::ITALIC),
+        ));
+    }
 
     let header = Paragraph::new(Line::from(spans));
     frame.render_widget(header, area);
@@ -419,7 +434,19 @@ fn render_body(
     area: Rect,
     groups: &[AgentGroup],
     selected_index: Option<usize>,
+    filter_query: &str,
 ) {
+    if groups.is_empty() && !filter_query.is_empty() {
+        let msg = Paragraph::new(Line::from(Span::styled(
+            "  No agents match filter",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )));
+        frame.render_widget(msg, area);
+        return;
+    }
+
     let mut lines: Vec<Line> = Vec::new();
     let width = area.width as usize;
     let mut agent_idx = 0usize;
@@ -498,12 +525,6 @@ fn render_agent_line(da: &DisplayAgent, width: usize) -> Line<'static> {
             ),
             AgentState::Working => ("work ", Style::default().fg(Color::Green)),
             AgentState::Done => ("done ", Style::default().fg(Color::DarkGray)),
-            AgentState::Lost => (
-                "lost ",
-                Style::default()
-                    .fg(Color::DarkGray)
-                    .add_modifier(Modifier::DIM),
-            ),
         }
     };
 
@@ -536,7 +557,7 @@ fn render_agent_line(da: &DisplayAgent, width: usize) -> Line<'static> {
         .fg(Color::Cyan)
         .add_modifier(Modifier::BOLD);
 
-    let dimmed = da.killed || da.agent.state == AgentState::Lost;
+    let dimmed = da.killed;
 
     // Use agent color for description text (unless dimmed)
     let desc_style = if dimmed {
