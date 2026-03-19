@@ -32,6 +32,14 @@ pub struct Selection {
     pub active: bool,      // true while mouse button is held
 }
 
+/// Keyboard-driven copy mode state (tmux-style).
+pub struct CopyMode {
+    pub cursor_col: u16,
+    pub cursor_row: u16,            // screen-relative (0 = top of visible area)
+    pub anchor: Option<(u16, u16)>, // selection anchor, set on `v`
+    pub pending_g: bool,            // true after first `g`, waiting for second `g`
+}
+
 /// Client-side view of a single PTY pane.
 ///
 /// Does NOT own a PTY -- the daemon does. This struct maintains a vt100 parser
@@ -44,6 +52,7 @@ pub struct PaneView {
     pub parser: vt100::Parser,
     pub scroll_offset: usize,
     pub selection: Option<Selection>,
+    pub copy_mode: Option<CopyMode>,
     pending_output: Vec<u8>,
 }
 
@@ -53,6 +62,7 @@ impl PaneView {
             parser: vt100::Parser::new(rows, cols, 10000),
             scroll_offset: 0,
             selection: None,
+            copy_mode: None,
             pending_output: Vec::new(),
         }
     }
@@ -63,7 +73,7 @@ impl PaneView {
     /// so the display stays completely stable. Buffered data is flushed when
     /// returning to live view via `snap_to_bottom()`.
     pub fn process_output(&mut self, data: &[u8]) {
-        if self.scroll_offset > 0 {
+        if self.scroll_offset > 0 || self.copy_mode.is_some() {
             self.pending_output.extend_from_slice(data);
         } else {
             self.parser.process(data);
@@ -113,9 +123,19 @@ impl PaneView {
 
     /// Scroll up by `n` lines, clamped to actual scrollback size.
     pub fn scroll_up(&mut self, n: usize) {
+        let before = self.scroll_offset;
         self.scroll_offset = self.scroll_offset.saturating_add(n);
         let max = self.scrollback_len();
         self.scroll_offset = self.scroll_offset.min(max);
+        let actual_delta = (self.scroll_offset - before) as u16;
+        // Shift copy mode anchor down to compensate for scroll
+        if actual_delta > 0 {
+            if let Some(ref mut cm) = self.copy_mode {
+                if let Some(ref mut anchor) = cm.anchor {
+                    anchor.1 = anchor.1.saturating_add(actual_delta);
+                }
+            }
+        }
     }
 
     /// Scroll down by `n` lines (toward live view).
@@ -131,10 +151,179 @@ impl PaneView {
     /// Snap back to live view — flush any pending output through the parser.
     pub fn snap_to_bottom(&mut self) {
         self.scroll_offset = 0;
+        self.copy_mode = None;
         self.clear_selection();
         if !self.pending_output.is_empty() {
             let data = std::mem::take(&mut self.pending_output);
             self.parser.process(&data);
+        }
+    }
+
+    /// Enter copy mode. Cursor starts at bottom-center of visible area.
+    pub fn enter_copy_mode(&mut self, visible_rows: u16, visible_cols: u16) {
+        if self.copy_mode.is_some() {
+            return;
+        }
+        self.copy_mode = Some(CopyMode {
+            cursor_col: 0,
+            cursor_row: visible_rows.saturating_sub(1),
+            anchor: None,
+            pending_g: false,
+        });
+        // Freeze at current position if not already scrolled
+        if self.scroll_offset == 0 {
+            self.scroll_offset = 1;
+            // Immediately clamp to actual scrollback
+            let max = self.scrollback_len();
+            self.scroll_offset = self.scroll_offset.min(max).max(1);
+        }
+        let _ = visible_cols; // used for future word nav
+    }
+
+    /// Exit copy mode — flush pending output and return to live view.
+    pub fn exit_copy_mode(&mut self) {
+        self.copy_mode = None;
+        self.snap_to_bottom();
+    }
+
+    /// Move the copy mode cursor, scrolling when hitting screen edges.
+    pub fn copy_move(&mut self, dx: i32, dy: i32, visible_rows: u16, visible_cols: u16) {
+        if self.copy_mode.is_none() {
+            return;
+        }
+
+        // Horizontal movement
+        {
+            let cm = self.copy_mode.as_mut().unwrap();
+            let new_col = cm.cursor_col as i32 + dx;
+            cm.cursor_col = new_col.clamp(0, visible_cols.saturating_sub(1) as i32) as u16;
+        }
+
+        // Vertical movement — may need to scroll, which borrows self
+        let new_row = self.copy_mode.as_ref().unwrap().cursor_row as i32 + dy;
+        if new_row < 0 {
+            let scroll_amount = (-new_row) as usize;
+            self.scroll_up(scroll_amount);
+            self.copy_mode.as_mut().unwrap().cursor_row = 0;
+        } else if new_row >= visible_rows as i32 {
+            let scroll_amount = (new_row - visible_rows as i32 + 1) as usize;
+            self.scroll_down_no_flush(scroll_amount);
+            self.copy_mode.as_mut().unwrap().cursor_row = visible_rows.saturating_sub(1);
+        } else {
+            self.copy_mode.as_mut().unwrap().cursor_row = new_row as u16;
+        }
+
+        self.update_copy_selection();
+    }
+
+    /// Toggle selection anchor at current cursor position.
+    pub fn copy_toggle_selection(&mut self) {
+        let cm = match self.copy_mode.as_mut() {
+            Some(cm) => cm,
+            None => return,
+        };
+
+        if cm.anchor.is_some() {
+            cm.anchor = None;
+            self.selection = None;
+        } else {
+            cm.anchor = Some((cm.cursor_col, cm.cursor_row));
+            self.selection = Some(Selection {
+                start: (cm.cursor_col, cm.cursor_row),
+                end: (cm.cursor_col, cm.cursor_row),
+                active: true,
+            });
+        }
+    }
+
+    /// Yank the current selection to clipboard. Returns true if text was copied.
+    pub fn copy_yank(&mut self, visible_cols: u16) -> bool {
+        let sel = match self.selection.clone() {
+            Some(s) => s,
+            None => return false,
+        };
+        let screen = self.scrolled_screen();
+        let text = extract_selected_text(screen, &sel, visible_cols);
+        if !text.is_empty() {
+            copy_to_clipboard(&text);
+            return true;
+        }
+        false
+    }
+
+    /// Jump cursor to start/end of line.
+    pub fn copy_line_jump(&mut self, to_end: bool, visible_cols: u16) {
+        if let Some(cm) = self.copy_mode.as_mut() {
+            cm.cursor_col = if to_end {
+                visible_cols.saturating_sub(1)
+            } else {
+                0
+            };
+            self.update_copy_selection();
+        }
+    }
+
+    /// Page up/down in copy mode (half screen).
+    pub fn copy_page(&mut self, up: bool, visible_rows: u16) {
+        let half = (visible_rows / 2) as usize;
+        if up {
+            self.scroll_up(half);
+        } else {
+            self.scroll_down_no_flush(half);
+        }
+        self.update_copy_selection();
+    }
+
+    /// Jump to top or bottom of scrollback in copy mode.
+    pub fn copy_jump_edge(&mut self, to_top: bool, visible_rows: u16) {
+        if to_top {
+            let max = self.scrollback_len();
+            self.scroll_offset = max;
+            if let Some(cm) = self.copy_mode.as_mut() {
+                cm.cursor_row = 0;
+            }
+        } else {
+            self.scroll_offset = 1;
+            let max = self.scrollback_len();
+            self.scroll_offset = self.scroll_offset.min(max).max(1);
+            if let Some(cm) = self.copy_mode.as_mut() {
+                cm.cursor_row = visible_rows.saturating_sub(1);
+            }
+        }
+        self.update_copy_selection();
+    }
+
+    /// Scroll down without flushing pending output (stay in frozen/copy mode).
+    fn scroll_down_no_flush(&mut self, n: usize) {
+        let before = self.scroll_offset;
+        self.scroll_offset = self.scroll_offset.saturating_sub(n);
+        // In copy mode, keep at least offset 1 to stay frozen
+        if self.copy_mode.is_some() && self.scroll_offset == 0 {
+            self.scroll_offset = 1;
+        }
+        let actual_delta = (before - self.scroll_offset) as u16;
+        // Shift copy mode anchor up to compensate for scroll
+        if actual_delta > 0 {
+            if let Some(ref mut cm) = self.copy_mode {
+                if let Some(ref mut anchor) = cm.anchor {
+                    anchor.1 = anchor.1.saturating_sub(actual_delta);
+                }
+            }
+        }
+    }
+
+    /// Sync the selection to match copy mode cursor + anchor positions.
+    fn update_copy_selection(&mut self) {
+        let cm = match self.copy_mode.as_ref() {
+            Some(cm) => cm,
+            None => return,
+        };
+        if let Some(anchor) = cm.anchor {
+            self.selection = Some(Selection {
+                start: anchor,
+                end: (cm.cursor_col, cm.cursor_row),
+                active: true,
+            });
         }
     }
 }
