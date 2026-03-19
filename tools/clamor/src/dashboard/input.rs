@@ -119,6 +119,19 @@ pub fn handle_input(
     }
 }
 
+/// Keys reserved by handle_normal — must never appear in KEY_POOL.
+/// Includes both lowercase keys with direct bindings and lowercase
+/// versions of shift-key bindings (e.g., 'x' for Shift+X kill).
+#[cfg(test)]
+pub const RESERVED_KEYS: &[char] = &[
+    'q', // quit
+    'c', // create / Shift+C editor
+    'e', // edit
+    'g', // select first
+    '/', // filter
+    '?', // help
+];
+
 fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardAction {
     match event.code {
         KeyCode::Char('q') => DashboardAction::Quit,
