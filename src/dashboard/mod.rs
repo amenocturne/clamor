@@ -506,6 +506,7 @@ fn render_terminal_view(
     if let Some(pv) = pane_views.get_mut(agent_id) {
         let sel = pv.selection.clone();
         let scroll_offset = pv.scroll_offset;
+        let has_pending = pv.has_pending_output();
         let scroll_info = if scroll_offset > 0 {
             let scrollback_total = pv.scrollback_len();
             Some((scroll_offset, scrollback_total))
@@ -514,7 +515,7 @@ fn render_terminal_view(
         };
         let screen = pv.scrolled_screen();
         terminal.draw(|frame| {
-            render::render_terminal(frame, screen, agent, &sel, scroll_info);
+            render::render_terminal(frame, screen, agent, &sel, scroll_info, has_pending);
         })?;
     }
 

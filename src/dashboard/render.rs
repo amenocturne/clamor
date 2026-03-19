@@ -220,12 +220,14 @@ pub fn render(
 /// Render the terminal view for an agent (title bar + PseudoTerminal).
 ///
 /// `scroll_info` is `Some((offset, total))` when scrolled up, `None` at live view.
+/// `has_pending` indicates output is being buffered while the view is frozen.
 pub fn render_terminal(
     frame: &mut Frame,
     screen: &vt100::Screen,
     agent: &Agent,
     selection: &Option<Selection>,
     scroll_info: Option<(usize, usize)>,
+    has_pending: bool,
 ) {
     let area = frame.area();
     let chunks = Layout::vertical([
@@ -248,7 +250,8 @@ pub fn render_terminal(
             } else {
                 100
             };
-            format!("{}%  ^F back  ^J bottom", pct)
+            let frozen = if has_pending { "FROZEN  " } else { "" };
+            format!("{}{}%  ^F back  ^J bottom", frozen, pct)
         }
         None => "^F back".to_string(),
     };
