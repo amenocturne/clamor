@@ -99,7 +99,7 @@ async fn reconcile_state(client: &mut DaemonClient, pty_rows: u16, pty_cols: u16
         with_state(|state| {
             for (id, _, _) in &to_resume {
                 if let Some(agent) = state.agents.get_mut(id) {
-                    agent.state = AgentState::Working;
+                    agent.state = AgentState::Input;
                     agent.last_activity_at = chrono::Utc::now();
                 }
             }
@@ -1507,7 +1507,7 @@ async fn adopt_inline(
         folder: folder_name.to_string(),
         cwd: cwd_str.clone(),
         initial_prompt: Some(format!("--resume {session_id}")),
-        state: AgentState::Working,
+        state: AgentState::Input,
         started_at: now,
         last_activity_at: now,
         last_tool: None,
