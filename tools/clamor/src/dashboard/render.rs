@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
 use ratatui::layout::Position;
@@ -38,6 +38,13 @@ pub enum Overlay<'a> {
         input: &'a str,
     },
     ConfirmEmptySpawn,
+    ConfirmKill {
+        description: &'a str,
+    },
+    ConfirmBatchKill {
+        count: usize,
+    },
+    QuitHint,
     PendingEdit,
     EditInput {
         input: &'a str,
@@ -108,6 +115,7 @@ pub fn ordered_agent_ids(
 }
 
 /// Render the full dashboard frame.
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     frame: &mut Frame,
     config: &ClamorConfig,
@@ -116,6 +124,8 @@ pub fn render(
     overlay: &Overlay,
     selected_index: Option<usize>,
     filter_query: &str,
+    selected_agents: &HashSet<String>,
+    daemon_connected: bool,
 ) {
     let area = frame.area();
 
@@ -133,6 +143,8 @@ pub fn render(
         .filter(|a| a.state == AgentState::Input)
         .count();
 
+    let batch_count = selected_agents.len();
+
     // Layout: header, separator, body, footer
     let chunks = Layout::vertical([
         Constraint::Length(1), // header
@@ -143,9 +155,28 @@ pub fn render(
     .split(area);
 
     render_header(frame, chunks[0], total, needs_input, filter_query);
+
+    if !daemon_connected {
+        let banner = Paragraph::new(Line::from(Span::styled(
+            " DAEMON DISCONNECTED ",
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Red)
+                .add_modifier(Modifier::BOLD),
+        )));
+        frame.render_widget(banner, chunks[0]);
+    }
+
     render_separator(frame, chunks[1]);
-    render_body(frame, chunks[2], &groups, selected_index, filter_query);
-    render_footer(frame, chunks[3], overlay);
+    render_body(
+        frame,
+        chunks[2],
+        &groups,
+        selected_index,
+        filter_query,
+        selected_agents,
+    );
+    render_footer(frame, chunks[3], overlay, batch_count);
 
     // Render overlay popups on top
     match overlay {
@@ -165,6 +196,15 @@ pub fn render(
         }
         Overlay::ConfirmEmptySpawn => {
             render_confirm_empty_popup(frame, area);
+        }
+        Overlay::ConfirmKill { description } => {
+            render_confirm_kill_popup(frame, area, description);
+        }
+        Overlay::ConfirmBatchKill { count } => {
+            render_batch_kill_popup(frame, area, *count);
+        }
+        Overlay::QuitHint => {
+            render_quit_hint_popup(frame, area);
         }
         Overlay::EditInput { input } => {
             render_edit_popup(frame, area, input);
@@ -288,7 +328,7 @@ fn render_separator(frame: &mut Frame, area: Rect) {
     frame.render_widget(sep, area);
 }
 
-fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay) {
+fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay, batch_count: usize) {
     let footer = match overlay {
         Overlay::PendingKill => Paragraph::new(Line::from(vec![
             Span::raw(" "),
@@ -296,6 +336,21 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay) {
                 "Kill: press agent key (Esc to cancel)",
                 Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
             ),
+        ])),
+        Overlay::ConfirmBatchKill { count } => Paragraph::new(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                format!(
+                    "Kill {} agent{}? ",
+                    count,
+                    if *count != 1 { "s" } else { "" }
+                ),
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("[Enter]", Style::default().fg(Color::Cyan)),
+            Span::raw(" yes  "),
+            Span::styled("[Esc]", Style::default().fg(Color::Cyan)),
+            Span::raw(" cancel"),
         ])),
         Overlay::PendingEdit => Paragraph::new(Line::from(vec![
             Span::raw(" "),
@@ -326,31 +381,32 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay) {
             Span::styled("[Esc]", Style::default().fg(Color::Cyan)),
             Span::raw(" clear"),
         ])),
-        _ => Paragraph::new(Line::from(vec![
-            Span::raw(" "),
-            Span::styled("[J/K]", Style::default().fg(Color::Cyan)),
-            Span::raw(" select  "),
-            Span::styled("[⏎]", Style::default().fg(Color::Cyan)),
-            Span::raw(" attach  "),
-            Span::styled("[c]", Style::default().fg(Color::Cyan)),
-            Span::raw("reate  "),
-            Span::styled("[C]", Style::default().fg(Color::Cyan)),
-            Span::raw(" $EDITOR  "),
-            Span::styled("[e]", Style::default().fg(Color::Cyan)),
-            Span::raw("dit  "),
-            Span::styled("[R]", Style::default().fg(Color::Cyan)),
-            Span::raw(" adopt  "),
-            Span::styled("[/]", Style::default().fg(Color::Cyan)),
-            Span::raw(" filter  "),
-            Span::styled("[X", Style::default().fg(Color::Cyan)),
-            Span::raw("+"),
-            Span::styled("key]", Style::default().fg(Color::Cyan)),
-            Span::raw(" kill  "),
-            Span::styled("[q]", Style::default().fg(Color::Cyan)),
-            Span::raw("uit  "),
-            Span::styled("[?]", Style::default().fg(Color::Cyan)),
-            Span::raw(" help"),
-        ])),
+        _ => {
+            let mut spans = vec![Span::raw(" ")];
+            if batch_count > 0 {
+                spans.push(Span::styled(
+                    format!("{} selected  ", batch_count,),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            }
+            spans.extend([
+                Span::styled("[J/K]", Style::default().fg(Color::Cyan)),
+                Span::raw(" select  "),
+                Span::styled("[v]", Style::default().fg(Color::Cyan)),
+                Span::raw(" mark  "),
+                Span::styled("[X]", Style::default().fg(Color::Cyan)),
+                Span::raw(" kill  "),
+                Span::styled("[c]", Style::default().fg(Color::Cyan)),
+                Span::raw("reate  "),
+                Span::styled("[/]", Style::default().fg(Color::Cyan)),
+                Span::raw(" filter  "),
+                Span::styled("[?]", Style::default().fg(Color::Cyan)),
+                Span::raw(" help"),
+            ]);
+            Paragraph::new(Line::from(spans))
+        }
     };
     frame.render_widget(footer, area);
 }
@@ -435,6 +491,7 @@ fn render_body(
     groups: &[AgentGroup],
     selected_index: Option<usize>,
     filter_query: &str,
+    selected_agents: &HashSet<String>,
 ) {
     if groups.is_empty() && !filter_query.is_empty() {
         let msg = Paragraph::new(Line::from(Span::styled(
@@ -464,7 +521,8 @@ fn render_body(
         )));
 
         for da in &group.agents {
-            let mut line = render_agent_line(da, width);
+            let batch_selected = selected_agents.contains(&da.agent.id);
+            let mut line = render_agent_line(da, width, batch_selected);
             if selected_index == Some(agent_idx) {
                 line = highlight_line(line);
                 selected_line = Some(lines.len());
@@ -504,11 +562,13 @@ fn highlight_line(line: Line<'static>) -> Line<'static> {
     Line::from(spans)
 }
 
-fn render_agent_line(da: &DisplayAgent, width: usize) -> Line<'static> {
+fn render_agent_line(da: &DisplayAgent, width: usize, batch_selected: bool) -> Line<'static> {
+    let select_marker = if batch_selected { "● " } else { "  " };
+
     let key_str = da
         .key
-        .map(|c| format!("  {}  ", c))
-        .unwrap_or_else(|| "     ".into());
+        .map(|c| format!("{}  ", c))
+        .unwrap_or_else(|| "   ".into());
 
     let (state_label, state_style) = if da.killed {
         (
@@ -546,8 +606,8 @@ fn render_agent_line(da: &DisplayAgent, width: usize) -> Line<'static> {
     let state_display = format!("{:<6}", state_label);
 
     // Calculate available space for description:
-    // key(5) + state(6) + spacing(4) + duration(~8) + padding(2) + tool_suffix
-    let overhead = key_str.len() + 6 + 4 + duration.len() + 2 + tool_suffix_len;
+    // marker(2) + key(3) + state(6) + spacing(4) + duration(~8) + padding(2) + tool_suffix
+    let overhead = 2 + key_str.len() + 6 + 4 + duration.len() + 2 + tool_suffix_len;
     let desc_width = width.saturating_sub(overhead);
     let description = truncate(&da.agent.title, desc_width);
 
@@ -569,7 +629,14 @@ fn render_agent_line(da: &DisplayAgent, width: usize) -> Line<'static> {
 
     let duration_style = Style::default().fg(Color::DarkGray);
 
+    let select_style = if batch_selected {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
+
     let mut spans = vec![
+        Span::styled(select_marker.to_string(), select_style),
         Span::styled(key_str, key_style),
         Span::styled(state_display, state_style),
         Span::raw("  "),
@@ -805,6 +872,90 @@ fn render_confirm_empty_popup(frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(text), inner);
 }
 
+fn render_confirm_kill_popup(frame: &mut Frame, area: Rect, description: &str) {
+    let popup = popup_area(area, 45, 7);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Red))
+        .title(" Kill agent? ");
+
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let text = vec![
+        Line::from(format!(" {}", description)),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw(" "),
+            Span::styled("[Enter]", Style::default().fg(Color::Cyan)),
+            Span::raw(" yes  "),
+            Span::styled("[Esc]", Style::default().fg(Color::Cyan)),
+            Span::raw(" cancel"),
+        ]),
+    ];
+    frame.render_widget(Paragraph::new(text), inner);
+}
+
+fn render_quit_hint_popup(frame: &mut Frame, area: Rect) {
+    let popup = popup_area(area, 30, 5);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let text = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::raw(" Press "),
+            Span::styled(
+                "q",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" to quit"),
+        ]),
+    ];
+    frame.render_widget(Paragraph::new(text), inner);
+}
+
+fn render_batch_kill_popup(frame: &mut Frame, area: Rect, count: usize) {
+    let width = area.width.min(42);
+    let popup = popup_area(area, width, 5);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Red))
+        .title(" Batch kill ");
+
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let text = vec![
+        Line::from(format!(
+            " Kill {} agent{}?",
+            count,
+            if count != 1 { "s" } else { "" }
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw(" "),
+            Span::styled("[Enter]", Style::default().fg(Color::Cyan)),
+            Span::raw(" yes    "),
+            Span::styled("[Esc]", Style::default().fg(Color::Cyan)),
+            Span::raw(" cancel"),
+        ]),
+    ];
+    frame.render_widget(Paragraph::new(text), inner);
+}
+
 fn render_edit_popup(frame: &mut Frame, area: Rect, input: &str) {
     let width = area.width.min(60);
     let popup = popup_area(area, width, 5);
@@ -825,7 +976,7 @@ fn render_edit_popup(frame: &mut Frame, area: Rect, input: &str) {
 
 fn render_help_popup(frame: &mut Frame, area: Rect) {
     let width = 40u16;
-    let height = 16u16;
+    let height = 19u16;
     let popup = popup_area(area, width, height);
     frame.render_widget(Clear, popup);
 
@@ -859,6 +1010,14 @@ fn render_help_popup(frame: &mut Frame, area: Rect) {
             Span::raw("          first / last"),
         ]),
         Line::from(vec![
+            Span::styled(" v", Style::default().fg(Color::Cyan)),
+            Span::raw("              toggle select"),
+        ]),
+        Line::from(vec![
+            Span::styled(" V", Style::default().fg(Color::Cyan)),
+            Span::raw("              select all / none"),
+        ]),
+        Line::from(vec![
             Span::styled(" /", Style::default().fg(Color::Cyan)),
             Span::raw("              filter"),
         ]),
@@ -876,7 +1035,7 @@ fn render_help_popup(frame: &mut Frame, area: Rect) {
         ]),
         Line::from(vec![
             Span::styled(" X", Style::default().fg(Color::Cyan)),
-            Span::raw(" + key        kill"),
+            Span::raw(" + key        kill (batch if selected)"),
         ]),
         Line::from(vec![
             Span::styled(" R", Style::default().fg(Color::Cyan)),

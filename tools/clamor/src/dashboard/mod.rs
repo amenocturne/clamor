@@ -2,7 +2,7 @@ mod input;
 pub(crate) mod keys;
 pub(crate) mod render;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -180,6 +180,8 @@ async fn main_loop(
     let mut history_index: Option<usize> = None;
     let mut history_stash: Option<(String, String)> = None;
     let mut filter_query = String::new();
+    let mut selected_agents: HashSet<String> = HashSet::new();
+    let mut daemon_connected = true;
 
     let mut mode = if let Some(ref agent_id) = attach_to {
         let state = state_source.get();
@@ -225,6 +227,7 @@ async fn main_loop(
             msg_result = client.recv() => {
                 match msg_result {
                     Ok(msg) => {
+                        daemon_connected = true;
                         match msg {
                             DaemonMessage::Output { id, data } => {
                                 if let Some(pv) = pane_views.get_mut(&id) {
@@ -252,9 +255,10 @@ async fn main_loop(
                         needs_render = true;
                     }
                     Err(_) => {
-                        // Connection lost — try to reconnect
+                        daemon_connected = false;
                         if let Ok(new_client) = DaemonClient::connect().await {
                             *client = new_client;
+                            daemon_connected = true;
                         }
                     }
                 }
@@ -279,6 +283,7 @@ async fn main_loop(
                                 &mut filter_query,
                                 &mut history_index,
                                 &mut history_stash,
+                                &mut selected_agents,
                             ).await?
                         }
                         AppMode::Terminal { ref agent_id } => {
@@ -364,6 +369,8 @@ async fn main_loop(
                                 state_source,
                                 selected_index,
                                 &filter_query,
+                                &selected_agents,
+                                daemon_connected,
                             )?;
                         }
                         AppMode::Terminal { ref agent_id } => {
@@ -410,6 +417,8 @@ fn render_dashboard(
     state_source: &StateSource,
     selected_index: Option<usize>,
     filter_query: &str,
+    selected_agents: &HashSet<String>,
+    daemon_connected: bool,
 ) -> Result<()> {
     let state = state_source.get();
     let killed_ids: Vec<String> = killed_at.keys().cloned().collect();
@@ -417,7 +426,7 @@ fn render_dashboard(
     let agent_refs: HashMap<String, &Agent> =
         state.agents.iter().map(|(id, a)| (id.clone(), a)).collect();
 
-    let overlay = build_overlay(input_mode, sorted_folders, filter_query);
+    let overlay = build_overlay(input_mode, sorted_folders, filter_query, selected_agents);
 
     terminal.draw(|frame| {
         render::render(
@@ -428,6 +437,8 @@ fn render_dashboard(
             &overlay,
             selected_index,
             filter_query,
+            selected_agents,
+            daemon_connected,
         );
     })?;
 
@@ -438,6 +449,7 @@ fn build_overlay<'a>(
     input_mode: &'a InputMode,
     sorted_folders: &'a [(String, String)],
     filter_query: &'a str,
+    selected_agents: &HashSet<String>,
 ) -> render::Overlay<'a> {
     match input_mode {
         InputMode::Normal => {
@@ -467,6 +479,11 @@ fn build_overlay<'a>(
         },
         InputMode::TypingAdopt { input, .. } => render::Overlay::AdoptInput { input },
         InputMode::ConfirmEmptySpawn { .. } => render::Overlay::ConfirmEmptySpawn,
+        InputMode::ConfirmKill { title, .. } => render::Overlay::ConfirmKill { description: title },
+        InputMode::ConfirmBatchKill => render::Overlay::ConfirmBatchKill {
+            count: selected_agents.len(),
+        },
+        InputMode::QuitHint => render::Overlay::QuitHint,
         InputMode::WaitingEdit => render::Overlay::PendingEdit,
         InputMode::EditingDescription { input, .. } => render::Overlay::EditInput { input },
         InputMode::Filtering { query } => render::Overlay::FilterInput { query },
@@ -520,6 +537,7 @@ async fn handle_dashboard_event(
     filter_query: &mut String,
     history_index: &mut Option<usize>,
     history_stash: &mut Option<(String, String)>,
+    selected_agents: &mut HashSet<String>,
 ) -> Result<LoopAction> {
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
     let pty_rows = term_rows.saturating_sub(1);
@@ -597,6 +615,7 @@ async fn handle_dashboard_event(
                     apply_edit(query, &edit);
                     *filter_query = query.clone();
                     *selected_index = Some(0);
+                    selected_agents.clear();
                 }
             }
             _ => {}
@@ -621,13 +640,14 @@ async fn handle_dashboard_event(
             }
         }
 
-        // Esc in Normal mode clears active filter
+        // Esc in Normal mode clears active filter and batch selection
         if matches!(input_mode, InputMode::Normal)
             && key_event.code == KeyCode::Esc
-            && !filter_query.is_empty()
+            && (!filter_query.is_empty() || !selected_agents.is_empty())
         {
             filter_query.clear();
             *selected_index = None;
+            selected_agents.clear();
             return Ok(LoopAction::Continue);
         }
 
@@ -979,7 +999,17 @@ async fn handle_dashboard_event(
             }
 
             DashboardAction::ConfirmYes => {
-                if let InputMode::ConfirmEmptySpawn {
+                if let InputMode::ConfirmKill { agent_id, .. } = &*input_mode {
+                    let id = agent_id.clone();
+                    let _ = client.kill_agent(&id).await;
+                    selected_agents.remove(&id);
+                    killed_at.insert(id, Instant::now());
+                } else if let InputMode::ConfirmBatchKill = &*input_mode {
+                    for agent_id in selected_agents.drain() {
+                        let _ = client.kill_agent(&agent_id).await;
+                        killed_at.insert(agent_id, Instant::now());
+                    }
+                } else if let InputMode::ConfirmEmptySpawn {
                     folder_name,
                     folder_path,
                 } = input_mode
@@ -1047,14 +1077,43 @@ async fn handle_dashboard_event(
                 }
             }
 
+            DashboardAction::ToggleSelect => {
+                if let Some(idx) = *selected_index {
+                    let agent_ids = render::ordered_agent_ids(config, &agent_refs, filter_query);
+                    if let Some(agent_id) = agent_ids.get(idx) {
+                        if selected_agents.contains(agent_id) {
+                            selected_agents.remove(agent_id);
+                        } else {
+                            selected_agents.insert(agent_id.clone());
+                        }
+                    }
+                }
+            }
+
+            DashboardAction::ToggleSelectAll => {
+                let agent_ids = render::ordered_agent_ids(config, &agent_refs, filter_query);
+                if selected_agents.len() == agent_ids.len() && !agent_ids.is_empty() {
+                    selected_agents.clear();
+                } else {
+                    *selected_agents = agent_ids.into_iter().collect();
+                }
+            }
+
             DashboardAction::PendingKill => {
-                *input_mode = InputMode::WaitingKill;
+                if !selected_agents.is_empty() {
+                    *input_mode = InputMode::ConfirmBatchKill;
+                } else {
+                    *input_mode = InputMode::WaitingKill;
+                }
             }
 
             DashboardAction::KillAgent(agent_id) => {
-                *input_mode = InputMode::Normal;
-                let _ = client.kill_agent(&agent_id).await;
-                killed_at.insert(agent_id, Instant::now());
+                let title = state
+                    .agents
+                    .get(&agent_id)
+                    .map(|a| a.title.clone())
+                    .unwrap_or_default();
+                *input_mode = InputMode::ConfirmKill { agent_id, title };
             }
 
             DashboardAction::AdoptStart => {
@@ -1167,6 +1226,7 @@ async fn handle_dashboard_event(
                     apply_edit(query, &edit);
                     *filter_query = query.clone();
                     *selected_index = Some(0);
+                    selected_agents.clear();
                 }
             }
 
@@ -1181,6 +1241,7 @@ async fn handle_dashboard_event(
                 if let InputMode::Filtering { .. } = &*input_mode {
                     filter_query.clear();
                     *selected_index = None;
+                    selected_agents.clear();
                 } else if let InputMode::TypingPrompt {
                     folder_name,
                     folder_path,
@@ -1203,6 +1264,10 @@ async fn handle_dashboard_event(
 
             DashboardAction::ShowHelp => {
                 *input_mode = InputMode::Help;
+            }
+
+            DashboardAction::ShowQuitHint => {
+                *input_mode = InputMode::QuitHint;
             }
 
             DashboardAction::ClearSelection => {
