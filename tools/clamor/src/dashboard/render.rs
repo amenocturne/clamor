@@ -9,7 +9,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::agent::{Agent, AgentState};
-use crate::config::ClamorConfig;
+use crate::config::{ClamorConfig, ThemeConfig};
 use crate::pane::{self, Selection};
 
 use super::input::PromptField;
@@ -175,7 +175,7 @@ pub fn render(
         selected_index,
         filter_query,
         selected_agents,
-        config.theme.highlight_color.0,
+        &config.theme,
     );
     render_footer(frame, chunks[3], overlay, batch_count);
 
@@ -493,7 +493,7 @@ fn render_body(
     selected_index: Option<usize>,
     filter_query: &str,
     selected_agents: &HashSet<String>,
-    highlight_color: [u8; 3],
+    theme: &ThemeConfig,
 ) {
     if groups.is_empty() && !filter_query.is_empty() {
         let msg = Paragraph::new(Line::from(Span::styled(
@@ -524,12 +524,12 @@ fn render_body(
 
         for da in &group.agents {
             let batch_selected = selected_agents.contains(&da.agent.id);
-            let mut line = render_agent_line(da, width, batch_selected);
+            let mut line = render_agent_line(da, width, batch_selected, theme);
             if selected_index == Some(agent_idx) {
-                line = highlight_line(line, highlight_color);
+                line = highlight_line(line, theme);
                 selected_line = Some(lines.len());
             } else if batch_selected {
-                line = mark_selected(line, highlight_color);
+                line = mark_selected(line, theme);
             }
             lines.push(line);
             agent_idx += 1;
@@ -557,17 +557,20 @@ fn render_body(
     frame.render_widget(body, area);
 }
 
-fn highlight_line(line: Line<'static>, color: [u8; 3]) -> Line<'static> {
-    let bg = Style::default().bg(Color::Rgb(color[0], color[1], color[2]));
-    let mut spans = vec![Span::styled("▎", Style::default().fg(Color::Cyan))];
+fn highlight_line(line: Line<'static>, theme: &ThemeConfig) -> Line<'static> {
+    let bg = Style::default().bg(theme.highlight.to_ratatui());
+    let mut spans = vec![Span::styled(
+        "▎",
+        Style::default().fg(theme.accent.to_ratatui()),
+    )];
     for span in line.spans {
         spans.push(span.patch_style(bg));
     }
     Line::from(spans)
 }
 
-fn mark_selected(line: Line<'static>, color: [u8; 3]) -> Line<'static> {
-    let bg = Style::default().bg(Color::Rgb(color[0], color[1], color[2]));
+fn mark_selected(line: Line<'static>, theme: &ThemeConfig) -> Line<'static> {
+    let bg = Style::default().bg(theme.highlight.to_ratatui());
     Line::from(
         line.spans
             .into_iter()
@@ -576,7 +579,12 @@ fn mark_selected(line: Line<'static>, color: [u8; 3]) -> Line<'static> {
     )
 }
 
-fn render_agent_line(da: &DisplayAgent, width: usize, batch_selected: bool) -> Line<'static> {
+fn render_agent_line(
+    da: &DisplayAgent,
+    width: usize,
+    batch_selected: bool,
+    theme: &ThemeConfig,
+) -> Line<'static> {
     let select_marker = if batch_selected { "● " } else { "  " };
 
     let key_str = da
@@ -594,11 +602,14 @@ fn render_agent_line(da: &DisplayAgent, width: usize, batch_selected: bool) -> L
             AgentState::Input => (
                 "input",
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(theme.status_input.to_ratatui())
                     .add_modifier(Modifier::BOLD),
             ),
-            AgentState::Working => ("work ", Style::default().fg(Color::Green)),
-            AgentState::Done => ("done ", Style::default().fg(Color::DarkGray)),
+            AgentState::Working => (
+                "work ",
+                Style::default().fg(theme.status_working.to_ratatui()),
+            ),
+            AgentState::Done => ("done ", Style::default().fg(theme.status_done.to_ratatui())),
         }
     };
 
@@ -628,23 +639,23 @@ fn render_agent_line(da: &DisplayAgent, width: usize, batch_selected: bool) -> L
     let padded_desc = format!("{:<width$}", description, width = desc_width);
 
     let key_style = Style::default()
-        .fg(Color::Cyan)
+        .fg(theme.accent.to_ratatui())
         .add_modifier(Modifier::BOLD);
 
     let dimmed = da.killed;
 
     // Use agent color for description text (unless dimmed)
     let desc_style = if dimmed {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(theme.dimmed.to_ratatui())
     } else {
         let color = pane::agent_color(da.agent.color_index);
         Style::default().fg(color)
     };
 
-    let duration_style = Style::default().fg(Color::DarkGray);
+    let duration_style = Style::default().fg(theme.dimmed.to_ratatui());
 
     let select_style = if batch_selected {
-        Style::default().fg(Color::Yellow)
+        Style::default().fg(theme.batch_marker.to_ratatui())
     } else {
         Style::default()
     };
