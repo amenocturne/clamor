@@ -33,6 +33,7 @@ pub enum DashboardAction {
     SelectPrev,
     SelectFirst,
     SelectLast,
+    PendingG,
     AttachSelected,
     ToggleSelect,
     ToggleSelectAll,
@@ -153,7 +154,7 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
         KeyCode::Char('k') if event.modifiers.contains(KeyModifiers::SHIFT) => {
             DashboardAction::SelectPrev
         }
-        KeyCode::Char('g') => DashboardAction::SelectFirst,
+        KeyCode::Char('g') => DashboardAction::PendingG,
         KeyCode::Char('G') => DashboardAction::SelectLast,
         KeyCode::Enter => DashboardAction::AttachSelected,
         KeyCode::Char('/') => DashboardAction::StartFilter,

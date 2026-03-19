@@ -221,6 +221,7 @@ pub fn render(
 ///
 /// `scroll_info` is `Some((offset, total))` when scrolled up, `None` at live view.
 /// `has_pending` indicates output is being buffered while the view is frozen.
+/// `copy_cursor` is `Some((col, row))` when in copy mode.
 pub fn render_terminal(
     frame: &mut Frame,
     screen: &vt100::Screen,
@@ -228,6 +229,7 @@ pub fn render_terminal(
     selection: &Option<Selection>,
     scroll_info: Option<(usize, usize)>,
     has_pending: bool,
+    copy_cursor: Option<(u16, u16)>,
 ) {
     let area = frame.area();
     let chunks = Layout::vertical([
@@ -243,17 +245,31 @@ pub fn render_terminal(
         AgentState::Done => "done",
     };
     let duration = format_duration(agent.started_at);
-    let hint_text = match scroll_info {
-        Some((offset, total)) => {
-            let pct = if total > 0 {
-                100 - (offset * 100 / total)
-            } else {
-                100
-            };
-            let frozen = if has_pending { "FROZEN  " } else { "" };
-            format!("{}{}%  ^F back  ^J bottom", frozen, pct)
+    let hint_text = if copy_cursor.is_some() {
+        match scroll_info {
+            Some((offset, total)) => {
+                let pct = if total > 0 {
+                    100 - (offset * 100 / total)
+                } else {
+                    100
+                };
+                format!("COPY  {}%  v:select  y:yank  q:exit", pct)
+            }
+            None => "COPY  v:select  y:yank  q:exit".to_string(),
         }
-        None => "^F back".to_string(),
+    } else {
+        match scroll_info {
+            Some((offset, total)) => {
+                let pct = if total > 0 {
+                    100 - (offset * 100 / total)
+                } else {
+                    100
+                };
+                let frozen = if has_pending { "FROZEN  " } else { "" };
+                format!("{}{}%  ^F back  ^J bottom", frozen, pct)
+            }
+            None => "^F back".to_string(),
+        }
     };
     pane::render_title_bar(
         frame,
@@ -276,6 +292,12 @@ pub fn render_terminal(
     if let Some(sel) = selection {
         let pane = chunks[1];
         render_selection(frame, pane, sel);
+    }
+
+    // Overlay copy mode cursor
+    if let Some((col, row)) = copy_cursor {
+        let pane = chunks[1];
+        render_copy_cursor(frame, pane, col, row);
     }
 }
 
@@ -1034,8 +1056,8 @@ fn render_help_popup(frame: &mut Frame, area: Rect) {
             Span::raw("          attach"),
         ]),
         Line::from(vec![
-            Span::styled(" g / G", Style::default().fg(Color::Cyan)),
-            Span::raw("          first / last"),
+            Span::styled(" gg / G", Style::default().fg(Color::Cyan)),
+            Span::raw("         first / last"),
         ]),
         Line::from(vec![
             Span::styled(" v", Style::default().fg(Color::Cyan)),
@@ -1080,6 +1102,19 @@ fn render_help_popup(frame: &mut Frame, area: Rect) {
     ];
 
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Render copy mode cursor as an inverted block at the given position.
+fn render_copy_cursor(frame: &mut Frame, pane: Rect, col: u16, row: u16) {
+    let x = pane.x + col;
+    let y = pane.y + row;
+    if x < pane.x + pane.width && y < pane.y + pane.height {
+        let buf = frame.buffer_mut();
+        if let Some(cell) = buf.cell_mut(Position::new(x, y)) {
+            let style = cell.style().add_modifier(Modifier::REVERSED);
+            cell.set_style(style);
+        }
+    }
 }
 
 /// Render selection highlight by flipping selected cells to REVERSED style.

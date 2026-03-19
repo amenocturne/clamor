@@ -182,6 +182,7 @@ async fn main_loop(
     let mut filter_query = String::new();
     let mut selected_agents: HashSet<String> = HashSet::new();
     let mut daemon_connected = true;
+    let mut pending_g = false;
 
     let mut mode = if let Some(ref agent_id) = attach_to {
         let state = state_source.get();
@@ -284,6 +285,7 @@ async fn main_loop(
                                 &mut history_index,
                                 &mut history_stash,
                                 &mut selected_agents,
+                                &mut pending_g,
                             ).await?
                         }
                         AppMode::Terminal { ref agent_id } => {
@@ -507,6 +509,10 @@ fn render_terminal_view(
         let sel = pv.selection.clone();
         let scroll_offset = pv.scroll_offset;
         let has_pending = pv.has_pending_output();
+        let copy_cursor = pv
+            .copy_mode
+            .as_ref()
+            .map(|cm| (cm.cursor_col, cm.cursor_row));
         let scroll_info = if scroll_offset > 0 {
             let scrollback_total = pv.scrollback_len();
             Some((scroll_offset, scrollback_total))
@@ -515,7 +521,15 @@ fn render_terminal_view(
         };
         let screen = pv.scrolled_screen();
         terminal.draw(|frame| {
-            render::render_terminal(frame, screen, agent, &sel, scroll_info, has_pending);
+            render::render_terminal(
+                frame,
+                screen,
+                agent,
+                &sel,
+                scroll_info,
+                has_pending,
+                copy_cursor,
+            );
         })?;
     }
 
@@ -539,6 +553,7 @@ async fn handle_dashboard_event(
     history_index: &mut Option<usize>,
     history_stash: &mut Option<(String, String)>,
     selected_agents: &mut HashSet<String>,
+    pending_g: &mut bool,
 ) -> Result<LoopAction> {
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
     let pty_rows = term_rows.saturating_sub(1);
@@ -652,7 +667,26 @@ async fn handle_dashboard_event(
             return Ok(LoopAction::Continue);
         }
 
-        match input::handle_input(*key_event, &key_map, input_mode) {
+        let action = input::handle_input(*key_event, &key_map, input_mode);
+
+        // Handle gg (pending g -> g = SelectFirst)
+        let action = if *pending_g {
+            *pending_g = false;
+            match action {
+                DashboardAction::PendingG => DashboardAction::SelectFirst,
+                other => other, // not `g`, process the key normally
+            }
+        } else {
+            match action {
+                DashboardAction::PendingG => {
+                    *pending_g = true;
+                    return Ok(LoopAction::Continue);
+                }
+                other => other,
+            }
+        };
+
+        match action {
             DashboardAction::Quit => return Ok(LoopAction::Quit),
 
             DashboardAction::Attach(ref agent_id) => {
@@ -1275,8 +1309,88 @@ async fn handle_dashboard_event(
                 *selected_index = None;
             }
 
-            DashboardAction::Refresh => {}
+            DashboardAction::Refresh | DashboardAction::PendingG => {}
         }
+    }
+
+    Ok(LoopAction::Continue)
+}
+
+/// Handle keyboard input while in copy mode.
+fn handle_copy_mode_key(
+    key_event: &crossterm::event::KeyEvent,
+    client: &mut DaemonClient,
+    agent_id: &str,
+    pane_views: &mut HashMap<String, PaneView>,
+    visible_rows: u16,
+    visible_cols: u16,
+) -> Result<LoopAction> {
+    let pv = match pane_views.get_mut(agent_id) {
+        Some(pv) => pv,
+        None => return Ok(LoopAction::Continue),
+    };
+
+    let ctrl = key_event.modifiers.contains(KeyModifiers::CONTROL);
+
+    // Handle pending `g` state (waiting for second `g` to make `gg`)
+    let was_pending_g = pv.copy_mode.as_ref().is_some_and(|cm| cm.pending_g);
+    if was_pending_g {
+        if let Some(cm) = pv.copy_mode.as_mut() {
+            cm.pending_g = false;
+        }
+        if key_event.code == KeyCode::Char('g') {
+            pv.copy_jump_edge(true, visible_rows);
+            return Ok(LoopAction::Continue);
+        }
+        // Not `g` — fall through to handle this key normally
+    }
+
+    match key_event.code {
+        // Exit copy mode
+        KeyCode::Char('q') | KeyCode::Esc => pv.exit_copy_mode(),
+
+        // Ctrl+F -> exit copy mode + detach
+        KeyCode::Char('f') if ctrl => {
+            pv.exit_copy_mode();
+            let _ = futures_util::FutureExt::now_or_never(client.unsubscribe(agent_id));
+            return Ok(LoopAction::SwitchToDashboard);
+        }
+
+        // Ctrl+J -> exit copy mode (snap to bottom)
+        KeyCode::Char('j') if ctrl => pv.exit_copy_mode(),
+
+        // Movement
+        KeyCode::Char('h') | KeyCode::Left => pv.copy_move(-1, 0, visible_rows, visible_cols),
+        KeyCode::Char('j') | KeyCode::Down => pv.copy_move(0, 1, visible_rows, visible_cols),
+        KeyCode::Char('k') | KeyCode::Up => pv.copy_move(0, -1, visible_rows, visible_cols),
+        KeyCode::Char('l') | KeyCode::Right => pv.copy_move(1, 0, visible_rows, visible_cols),
+
+        // Line jumps
+        KeyCode::Char('0') | KeyCode::Home => pv.copy_line_jump(false, visible_cols),
+        KeyCode::Char('$') | KeyCode::End => pv.copy_line_jump(true, visible_cols),
+
+        // Page up/down
+        KeyCode::Char('u') if ctrl => pv.copy_page(true, visible_rows),
+        KeyCode::Char('d') if ctrl => pv.copy_page(false, visible_rows),
+
+        // gg = top, G = bottom
+        KeyCode::Char('g') => {
+            if let Some(cm) = pv.copy_mode.as_mut() {
+                cm.pending_g = true;
+            }
+        }
+        KeyCode::Char('G') => pv.copy_jump_edge(false, visible_rows),
+
+        // Toggle selection
+        KeyCode::Char('v') => pv.copy_toggle_selection(),
+
+        // Yank
+        KeyCode::Char('y') => {
+            pv.copy_yank(visible_cols);
+            pv.exit_copy_mode();
+        }
+
+        _ => {}
     }
 
     Ok(LoopAction::Continue)
@@ -1289,8 +1403,27 @@ async fn handle_terminal_event(
     agent_id: &str,
     pane_views: &mut HashMap<String, PaneView>,
 ) -> Result<LoopAction> {
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
+    let content_rows = term_rows.saturating_sub(1);
+
     match ev {
         Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+            // Copy mode intercepts all keys when active
+            let in_copy_mode = pane_views
+                .get(agent_id)
+                .is_some_and(|pv| pv.copy_mode.is_some());
+
+            if in_copy_mode {
+                return handle_copy_mode_key(
+                    key_event,
+                    client,
+                    agent_id,
+                    pane_views,
+                    content_rows,
+                    term_cols,
+                );
+            }
+
             // Ctrl+F -> back to dashboard
             if key_event.modifiers.contains(KeyModifiers::CONTROL)
                 && key_event.code == KeyCode::Char('f')
@@ -1313,6 +1446,16 @@ async fn handle_terminal_event(
             {
                 if let Some(pv) = pane_views.get_mut(agent_id) {
                     pv.snap_to_bottom();
+                }
+                return Ok(LoopAction::Continue);
+            }
+
+            // Ctrl+S -> enter copy mode
+            if key_event.modifiers.contains(KeyModifiers::CONTROL)
+                && key_event.code == KeyCode::Char('s')
+            {
+                if let Some(pv) = pane_views.get_mut(agent_id) {
+                    pv.enter_copy_mode(content_rows, term_cols);
                 }
                 return Ok(LoopAction::Continue);
             }

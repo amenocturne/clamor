@@ -37,7 +37,7 @@ Current protocol messages include `Hello { version }` for version exchange betwe
 
 - Jump keys (`a`/`s`/`d`/`f`/`j`/`k`/`l`/`h` + `1`–`0` overflow) — attach to agent
 - `J`/`K` or arrows — navigate agent list
-- `g`/`G` — jump to first/last agent
+- `gg`/`G` — jump to first/last agent
 - `Enter` — attach to selected agent
 - `c` — create agent (inline prompt), `C` — create via `$EDITOR`
 - `x` + key — kill agent (with confirmation)
@@ -62,3 +62,16 @@ Current protocol messages include `Hello { version }` for version exchange betwe
 - `Ctrl+F` — detach (back to dashboard)
 - `Ctrl+C` — send SIGINT to agent
 - `Ctrl+J` — snap to bottom (live view)
+- `Ctrl+S` — enter copy mode
+- Scroll up — freeze display (output buffered, shown on return to live)
+
+### Copy mode
+
+- `h`/`j`/`k`/`l` or arrows — move cursor
+- `v` — toggle selection
+- `y` — yank selection to clipboard + exit
+- `0`/`$` — start/end of line
+- `Ctrl+U`/`Ctrl+D` — half page up/down
+- `gg`/`G` — top/bottom of scrollback
+- `q`/`Esc` — exit copy mode
+- `Ctrl+J` — exit copy mode (snap to bottom)
