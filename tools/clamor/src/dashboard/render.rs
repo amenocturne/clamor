@@ -10,7 +10,7 @@ use ratatui::Frame;
 
 use crate::agent::{Agent, AgentState};
 use crate::config::{ClamorConfig, ThemeConfig};
-use crate::dashboard::shortcuts::{self, Shortcut};
+use crate::dashboard::shortcuts;
 use crate::pane::{self, Selection};
 
 use super::input::PromptField;
@@ -56,7 +56,11 @@ pub enum Overlay<'a> {
     FilterActive {
         query: &'a str,
     },
-    Help,
+    Help {
+        scroll: usize,
+        filter: &'a str,
+        filtering: bool,
+    },
 }
 
 /// Return a flat list of agent IDs in the same order they appear on the dashboard.
@@ -211,8 +215,12 @@ pub fn render(
         Overlay::EditInput { input } => {
             render_edit_popup(frame, area, input);
         }
-        Overlay::Help => {
-            render_help_popup(frame, area);
+        Overlay::Help {
+            scroll,
+            filter,
+            filtering,
+        } => {
+            render_help_popup(frame, area, *scroll, filter, *filtering);
         }
         _ => {}
     }
@@ -1025,36 +1033,9 @@ fn render_edit_popup(frame: &mut Frame, area: Rect, input: &str) {
     frame.render_widget(prompt, inner);
 }
 
-/// Build help lines from a shortcut slice with a section header.
-fn shortcut_lines<'a>(title: &'a str, items: &'a [Shortcut], key_width: usize) -> Vec<Line<'a>> {
-    let mut lines = vec![
-        Line::from(Span::styled(
-            format!(" {title}"),
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(
-            format!(" {}", "\u{2500}".repeat(key_width + 20)),
-            Style::default().fg(Color::DarkGray),
-        )),
-    ];
-    for s in items {
-        let padding = " ".repeat(key_width.saturating_sub(s.keys.len()));
-        lines.push(Line::from(vec![
-            Span::styled(format!(" {}", s.keys), Style::default().fg(Color::Cyan)),
-            Span::raw(format!("{padding}  {}", s.description)),
-        ]));
-    }
-    lines
-}
+fn render_help_popup(frame: &mut Frame, area: Rect, scroll: usize, filter: &str, filtering: bool) {
+    let sections = shortcuts::sections();
 
-fn render_help_popup(frame: &mut Frame, area: Rect) {
-    let sections: &[(&str, &[Shortcut])] = &[
-        ("Dashboard", shortcuts::DASHBOARD_SHORTCUTS),
-        ("Terminal", shortcuts::TERMINAL_SHORTCUTS),
-        ("Copy Mode", shortcuts::COPY_MODE_SHORTCUTS),
-    ];
-
-    // Find the widest key column across all sections
     let key_width = sections
         .iter()
         .flat_map(|(_, items)| items.iter())
@@ -1062,34 +1043,106 @@ fn render_help_popup(frame: &mut Frame, area: Rect) {
         .max()
         .unwrap_or(10);
 
+    let filter_lower = filter.to_ascii_lowercase();
+
     let mut lines: Vec<Line> = Vec::new();
-    for (i, (title, items)) in sections.iter().enumerate() {
-        if i > 0 {
+    for (title, items) in sections.iter() {
+        let filtered: Vec<_> = items
+            .iter()
+            .filter(|s| {
+                filter.is_empty()
+                    || s.keys.to_ascii_lowercase().contains(&filter_lower)
+                    || s.description.to_ascii_lowercase().contains(&filter_lower)
+            })
+            .collect();
+        if filtered.is_empty() {
+            continue;
+        }
+        if !lines.is_empty() {
             lines.push(Line::raw(""));
         }
-        lines.extend(shortcut_lines(title, items, key_width));
+        lines.push(Line::from(Span::styled(
+            format!(" {title}"),
+            Style::default().add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(Span::styled(
+            format!(" {}", "\u{2500}".repeat(key_width + 20)),
+            Style::default().fg(Color::DarkGray),
+        )));
+        for s in &filtered {
+            let padding = " ".repeat(key_width.saturating_sub(s.keys.len()));
+            lines.push(Line::from(vec![
+                Span::styled(format!(" {}", s.keys), Style::default().fg(Color::Cyan)),
+                Span::raw(format!("{padding}  {}", s.description)),
+            ]));
+        }
     }
 
-    // Width = widest actual line: " " + keys + padding + "  " + description
+    // Width from actual content
     let max_line_width = sections
         .iter()
         .flat_map(|(_, items)| items.iter())
         .map(|s| 1 + key_width + 2 + s.description.len())
         .max()
         .unwrap_or(40);
-    let width = (max_line_width + 4).min(area.width as usize) as u16; // +4 for borders + margin
-    let height = (lines.len() as u16 + 2).min(area.height); // +2 for border
-    let popup = popup_area(area, width, height);
+    let width = (max_line_width + 4).min(area.width as usize) as u16;
+
+    // Cap height at 70% of terminal, leave room for filter bar
+    let max_height = (area.height * 7 / 10).max(10);
+    let content_height = lines.len() as u16;
+    let needs_scroll = content_height + 3 > max_height; // +3 for border + footer
+    let popup_height = if needs_scroll {
+        max_height
+    } else {
+        (content_height + 3).min(area.height) // +3: border top/bottom + footer
+    };
+
+    let popup = popup_area(area, width, popup_height);
     frame.render_widget(Clear, popup);
+
+    let title = if filtering {
+        format!(" Help  /{}_ ", filter)
+    } else if !filter.is_empty() {
+        format!(" Help  /{} ", filter)
+    } else {
+        " Help ".to_string()
+    };
 
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title(" Help ");
+        .title(title);
 
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
-    frame.render_widget(Paragraph::new(lines), inner);
+
+    // Scrollable content area: reserve 1 row for footer hints
+    let content_area = Rect {
+        height: inner.height.saturating_sub(1),
+        ..inner
+    };
+    let footer_area = Rect {
+        y: inner.y + content_area.height,
+        height: 1,
+        ..inner
+    };
+
+    let para = Paragraph::new(lines).scroll((scroll as u16, 0));
+    frame.render_widget(para, content_area);
+
+    // Footer: hints
+    let hint = if filtering {
+        "type to filter  Enter/Esc: done"
+    } else if needs_scroll {
+        "j/k: scroll  /: filter  q: close"
+    } else {
+        "/: filter  q: close"
+    };
+    let footer = Line::from(Span::styled(
+        format!(" {hint}"),
+        Style::default().fg(Color::DarkGray),
+    ));
+    frame.render_widget(Paragraph::new(footer), footer_area);
 }
 
 /// Render copy mode cursor as an inverted block at the given position.
