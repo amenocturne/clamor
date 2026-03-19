@@ -1070,7 +1070,14 @@ fn render_help_popup(frame: &mut Frame, area: Rect) {
         lines.extend(shortcut_lines(title, items, key_width));
     }
 
-    let width = (key_width + 26).min(area.width as usize) as u16;
+    // Width = widest actual line: " " + keys + padding + "  " + description
+    let max_line_width = sections
+        .iter()
+        .flat_map(|(_, items)| items.iter())
+        .map(|s| 1 + key_width + 2 + s.description.len())
+        .max()
+        .unwrap_or(40);
+    let width = (max_line_width + 4).min(area.width as usize) as u16; // +4 for borders + margin
     let height = (lines.len() as u16 + 2).min(area.height); // +2 for border
     let popup = popup_area(area, width, height);
     frame.render_widget(Clear, popup);
