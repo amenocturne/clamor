@@ -36,10 +36,15 @@ pub struct Selection {
 ///
 /// Does NOT own a PTY -- the daemon does. This struct maintains a vt100 parser
 /// that processes output bytes received from the daemon, and tracks scroll state.
+///
+/// Uses tmux-style freeze semantics: when scrolled up, new output is buffered
+/// without touching the parser, so the display stays stable. Output is flushed
+/// through the parser when returning to live view.
 pub struct PaneView {
     pub parser: vt100::Parser,
     pub scroll_offset: usize,
     pub selection: Option<Selection>,
+    pending_output: Vec<u8>,
 }
 
 impl PaneView {
@@ -48,24 +53,26 @@ impl PaneView {
             parser: vt100::Parser::new(rows, cols, 10000),
             scroll_offset: 0,
             selection: None,
+            pending_output: Vec::new(),
         }
     }
 
     /// Feed output bytes (received from daemon) into the vt100 parser.
-    /// When scrolled up, adjusts offset so the user stays at the same content.
+    ///
+    /// When scrolled up (frozen), output is buffered without touching the parser
+    /// so the display stays completely stable. Buffered data is flushed when
+    /// returning to live view via `snap_to_bottom()`.
     pub fn process_output(&mut self, data: &[u8]) {
         if self.scroll_offset > 0 {
-            let before = self.scrollback_len();
-            self.parser.process(data);
-            let after = self.scrollback_len();
-            self.scroll_offset += after.saturating_sub(before);
-            // Clamp so offset never exceeds actual scrollback — prevents
-            // runaway growth when the buffer is at capacity and
-            // scrollback_len() stops increasing.
-            self.scroll_offset = self.scroll_offset.min(after);
+            self.pending_output.extend_from_slice(data);
         } else {
             self.parser.process(data);
         }
+    }
+
+    /// Whether there is buffered output waiting to be flushed.
+    pub fn has_pending_output(&self) -> bool {
+        !self.pending_output.is_empty()
     }
 
     /// Resize the virtual terminal.
@@ -112,14 +119,23 @@ impl PaneView {
     }
 
     /// Scroll down by `n` lines (toward live view).
+    /// If this reaches offset 0, flushes pending output to return to live mode.
     pub fn scroll_down(&mut self, n: usize) {
         self.scroll_offset = self.scroll_offset.saturating_sub(n);
+        if self.scroll_offset == 0 && !self.pending_output.is_empty() {
+            let data = std::mem::take(&mut self.pending_output);
+            self.parser.process(&data);
+        }
     }
 
-    /// Snap back to live view (scroll_offset = 0).
+    /// Snap back to live view — flush any pending output through the parser.
     pub fn snap_to_bottom(&mut self) {
         self.scroll_offset = 0;
         self.clear_selection();
+        if !self.pending_output.is_empty() {
+            let data = std::mem::take(&mut self.pending_output);
+            self.parser.process(&data);
+        }
     }
 }
 

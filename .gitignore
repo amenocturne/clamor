@@ -31,5 +31,8 @@ installations.yaml
 # Rust build artifacts
 tools/*/target/
 
+# Temporary TODO files
+TODO.md
+
 # Claude Code local state
 .claude/
