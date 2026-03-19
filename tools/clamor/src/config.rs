@@ -63,29 +63,30 @@ impl RgbColor {
     }
 }
 
+/// Tokyo Night color palette defaults.
 mod defaults {
     use super::RgbColor;
     pub fn highlight() -> RgbColor {
-        RgbColor([50, 48, 58])
-    }
+        RgbColor([0x28, 0x34, 0x57])
+    } // #283457
     pub fn accent() -> RgbColor {
-        RgbColor([0, 255, 255])
-    } // cyan
+        RgbColor([0x7d, 0xcf, 0xff])
+    } // #7dcfff
     pub fn status_working() -> RgbColor {
-        RgbColor([0, 255, 0])
-    } // green
+        RgbColor([0x9e, 0xce, 0x6a])
+    } // #9ece6a
     pub fn status_input() -> RgbColor {
-        RgbColor([255, 255, 0])
-    } // yellow
+        RgbColor([0xe0, 0xaf, 0x68])
+    } // #e0af68
     pub fn status_done() -> RgbColor {
-        RgbColor([128, 128, 128])
-    } // gray
+        RgbColor([0x56, 0x5f, 0x89])
+    } // #565f89
     pub fn dimmed() -> RgbColor {
-        RgbColor([128, 128, 128])
-    } // gray
+        RgbColor([0x56, 0x5f, 0x89])
+    } // #565f89
     pub fn batch_marker() -> RgbColor {
-        RgbColor([255, 255, 0])
-    } // yellow
+        RgbColor([0xe0, 0xaf, 0x68])
+    } // #e0af68
 }
 
 impl Default for ThemeConfig {
