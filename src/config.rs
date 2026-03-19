@@ -26,10 +26,18 @@ pub struct DashboardConfig {
     pub refresh_interval: f64,
     #[serde(default)]
     pub watch_mode: WatchMode,
+    /// Background color for cursor-selected and batch-selected agent rows.
+    /// RGB array like [50, 48, 58]. Tune to match your terminal background.
+    #[serde(default = "default_highlight_color")]
+    pub highlight_color: [u8; 3],
 }
 
 fn default_refresh_interval() -> f64 {
     1.0
+}
+
+fn default_highlight_color() -> [u8; 3] {
+    [50, 48, 58]
 }
 
 impl Default for DashboardConfig {
@@ -37,6 +45,7 @@ impl Default for DashboardConfig {
         Self {
             refresh_interval: default_refresh_interval(),
             watch_mode: WatchMode::default(),
+            highlight_color: default_highlight_color(),
         }
     }
 }
