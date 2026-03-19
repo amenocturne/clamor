@@ -4,6 +4,43 @@ pub struct Shortcut {
     pub description: &'static str,
 }
 
+const SECTIONS: &[(&str, &[Shortcut])] = &[
+    ("Dashboard", DASHBOARD_SHORTCUTS),
+    ("Terminal", TERMINAL_SHORTCUTS),
+    ("Copy Mode", COPY_MODE_SHORTCUTS),
+];
+
+/// Whether a shortcut matches a filter query (case-insensitive).
+fn matches_filter(shortcut: &Shortcut, filter: &str) -> bool {
+    if filter.is_empty() {
+        return true;
+    }
+    let f = filter.to_ascii_lowercase();
+    shortcut.keys.to_ascii_lowercase().contains(&f)
+        || shortcut.description.to_ascii_lowercase().contains(&f)
+}
+
+/// Count total display lines for the help popup (with optional filter).
+pub fn help_line_count(filter: &str) -> usize {
+    let mut count = 0;
+    for (_, items) in SECTIONS.iter() {
+        let filtered: Vec<_> = items.iter().filter(|s| matches_filter(s, filter)).collect();
+        if filtered.is_empty() {
+            continue;
+        }
+        if count > 0 {
+            count += 1; // blank line between sections
+        }
+        count += 2 + filtered.len(); // header + separator + items
+    }
+    count
+}
+
+/// Return the sections (for use by render).
+pub fn sections() -> &'static [(&'static str, &'static [Shortcut])] {
+    SECTIONS
+}
+
 pub const DASHBOARD_SHORTCUTS: &[Shortcut] = &[
     Shortcut {
         keys: "J / K / ↑↓",

@@ -39,6 +39,10 @@ pub enum DashboardAction {
     ToggleSelectAll,
     ClearSelection,
     ShowHelp,
+    HelpScroll(i32), // positive = down, negative = up
+    HelpStartFilter,
+    HelpFilterInput(PromptEdit),
+    HelpFilterAccept,
     ShowQuitHint,
     ConfirmYes,
     Cancel,
@@ -102,7 +106,11 @@ pub enum InputMode {
     Filtering {
         query: String,
     },
-    Help,
+    Help {
+        scroll: usize,
+        filter: String,
+        filtering: bool, // true when typing in the search field
+    },
 }
 
 /// Process a keyboard event and return the corresponding action.
@@ -131,7 +139,7 @@ pub fn handle_input(
         InputMode::ConfirmBatchKill => handle_confirm_batch_kill(event),
         InputMode::QuitHint => handle_quit_hint(event),
         InputMode::Filtering { .. } => handle_filter_input(event),
-        InputMode::Help => handle_help_input(event),
+        InputMode::Help { filtering, .. } => handle_help_input(event, *filtering),
     }
 }
 
@@ -293,9 +301,32 @@ fn handle_filter_input(event: KeyEvent) -> DashboardAction {
     }
 }
 
-fn handle_help_input(event: KeyEvent) -> DashboardAction {
+fn handle_help_input(event: KeyEvent, filtering: bool) -> DashboardAction {
+    if filtering {
+        if let Some(edit) = check_text_shortcut(&event) {
+            return DashboardAction::HelpFilterInput(edit);
+        }
+        return match event.code {
+            KeyCode::Enter => DashboardAction::HelpFilterAccept,
+            KeyCode::Esc => DashboardAction::HelpFilterAccept, // accept and return to browse
+            KeyCode::Backspace => DashboardAction::HelpFilterInput(PromptEdit::Backspace),
+            KeyCode::Char(c) => DashboardAction::HelpFilterInput(PromptEdit::Char(c)),
+            _ => DashboardAction::Refresh,
+        };
+    }
     match event.code {
         KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => DashboardAction::Cancel,
+        KeyCode::Char('j') | KeyCode::Down => DashboardAction::HelpScroll(1),
+        KeyCode::Char('k') | KeyCode::Up => DashboardAction::HelpScroll(-1),
+        KeyCode::Char('d') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            DashboardAction::HelpScroll(10)
+        }
+        KeyCode::Char('u') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            DashboardAction::HelpScroll(-10)
+        }
+        KeyCode::Char('g') => DashboardAction::HelpScroll(i32::MIN), // top
+        KeyCode::Char('G') => DashboardAction::HelpScroll(i32::MAX), // bottom
+        KeyCode::Char('/') => DashboardAction::HelpStartFilter,
         _ => DashboardAction::Refresh,
     }
 }

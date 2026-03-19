@@ -490,7 +490,15 @@ fn build_overlay<'a>(
         InputMode::WaitingEdit => render::Overlay::PendingEdit,
         InputMode::EditingDescription { input, .. } => render::Overlay::EditInput { input },
         InputMode::Filtering { query } => render::Overlay::FilterInput { query },
-        InputMode::Help => render::Overlay::Help,
+        InputMode::Help {
+            scroll,
+            filter,
+            filtering,
+        } => render::Overlay::Help {
+            scroll: *scroll,
+            filter,
+            filtering: *filtering,
+        },
     }
 }
 
@@ -1299,7 +1307,11 @@ async fn handle_dashboard_event(
             }
 
             DashboardAction::ShowHelp => {
-                *input_mode = InputMode::Help;
+                *input_mode = InputMode::Help {
+                    scroll: 0,
+                    filter: String::new(),
+                    filtering: false,
+                };
             }
 
             DashboardAction::ShowQuitHint => {
@@ -1308,6 +1320,56 @@ async fn handle_dashboard_event(
 
             DashboardAction::ClearSelection => {
                 *selected_index = None;
+            }
+
+            DashboardAction::HelpScroll(delta) => {
+                if let InputMode::Help {
+                    ref mut scroll,
+                    ref filter,
+                    ..
+                } = input_mode
+                {
+                    let total = shortcuts::help_line_count(filter);
+                    if delta == i32::MIN {
+                        *scroll = 0;
+                    } else if delta == i32::MAX {
+                        *scroll = total.saturating_sub(1);
+                    } else if delta < 0 {
+                        *scroll = scroll.saturating_sub((-delta) as usize);
+                    } else {
+                        *scroll = (*scroll + delta as usize).min(total.saturating_sub(1));
+                    }
+                }
+            }
+
+            DashboardAction::HelpStartFilter => {
+                if let InputMode::Help {
+                    ref mut filtering, ..
+                } = input_mode
+                {
+                    *filtering = true;
+                }
+            }
+
+            DashboardAction::HelpFilterInput(edit) => {
+                if let InputMode::Help {
+                    ref mut filter,
+                    ref mut scroll,
+                    ..
+                } = input_mode
+                {
+                    apply_edit(filter, &edit);
+                    *scroll = 0;
+                }
+            }
+
+            DashboardAction::HelpFilterAccept => {
+                if let InputMode::Help {
+                    ref mut filtering, ..
+                } = input_mode
+                {
+                    *filtering = false;
+                }
             }
 
             DashboardAction::Refresh | DashboardAction::PendingG => {}
