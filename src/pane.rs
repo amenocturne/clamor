@@ -116,10 +116,17 @@ impl PaneView {
     }
 
     /// Apply scrollback offset and return the screen for rendering.
-    /// Clamps offset to actual scrollback size.
+    /// Clamps offset to actual scrollback size. If clamped to 0, flushes
+    /// any pending output so the display returns to the live view.
     pub fn scrolled_screen(&mut self) -> &vt100::Screen {
+        let before = self.scroll_offset;
         self.parser.screen_mut().set_scrollback(self.scroll_offset);
         self.scroll_offset = self.parser.screen().scrollback();
+        // If scroll was clamped to 0, flush buffered output
+        if self.scroll_offset == 0 && before > 0 && !self.pending_output.is_empty() {
+            let data = std::mem::take(&mut self.pending_output);
+            self.parser.process(&data);
+        }
         self.parser.screen()
     }
 

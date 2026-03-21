@@ -532,12 +532,23 @@ fn render_terminal_view(
 
     if let Some(pv) = pane_views.get_mut(agent_id) {
         let sel = pv.selection.clone();
-        let scroll_offset = pv.scroll_offset;
-        let has_pending = pv.has_pending_output();
         let copy_cursor = pv
             .copy_mode
             .as_ref()
             .map(|cm| (cm.cursor_col, cm.cursor_row));
+        // Clamp scroll offset to actual scrollback before borrowing screen
+        if pv.scroll_offset > 0 {
+            let max = pv.scrollback_len();
+            if pv.scroll_offset > max {
+                pv.scroll_offset = max;
+            }
+            // If clamped to 0, flush pending output
+            if pv.scroll_offset == 0 {
+                pv.snap_to_bottom();
+            }
+        }
+        let scroll_offset = pv.scroll_offset;
+        let has_pending = pv.has_pending_output();
         let scroll_info = if scroll_offset > 0 {
             let scrollback_total = pv.scrollback_len();
             Some((scroll_offset, scrollback_total))

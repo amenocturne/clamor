@@ -303,26 +303,22 @@ pub fn render_terminal(
 
     let content_area = chunks[1];
 
-    // At the live view (not scrolled), bottom-anchor the content so the
-    // prompt stays at a fixed position when Ink's render height fluctuates
-    // (e.g. permission prompts appearing/disappearing).
-    let pane_area = if scroll_info.is_none() {
-        let last_row = last_content_row(screen, content_area.height, content_area.width);
-        // content rows + 1 trailing blank line, capped to area
-        let content_h = (last_row + 2).min(content_area.height);
-        let offset = content_area.height - content_h;
-        if offset > 0 {
-            // Clear the empty region above the content
-            frame.render_widget(
-                Clear,
-                Rect {
-                    x: content_area.x,
-                    y: content_area.y,
-                    width: content_area.width,
-                    height: offset,
-                },
-            );
-        }
+    // Bottom-anchor: strip trailing empty rows so the prompt sticks to the
+    // bottom when Ink's render height fluctuates. Applied in all modes so
+    // there's no visual jump when entering/leaving scroll mode.
+    let last_row = last_content_row(screen, content_area.height, content_area.width);
+    let content_h = (last_row + 2).min(content_area.height);
+    let offset = content_area.height - content_h;
+    let pane_area = if offset > 0 {
+        frame.render_widget(
+            Clear,
+            Rect {
+                x: content_area.x,
+                y: content_area.y,
+                width: content_area.width,
+                height: offset,
+            },
+        );
         Rect {
             x: content_area.x,
             y: content_area.y + offset,
