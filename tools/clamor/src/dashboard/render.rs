@@ -301,64 +301,20 @@ pub fn render_terminal(
         },
     );
 
-    let content_area = chunks[1];
-
-    // At the live view (not scrolled), bottom-anchor the content so the
-    // prompt stays at a fixed position when Ink's render height fluctuates
-    // (e.g. permission prompts appearing/disappearing).
-    let pane_area = if scroll_info.is_none() {
-        let last_row = last_content_row(screen, content_area.height, content_area.width);
-        // content rows + 1 trailing blank line, capped to area
-        let content_h = (last_row + 2).min(content_area.height);
-        let offset = content_area.height - content_h;
-        if offset > 0 {
-            // Clear the empty region above the content
-            frame.render_widget(
-                Clear,
-                Rect {
-                    x: content_area.x,
-                    y: content_area.y,
-                    width: content_area.width,
-                    height: offset,
-                },
-            );
-        }
-        Rect {
-            x: content_area.x,
-            y: content_area.y + offset,
-            width: content_area.width,
-            height: content_h,
-        }
-    } else {
-        content_area
-    };
-
     let pseudo_term = tui_term::widget::PseudoTerminal::new(screen);
-    frame.render_widget(pseudo_term, pane_area);
+    frame.render_widget(pseudo_term, chunks[1]);
 
     // Overlay selection highlight
     if let Some(sel) = selection {
-        render_selection(frame, pane_area, sel);
+        let pane = chunks[1];
+        render_selection(frame, pane, sel);
     }
 
     // Overlay copy mode cursor
     if let Some((col, row)) = copy_cursor {
-        render_copy_cursor(frame, pane_area, col, row);
+        let pane = chunks[1];
+        render_copy_cursor(frame, pane, col, row);
     }
-}
-
-/// Find the last row with visible content in the screen.
-fn last_content_row(screen: &vt100::Screen, rows: u16, cols: u16) -> u16 {
-    for row in (0..rows).rev() {
-        for col in 0..cols {
-            if let Some(cell) = screen.cell(row, col) {
-                if cell.has_contents() {
-                    return row;
-                }
-            }
-        }
-    }
-    0
 }
 
 fn render_header(
