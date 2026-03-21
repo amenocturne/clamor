@@ -203,8 +203,8 @@ def find_project_settings_bounded(root: Path) -> list[Path]:
     return results
 
 
-def block(reason: str) -> None:
-    print(json.dumps({"decision": "block", "reason": reason}))
+def deny(reason: str) -> None:
+    print(json.dumps({"hookSpecificOutput": {"permissionDecision": "deny", "permissionDecisionReason": reason}}))
     sys.exit(0)
 
 
@@ -241,7 +241,7 @@ if __name__ == "__main__":
                 continue
             matched = check_bash_command(command, project_root, patterns)
             if matched:
-                block(f"deny-read: command accesses file matching '{matched}' (from {project_root.name})")
+                deny(f"deny-read: command accesses file matching '{matched}' (from {project_root.name})")
 
         sys.exit(0)
 
@@ -257,7 +257,7 @@ if __name__ == "__main__":
                 patterns = get_deny_patterns(settings)
                 matched = matches_deny(search_path, project_root, patterns)
                 if matched:
-                    block(f"deny-read: grep target '{Path(search_path).name}' matches deny pattern '{matched}' (from {project_root.name})")
+                    deny(f"deny-read: grep target '{Path(search_path).name}' matches deny pattern '{matched}' (from {project_root.name})")
             sys.exit(0)
 
         # Grep targets a directory: check if it contains denied files
@@ -284,7 +284,7 @@ if __name__ == "__main__":
                         sys.exit(0)
 
                     denied_str = ", ".join(denied_in_dir)
-                    block(
+                    deny(
                         f"deny-read: grep on '{Path(search_path).name or 'project'}' would expose "
                         f"files matching [{denied_str}]. Use glob or type filter to exclude "
                         f"denied files, or target a specific non-denied file path."
@@ -306,4 +306,4 @@ if __name__ == "__main__":
 
     matched = matches_deny(file_path, project_root, patterns)
     if matched:
-        block(f"deny-read: '{Path(file_path).name}' matches deny pattern '{matched}' (from {project_root.name})")
+        deny(f"deny-read: '{Path(file_path).name}' matches deny pattern '{matched}' (from {project_root.name})")

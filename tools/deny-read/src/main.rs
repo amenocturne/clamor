@@ -3,7 +3,7 @@
 //! Protocol:
 //! - Read JSON from stdin: {"tool_name": "...", "tool_input": {...}}
 //! - To ALLOW: exit 0, print nothing to stdout
-//! - To BLOCK: exit 0, print {"decision": "block", "reason": "..."} to stdout
+//! - To DENY: exit 0, print {"hookSpecificOutput": {"permissionDecision": "deny", ...}}
 //! - On any error: exit 0 silently (never crash, never block incorrectly)
 
 mod bash;
@@ -30,10 +30,12 @@ struct HookInput {
     tool_input: Option<Value>,
 }
 
-fn block(reason: &str) {
+fn deny(reason: &str) {
     let out = serde_json::json!({
-        "decision": "block",
-        "reason": reason,
+        "hookSpecificOutput": {
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
     });
     println!("{}", out);
 }
@@ -85,7 +87,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             if let Some(matched) = check_bash_command(command, &project_root, &patterns) {
-                block(&format!(
+                deny(&format!(
                     "deny-read: command accesses file matching '{}' (from {})",
                     matched,
                     path_name(&project_root)
@@ -121,7 +123,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             {
                 let patterns = get_deny_patterns(&settings);
                 if let Some(matched) = matches_deny(&search_path, &project_root, &patterns) {
-                    block(&format!(
+                    deny(&format!(
                         "deny-read: grep target '{}' matches deny pattern '{}' (from {})",
                         Path::new(&search_path)
                             .file_name()
@@ -165,7 +167,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         .file_name()
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or_else(|| "project".to_string());
-                    block(&format!(
+                    deny(&format!(
                         "deny-read: grep on '{}' would expose files matching [{}]. \
                          Use glob or type filter to exclude denied files, \
                          or target a specific non-denied file path.",
@@ -195,7 +197,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if let Some(matched) = matches_deny(file_path, &project_root, &patterns) {
-        block(&format!(
+        deny(&format!(
             "deny-read: '{}' matches deny pattern '{}' (from {})",
             Path::new(file_path)
                 .file_name()
