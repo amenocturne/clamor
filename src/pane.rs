@@ -68,6 +68,30 @@ impl PaneView {
         }
     }
 
+    /// Create from catch-up data without polluting scrollback.
+    ///
+    /// Claude Code renders inline (no alternate screen), so replaying the full
+    /// output history through the parser creates messy scrollback from repeated
+    /// redraws. This method processes catch-up in a temp parser with 0 scrollback,
+    /// captures the clean screen state, then seeds the real parser — so only new
+    /// live output creates scrollback entries.
+    pub fn from_catch_up(rows: u16, cols: u16, catch_up: &[u8]) -> Self {
+        let mut temp = vt100::Parser::new(rows, cols, 0);
+        temp.process(catch_up);
+        let screen_state = temp.screen().contents_formatted();
+
+        let mut parser = vt100::Parser::new(rows, cols, 10000);
+        parser.process(&screen_state);
+
+        Self {
+            parser,
+            scroll_offset: 0,
+            selection: None,
+            copy_mode: None,
+            pending_output: Vec::new(),
+        }
+    }
+
     /// Feed output bytes (received from daemon) into the vt100 parser.
     ///
     /// When scrolled up (frozen), output is buffered without touching the parser
