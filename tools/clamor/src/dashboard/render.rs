@@ -40,6 +40,7 @@ pub enum Overlay<'a> {
     },
     ConfirmEmptySpawn,
     ConfirmKill {
+        agent_id: &'a str,
         description: &'a str,
     },
     ConfirmBatchKill {
@@ -172,6 +173,11 @@ pub fn render(
         frame.render_widget(banner, chunks[0]);
     }
 
+    let kill_target_id = match overlay {
+        Overlay::ConfirmKill { agent_id, .. } => Some(*agent_id),
+        _ => None,
+    };
+
     render_separator(frame, chunks[1]);
     render_body(
         frame,
@@ -180,6 +186,7 @@ pub fn render(
         selected_index,
         filter_query,
         selected_agents,
+        kill_target_id,
         &config.theme,
     );
     render_footer(frame, chunks[3], overlay, batch_count);
@@ -203,7 +210,7 @@ pub fn render(
         Overlay::ConfirmEmptySpawn => {
             render_confirm_empty_popup(frame, area);
         }
-        Overlay::ConfirmKill { description } => {
+        Overlay::ConfirmKill { description, .. } => {
             render_confirm_kill_popup(frame, area, description);
         }
         Overlay::ConfirmBatchKill { count } => {
@@ -520,6 +527,7 @@ fn build_groups<'a>(
     groups
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_body(
     frame: &mut Frame,
     area: Rect,
@@ -527,6 +535,7 @@ fn render_body(
     selected_index: Option<usize>,
     filter_query: &str,
     selected_agents: &HashSet<String>,
+    kill_target_id: Option<&str>,
     theme: &ThemeConfig,
 ) {
     if groups.is_empty() && !filter_query.is_empty() {
@@ -558,8 +567,11 @@ fn render_body(
 
         for da in &group.agents {
             let batch_selected = selected_agents.contains(&da.agent.id);
+            let is_kill_target = kill_target_id == Some(da.agent.id.as_str());
             let mut line = render_agent_line(da, width, batch_selected, theme);
-            if selected_index == Some(agent_idx) {
+            if is_kill_target {
+                line = kill_highlight_line(line, theme);
+            } else if selected_index == Some(agent_idx) {
                 line = highlight_line(line, theme);
                 selected_line = Some(lines.len());
             } else if batch_selected {
@@ -597,6 +609,15 @@ fn highlight_line(line: Line<'static>, theme: &ThemeConfig) -> Line<'static> {
         "▎",
         Style::default().fg(theme.accent.to_ratatui()),
     )];
+    for span in line.spans {
+        spans.push(span.patch_style(bg));
+    }
+    Line::from(spans)
+}
+
+fn kill_highlight_line(line: Line<'static>, theme: &ThemeConfig) -> Line<'static> {
+    let bg = Style::default().bg(theme.kill_highlight.to_ratatui());
+    let mut spans = vec![Span::styled("▎", Style::default().fg(Color::Red))];
     for span in line.spans {
         spans.push(span.patch_style(bg));
     }
