@@ -14,6 +14,32 @@ use crate::protocol::{
 
 const RING_BUFFER_CAP: usize = 1024 * 1024;
 
+/// Strip DEC mode 2026 synchronized output sequences (BSU/ESU) from PTY output.
+///
+/// vt100 0.16.x has no support for mode 2026, so these sequences get mishandled
+/// and cause rendering glitches. Claude Code (via Ink) wraps every render in
+/// `\x1b[?2026h` (begin) and `\x1b[?2026l` (end) — we remove them here before
+/// the bytes reach the client's vt100 parser.
+fn strip_synchronized_output(data: &[u8]) -> Vec<u8> {
+    const BSU: &[u8; 8] = b"\x1b[?2026h";
+    const ESU: &[u8; 8] = b"\x1b[?2026l";
+
+    let mut result = Vec::with_capacity(data.len());
+    let mut i = 0;
+    while i < data.len() {
+        if i + 8 <= data.len() {
+            let window = &data[i..i + 8];
+            if window == BSU || window == ESU {
+                i += 8;
+                continue;
+            }
+        }
+        result.push(data[i]);
+        i += 1;
+    }
+    result
+}
+
 pub fn daemon_socket_path() -> Result<PathBuf> {
     Ok(crate::config::ClamorConfig::config_dir()?.join("clamor.sock"))
 }
@@ -55,6 +81,94 @@ pub fn start_daemon_background() -> Result<()> {
 enum PtyEvent {
     Output { id: String, data: Vec<u8> },
     Exited { id: String },
+    QueryResponse { id: String, data: Vec<u8> },
+}
+
+/// Detects terminal capability queries in PTY output and generates responses.
+///
+/// Claude Code sends DA1, DSR, and DECRQM queries to detect terminal capabilities.
+/// Without responses, it may fall back to degraded rendering paths.
+struct TerminalQueryResponder {
+    partial: Vec<u8>,
+}
+
+impl TerminalQueryResponder {
+    fn new() -> Self {
+        Self {
+            partial: Vec::new(),
+        }
+    }
+
+    /// Scan output data for terminal queries and return responses to write back.
+    fn scan_for_queries(&mut self, data: &[u8]) -> Vec<u8> {
+        let mut responses = Vec::new();
+        let mut combined = std::mem::take(&mut self.partial);
+        combined.extend_from_slice(data);
+
+        let mut i = 0;
+        while i < combined.len() {
+            if combined[i] == 0x1b && i + 1 < combined.len() && combined[i + 1] == b'[' {
+                if let Some((seq_len, response)) = Self::parse_csi_query(&combined[i..]) {
+                    if let Some(resp) = response {
+                        responses.extend_from_slice(&resp);
+                    }
+                    i += seq_len;
+                    continue;
+                } else {
+                    // Incomplete sequence at end — buffer for next call
+                    self.partial = combined[i..].to_vec();
+                    return responses;
+                }
+            }
+            i += 1;
+        }
+
+        responses
+    }
+
+    /// Try to parse a CSI query. Returns (length, optional_response).
+    /// Returns None if the sequence appears incomplete.
+    fn parse_csi_query(data: &[u8]) -> Option<(usize, Option<Vec<u8>>)> {
+        if data.len() < 3 {
+            return None;
+        }
+
+        // DA1: ESC [ c
+        if data[2] == b'c' {
+            return Some((3, Some(b"\x1b[?62;22c".to_vec())));
+        }
+        // DA1: ESC [ 0 c
+        if data.len() >= 4 && data[2] == b'0' && data[3] == b'c' {
+            return Some((4, Some(b"\x1b[?62;22c".to_vec())));
+        }
+
+        // DSR CPR: ESC [ 6 n — skip, do NOT respond with fake cursor position.
+        // Claude Code uses the actual position for layout calculations.
+        if data.len() >= 4 && data[2] == b'6' && data[3] == b'n' {
+            return Some((4, None));
+        }
+
+        // DECRQM: ESC [ ? <digits> $ p
+        if data.len() >= 4 && data[2] == b'?' {
+            for j in 3..data.len().min(20) {
+                if data[j] == b'$' && j + 1 < data.len() && data[j + 1] == b'p' {
+                    let mode_str = std::str::from_utf8(&data[3..j]).unwrap_or("");
+                    let mode_num = mode_str.parse::<u32>().unwrap_or(0);
+                    // Report mode 2026 (synchronized output) as supported
+                    let status = if mode_num == 2026 { 1 } else { 0 };
+                    let resp = format!("\x1b[?{};{}$y", mode_num, status);
+                    return Some((j + 2, Some(resp.into_bytes())));
+                }
+                if !data[j].is_ascii_digit() && data[j] != b'$' {
+                    return Some((1, None)); // Not a query we handle
+                }
+            }
+            return None; // Possibly incomplete
+        }
+
+        // Not a query — skip the ESC byte
+        Some((1, None))
+    }
 }
 
 struct AgentSlot {
@@ -183,6 +297,12 @@ pub async fn run_daemon() -> Result<()> {
                         if disconnect {
                             client = None;
                             subscriptions.clear();
+                        }
+                    }
+                    PtyEvent::QueryResponse { id, data } => {
+                        if let Some(slot) = agents.get_mut(&id) {
+                            let _ = slot.writer.write_all(&data);
+                            let _ = slot.writer.flush();
                         }
                     }
                 }
@@ -439,6 +559,7 @@ fn spawn_agent_pty(
 
     tokio::task::spawn_blocking(move || {
         let mut buf = [0u8; 65536];
+        let mut responder = TerminalQueryResponder::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => {
@@ -448,10 +569,23 @@ fn spawn_agent_pty(
                     break;
                 }
                 Ok(n) => {
+                    // Detect terminal queries and generate responses
+                    let responses = responder.scan_for_queries(&buf[..n]);
+                    if !responses.is_empty() {
+                        let _ = tx.blocking_send(PtyEvent::QueryResponse {
+                            id: agent_id.clone(),
+                            data: responses,
+                        });
+                    }
+                    // Strip DEC 2026 sequences before forwarding
+                    let data = strip_synchronized_output(&buf[..n]);
+                    if data.is_empty() {
+                        continue;
+                    }
                     if tx
                         .blocking_send(PtyEvent::Output {
                             id: agent_id.clone(),
-                            data: buf[..n].to_vec(),
+                            data,
                         })
                         .is_err()
                     {
