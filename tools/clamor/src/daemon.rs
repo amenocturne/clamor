@@ -14,30 +14,74 @@ use crate::protocol::{
 
 const RING_BUFFER_CAP: usize = 1024 * 1024;
 
-/// Strip DEC mode 2026 synchronized output sequences (BSU/ESU) from PTY output.
+/// Buffers output between DEC 2026 synchronized update markers (BSU/ESU).
 ///
-/// vt100 0.16.x has no support for mode 2026, so these sequences get mishandled
-/// and cause rendering glitches. Claude Code (via Ink) wraps every render in
-/// `\x1b[?2026h` (begin) and `\x1b[?2026l` (end) — we remove them here before
-/// the bytes reach the client's vt100 parser.
-fn strip_synchronized_output(data: &[u8]) -> Vec<u8> {
-    const BSU: &[u8; 8] = b"\x1b[?2026h";
-    const ESU: &[u8; 8] = b"\x1b[?2026l";
+/// vt100 0.16.x doesn't support mode 2026. Claude Code (Ink) wraps each render
+/// in `\x1b[?2026h` (BSU) and `\x1b[?2026l` (ESU). Instead of stripping them
+/// and forwarding partial frames (which causes prompt jumping), we buffer all
+/// output between BSU and ESU and forward the complete render atomically.
+struct SyncOutputBuffer {
+    buf: Vec<u8>,
+    syncing: bool,
+}
 
-    let mut result = Vec::with_capacity(data.len());
-    let mut i = 0;
-    while i < data.len() {
-        if i + 8 <= data.len() {
-            let window = &data[i..i + 8];
-            if window == BSU || window == ESU {
-                i += 8;
-                continue;
+impl SyncOutputBuffer {
+    fn new() -> Self {
+        Self {
+            buf: Vec::new(),
+            syncing: false,
+        }
+    }
+
+    /// Process incoming PTY data. Returns output chunks to forward.
+    ///
+    /// Outside BSU/ESU: passes through immediately.
+    /// Inside BSU/ESU: buffers until ESU, then emits the complete frame.
+    fn process(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
+        let mut outputs = Vec::new();
+        let mut passthrough = Vec::new();
+        let mut i = 0;
+
+        while i < data.len() {
+            if i + 8 <= data.len() {
+                let window = &data[i..i + 8];
+                if window == b"\x1b[?2026h" {
+                    // BSU: flush any passthrough, start buffering
+                    if !self.syncing && !passthrough.is_empty() {
+                        outputs.push(std::mem::take(&mut passthrough));
+                    }
+                    self.syncing = true;
+                    i += 8;
+                    continue;
+                }
+                if window == b"\x1b[?2026l" {
+                    // ESU: flush the synchronized frame
+                    if self.syncing {
+                        self.buf.extend_from_slice(&passthrough);
+                        passthrough.clear();
+                        if !self.buf.is_empty() {
+                            outputs.push(std::mem::take(&mut self.buf));
+                        }
+                        self.syncing = false;
+                    }
+                    i += 8;
+                    continue;
+                }
+            }
+            passthrough.push(data[i]);
+            i += 1;
+        }
+
+        if !passthrough.is_empty() {
+            if self.syncing {
+                self.buf.extend(passthrough);
+            } else {
+                outputs.push(passthrough);
             }
         }
-        result.push(data[i]);
-        i += 1;
+
+        outputs
     }
-    result
 }
 
 pub fn daemon_socket_path() -> Result<PathBuf> {
@@ -560,6 +604,7 @@ fn spawn_agent_pty(
     tokio::task::spawn_blocking(move || {
         let mut buf = [0u8; 65536];
         let mut responder = TerminalQueryResponder::new();
+        let mut sync_buf = SyncOutputBuffer::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => {
@@ -577,18 +622,22 @@ fn spawn_agent_pty(
                             data: responses,
                         });
                     }
-                    // Strip DEC 2026 sequences before forwarding
-                    let data = strip_synchronized_output(&buf[..n]);
-                    if data.is_empty() {
-                        continue;
+                    // Buffer synchronized updates, forward complete frames
+                    let chunks = sync_buf.process(&buf[..n]);
+                    let mut broken = false;
+                    for data in chunks {
+                        if tx
+                            .blocking_send(PtyEvent::Output {
+                                id: agent_id.clone(),
+                                data,
+                            })
+                            .is_err()
+                        {
+                            broken = true;
+                            break;
+                        }
                     }
-                    if tx
-                        .blocking_send(PtyEvent::Output {
-                            id: agent_id.clone(),
-                            data,
-                        })
-                        .is_err()
-                    {
+                    if broken {
                         break;
                     }
                 }
