@@ -193,15 +193,14 @@ async fn main_loop(
             let (term_cols, term_rows) = crossterm::terminal::size()?;
             let content_rows = term_rows.saturating_sub(1);
             let _ = client.resize(agent_id, content_rows, term_cols).await;
-            let pv = pane_views
-                .entry(agent_id.clone())
-                .or_insert_with(|| PaneView::new(content_rows, term_cols));
-            pv.resize(content_rows, term_cols);
             match client.subscribe(agent_id).await {
                 Ok(catch_up) => {
-                    if !catch_up.is_empty() {
-                        pv.process_output(&catch_up);
-                    }
+                    let pv = if catch_up.is_empty() {
+                        PaneView::new(content_rows, term_cols)
+                    } else {
+                        PaneView::from_catch_up(content_rows, term_cols, &catch_up)
+                    };
+                    pane_views.insert(agent_id.clone(), pv);
                     AppMode::Terminal {
                         agent_id: agent_id.clone(),
                     }
@@ -310,15 +309,26 @@ async fn main_loop(
                             // the correct size before we grab the catch-up
                             let _ = client.resize(&agent_id, content_rows, term_cols).await;
 
-                            let pv = pane_views
-                                .entry(agent_id.clone())
-                                .insert_entry(PaneView::new(content_rows, term_cols))
-                                .into_mut();
+                            let has_existing = pane_views.contains_key(&agent_id);
 
                             match client.subscribe(&agent_id).await {
                                 Ok(catch_up) => {
-                                    if !catch_up.is_empty() {
-                                        pv.process_output(&catch_up);
+                                    if has_existing {
+                                        // Reuse existing pane — parser stayed
+                                        // up-to-date via live output forwarding
+                                        let pv = pane_views.get_mut(&agent_id).unwrap();
+                                        pv.resize(content_rows, term_cols);
+                                    } else {
+                                        let pv = if catch_up.is_empty() {
+                                            PaneView::new(content_rows, term_cols)
+                                        } else {
+                                            PaneView::from_catch_up(
+                                                content_rows,
+                                                term_cols,
+                                                &catch_up,
+                                            )
+                                        };
+                                        pane_views.insert(agent_id.clone(), pv);
                                     }
                                 }
                                 Err(_) => continue,
@@ -380,6 +390,7 @@ async fn main_loop(
                             let state = state_source.get();
                             if !state.agents.contains_key(agent_id) {
                                 let _ = client.unsubscribe(agent_id).await;
+                                pane_views.remove(agent_id);
                                 last_agent_id = Some(agent_id.clone());
                                 mode = AppMode::Dashboard;
                                 input_mode = InputMode::Normal;
@@ -1387,7 +1398,7 @@ async fn handle_dashboard_event(
 /// Handle keyboard input while in copy mode.
 fn handle_copy_mode_key(
     key_event: &crossterm::event::KeyEvent,
-    client: &mut DaemonClient,
+    _client: &mut DaemonClient,
     agent_id: &str,
     pane_views: &mut HashMap<String, PaneView>,
     visible_rows: u16,
@@ -1420,7 +1431,6 @@ fn handle_copy_mode_key(
         // Ctrl+F -> exit copy mode + detach
         KeyCode::Char('f') if ctrl => {
             pv.exit_copy_mode();
-            let _ = futures_util::FutureExt::now_or_never(client.unsubscribe(agent_id));
             return Ok(LoopAction::SwitchToDashboard);
         }
 
@@ -1493,11 +1503,11 @@ async fn handle_terminal_event(
                 );
             }
 
-            // Ctrl+F -> back to dashboard
+            // Ctrl+F -> back to dashboard (stay subscribed so pane
+            // keeps receiving live output while on the dashboard)
             if key_event.modifiers.contains(KeyModifiers::CONTROL)
                 && key_event.code == KeyCode::Char('f')
             {
-                let _ = client.unsubscribe(agent_id).await;
                 return Ok(LoopAction::SwitchToDashboard);
             }
 
