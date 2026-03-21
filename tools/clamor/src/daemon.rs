@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -11,8 +11,6 @@ use tokio::sync::mpsc;
 use crate::protocol::{
     recv_message_async, send_message_async, ClientMessage, DaemonAgent, DaemonMessage,
 };
-
-const RING_BUFFER_CAP: usize = 1024 * 1024;
 
 /// Buffers output between DEC 2026 synchronized update markers (BSU/ESU).
 ///
@@ -220,17 +218,20 @@ struct AgentSlot {
     master: Box<dyn portable_pty::MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child_pid: Option<u32>,
-    ring_buffer: VecDeque<u8>,
+    /// Daemon-side vt100 parser — always holds the correct screen state.
+    /// On subscribe, sends `contents_formatted()` instead of raw bytes,
+    /// giving the client a clean screen snapshot regardless of session length.
+    parser: vt100::Parser,
     alive: bool,
 }
 
 impl AgentSlot {
     fn push_output(&mut self, data: &[u8]) {
-        let overflow = (self.ring_buffer.len() + data.len()).saturating_sub(RING_BUFFER_CAP);
-        if overflow > 0 {
-            self.ring_buffer.drain(..overflow);
-        }
-        self.ring_buffer.extend(data);
+        self.parser.process(data);
+    }
+
+    fn catch_up_data(&self) -> Vec<u8> {
+        self.parser.screen().contents_formatted()
     }
 }
 
@@ -480,6 +481,7 @@ async fn handle_client_message(
                     pixel_height: 0,
                 };
                 let _ = slot.master.resize(size);
+                slot.parser.screen_mut().set_size(rows, cols);
                 let _ = send_to_client(stream, &DaemonMessage::Ok).await;
             } else {
                 let _ = send_to_client(
@@ -494,7 +496,7 @@ async fn handle_client_message(
         }
         ClientMessage::Subscribe { id } => {
             if let Some(slot) = agents.get(&id) {
-                let catch_up_data: Vec<u8> = slot.ring_buffer.iter().copied().collect();
+                let catch_up_data = slot.catch_up_data();
                 subscriptions.insert(id.clone());
                 let _ = send_to_client(
                     stream,
@@ -652,7 +654,7 @@ fn spawn_agent_pty(
         master: pair.master,
         writer,
         child_pid,
-        ring_buffer: VecDeque::with_capacity(RING_BUFFER_CAP),
+        parser: vt100::Parser::new(rows, cols, 0),
         alive: true,
     })
 }
