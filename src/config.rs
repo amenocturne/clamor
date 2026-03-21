@@ -55,6 +55,9 @@ pub struct ThemeConfig {
     /// Batch selection marker color.
     #[serde(default = "defaults::batch_marker")]
     pub batch_marker: RgbColor,
+    /// Background for kill-targeted agent row.
+    #[serde(default = "defaults::kill_highlight")]
+    pub kill_highlight: RgbColor,
 }
 
 impl RgbColor {
@@ -87,6 +90,9 @@ mod defaults {
     pub fn batch_marker() -> RgbColor {
         RgbColor([0xe0, 0xaf, 0x68])
     } // #e0af68
+    pub fn kill_highlight() -> RgbColor {
+        RgbColor([0x3b, 0x20, 0x30])
+    } // #3b2030
 }
 
 impl Default for ThemeConfig {
@@ -99,6 +105,7 @@ impl Default for ThemeConfig {
             status_done: defaults::status_done(),
             dimmed: defaults::dimmed(),
             batch_marker: defaults::batch_marker(),
+            kill_highlight: defaults::kill_highlight(),
         }
     }
 }

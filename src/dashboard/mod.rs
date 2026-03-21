@@ -482,7 +482,12 @@ fn build_overlay<'a>(
         },
         InputMode::TypingAdopt { input, .. } => render::Overlay::AdoptInput { input },
         InputMode::ConfirmEmptySpawn { .. } => render::Overlay::ConfirmEmptySpawn,
-        InputMode::ConfirmKill { title, .. } => render::Overlay::ConfirmKill { description: title },
+        InputMode::ConfirmKill {
+            agent_id, title, ..
+        } => render::Overlay::ConfirmKill {
+            agent_id,
+            description: title,
+        },
         InputMode::ConfirmBatchKill => render::Overlay::ConfirmBatchKill {
             count: selected_agents.len(),
         },
