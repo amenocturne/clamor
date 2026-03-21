@@ -60,7 +60,7 @@ pub struct PaneView {
 impl PaneView {
     pub fn new(rows: u16, cols: u16) -> Self {
         Self {
-            parser: vt100::Parser::new(rows, cols, 10000),
+            parser: vt100::Parser::new(rows, cols, 50000),
             scroll_offset: 0,
             selection: None,
             copy_mode: None,
@@ -70,7 +70,7 @@ impl PaneView {
 
     /// Create with catch-up data already processed.
     pub fn from_catch_up(rows: u16, cols: u16, catch_up: &[u8]) -> Self {
-        let mut parser = vt100::Parser::new(rows, cols, 10000);
+        let mut parser = vt100::Parser::new(rows, cols, 50000);
         parser.process(catch_up);
         Self {
             parser,
