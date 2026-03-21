@@ -6,7 +6,7 @@ default:
     @just --list
 
 # Reinstall all registered installations (falls back to interactive if no registry)
-install: deny-read-install graph-colors-install generate-workspace-install notification-install
+install: deny-read-install smart-approve-install graph-colors-install generate-workspace-install notification-install
     uv run install.py --all
 
 # Install preset interactively
@@ -119,6 +119,18 @@ notification-install:
     rm -f ~/.local/bin/notification
     cp tools/notification/target/release/notification ~/.local/bin/notification
     @echo "notification installed to ~/.local/bin/notification"
+
+# Build smart-approve binary (debug)
+smart-approve-build:
+    cargo build --manifest-path tools/smart-approve/Cargo.toml
+
+# Build and install smart-approve binary to ~/.local/bin
+smart-approve-install:
+    cargo build --release --manifest-path tools/smart-approve/Cargo.toml
+    mkdir -p ~/.local/bin
+    rm -f ~/.local/bin/smart-approve
+    cp tools/smart-approve/target/release/smart-approve ~/.local/bin/smart-approve
+    @echo "smart-approve installed to ~/.local/bin/smart-approve"
 
 # Aliases
 alias i := install
