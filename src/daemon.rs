@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -213,25 +213,38 @@ impl TerminalQueryResponder {
     }
 }
 
+const RING_BUFFER_CAP: usize = 4 * 1024 * 1024; // 4MB for scrollback history
+
 struct AgentSlot {
     #[allow(dead_code)]
     master: Box<dyn portable_pty::MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child_pid: Option<u32>,
+    /// Raw output history — provides scrollback when client attaches.
+    ring_buffer: VecDeque<u8>,
     /// Daemon-side vt100 parser — always holds the correct screen state.
-    /// On subscribe, sends `contents_formatted()` instead of raw bytes,
-    /// giving the client a clean screen snapshot regardless of session length.
+    /// Appended after ring buffer in catch-up to fix the visible area.
     parser: vt100::Parser,
     alive: bool,
 }
 
 impl AgentSlot {
     fn push_output(&mut self, data: &[u8]) {
+        let overflow = (self.ring_buffer.len() + data.len()).saturating_sub(RING_BUFFER_CAP);
+        if overflow > 0 {
+            self.ring_buffer.drain(..overflow);
+        }
+        self.ring_buffer.extend(data);
         self.parser.process(data);
     }
 
+    /// Ring buffer (scrollback) + contents_formatted (clean visible screen).
+    /// Client processes both: ring buffer creates scrollback, then
+    /// contents_formatted clears and repaints the visible area cleanly.
     fn catch_up_data(&self) -> Vec<u8> {
-        self.parser.screen().contents_formatted()
+        let mut data: Vec<u8> = self.ring_buffer.iter().copied().collect();
+        data.extend(self.parser.screen().contents_formatted());
+        data
     }
 }
 
@@ -654,6 +667,7 @@ fn spawn_agent_pty(
         master: pair.master,
         writer,
         child_pid,
+        ring_buffer: VecDeque::with_capacity(RING_BUFFER_CAP),
         parser: vt100::Parser::new(rows, cols, 0),
         alive: true,
     })
