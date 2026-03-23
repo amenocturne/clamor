@@ -18,16 +18,25 @@ use crate::protocol::{
 /// in `\x1b[?2026h` (BSU) and `\x1b[?2026l` (ESU). Instead of stripping them
 /// and forwarding partial frames (which causes prompt jumping), we buffer all
 /// output between BSU and ESU and forward the complete render atomically.
+///
+/// Handles markers split across PTY read boundaries: trailing bytes that could
+/// be the start of a marker are saved and prepended to the next call.
 struct SyncOutputBuffer {
     buf: Vec<u8>,
     syncing: bool,
+    /// Trailing bytes from the previous read that could be a marker prefix.
+    trail: Vec<u8>,
 }
+
+/// The 7-byte prefix shared by BSU (`\x1b[?2026h`) and ESU (`\x1b[?2026l`).
+const SYNC_MARKER_PREFIX: &[u8] = b"\x1b[?2026";
 
 impl SyncOutputBuffer {
     fn new() -> Self {
         Self {
             buf: Vec::new(),
             syncing: false,
+            trail: Vec::new(),
         }
     }
 
@@ -36,13 +45,23 @@ impl SyncOutputBuffer {
     /// Outside BSU/ESU: passes through immediately.
     /// Inside BSU/ESU: buffers until ESU, then emits the complete frame.
     fn process(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
+        // Prepend any trailing bytes from the previous call.
+        let mut combined_buf;
+        let input = if self.trail.is_empty() {
+            data
+        } else {
+            combined_buf = std::mem::take(&mut self.trail);
+            combined_buf.extend_from_slice(data);
+            &combined_buf
+        };
+
         let mut outputs = Vec::new();
         let mut passthrough = Vec::new();
         let mut i = 0;
 
-        while i < data.len() {
-            if i + 8 <= data.len() {
-                let window = &data[i..i + 8];
+        while i < input.len() {
+            if i + 8 <= input.len() {
+                let window = &input[i..i + 8];
                 if window == b"\x1b[?2026h" {
                     // BSU: flush any passthrough, start buffering
                     if !self.syncing && !passthrough.is_empty() {
@@ -65,8 +84,24 @@ impl SyncOutputBuffer {
                     i += 8;
                     continue;
                 }
+            } else if input[i] == 0x1b {
+                // Fewer than 8 bytes remaining, starting with ESC.
+                // Check if they could be the start of a BSU/ESU marker.
+                let remaining = &input[i..];
+                if SYNC_MARKER_PREFIX.starts_with(remaining) {
+                    // Potential marker prefix — save for next call.
+                    if !passthrough.is_empty() {
+                        if self.syncing {
+                            self.buf.extend(std::mem::take(&mut passthrough));
+                        } else {
+                            outputs.push(std::mem::take(&mut passthrough));
+                        }
+                    }
+                    self.trail = remaining.to_vec();
+                    return outputs;
+                }
             }
-            passthrough.push(data[i]);
+            passthrough.push(input[i]);
             i += 1;
         }
 
@@ -233,6 +268,9 @@ impl AgentSlot {
         let overflow = (self.ring_buffer.len() + data.len()).saturating_sub(RING_BUFFER_CAP);
         if overflow > 0 {
             self.ring_buffer.drain(..overflow);
+            // Drain may cut an escape sequence mid-stream. Skip past the
+            // partial sequence so the ring buffer starts at a clean boundary.
+            skip_partial_escape(&mut self.ring_buffer);
         }
         self.ring_buffer.extend(data);
         self.parser.process(data);
@@ -242,9 +280,62 @@ impl AgentSlot {
     /// Client processes both: ring buffer creates scrollback, then
     /// contents_formatted clears and repaints the visible area cleanly.
     fn catch_up_data(&self) -> Vec<u8> {
-        let mut data: Vec<u8> = self.ring_buffer.iter().copied().collect();
+        let mut data: Vec<u8> = Vec::with_capacity(self.ring_buffer.len() + 256);
+        data.extend(self.ring_buffer.iter());
+        // CAN (0x18) aborts any in-progress escape sequence left at the end
+        // of the ring buffer (from PTY read splitting mid-sequence).
+        // SGR reset + cursor home + screen clear ensure contents_formatted()
+        // starts from a known-good state and fully repaints the visible area.
+        data.extend_from_slice(b"\x18\x1b[m\x1b[H\x1b[2J");
         data.extend(self.parser.screen().contents_formatted());
         data
+    }
+}
+
+/// After byte-level drain, skip past any partial escape sequence at the front.
+///
+/// Scans forward to find the first "safe" byte to start parsing from:
+/// a newline, an ESC (start of a new sequence), or a byte after a CSI
+/// final byte (0x40-0x7E) that terminates the partial sequence.
+fn skip_partial_escape(buf: &mut VecDeque<u8>) {
+    if buf.is_empty() {
+        return;
+    }
+    // If the front byte is ESC, we're at a sequence boundary — nothing to skip.
+    if buf.front() == Some(&0x1b) {
+        return;
+    }
+    // If the front byte is a normal printable char or control that isn't
+    // part of a CSI parameter/intermediate range, it's probably safe.
+    // CSI parameters are 0x30-0x3F, intermediates are 0x20-0x2F.
+    // If we see something outside those ranges (and not ESC), we're likely
+    // at normal text already.
+    if let Some(&front) = buf.front() {
+        if front == 0x0a || front == 0x0d {
+            return; // newline boundary
+        }
+        // If it doesn't look like mid-CSI, leave it alone
+        if front >= 0x40 && front != 0x5b {
+            // 0x40-0x7E are CSI final bytes or uppercase letters.
+            // If we land on one, it terminates whatever partial sequence
+            // preceded it — skip it and we're clean.
+            buf.pop_front();
+            return;
+        }
+    }
+    // Likely mid-CSI (parameters/intermediates). Scan forward to the end
+    // of the partial sequence or the next safe boundary.
+    let is_csi_final = |b: u8| (0x40..=0x7e).contains(&b) && b != 0x5b;
+    let skip_to = buf
+        .iter()
+        .position(|&b| b == 0x1b || b == 0x0a || b == 0x0d || is_csi_final(b));
+    if let Some(pos) = skip_to {
+        let skip = if buf.get(pos).is_some_and(|&b| is_csi_final(b)) {
+            pos + 1 // skip past the final byte too
+        } else {
+            pos // stop before ESC/newline
+        };
+        buf.drain(..skip);
     }
 }
 
