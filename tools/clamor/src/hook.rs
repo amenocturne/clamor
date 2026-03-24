@@ -2,7 +2,7 @@ use chrono::Utc;
 use serde::Deserialize;
 
 use crate::agent::AgentState;
-use crate::state::{try_with_state, with_state};
+use crate::state::try_with_state;
 
 #[derive(Debug, Deserialize)]
 struct HookEvent {
@@ -35,11 +35,6 @@ fn run_inner() -> anyhow::Result<()> {
     };
 
     let event: HookEvent = serde_json::from_str(&input)?;
-
-    // Stop fires at process exit — use blocking lock so the Done transition
-    // is never silently dropped. Other events use non-blocking to avoid
-    // slowing down Claude Code mid-session.
-    let is_stop = event.hook_event_name == "Stop";
 
     let update = |state: &mut crate::state::ClamorState| {
         let agent = match state.agents.get_mut(&agent_id) {
@@ -81,11 +76,11 @@ fn run_inner() -> anyhow::Result<()> {
         }
     };
 
-    if is_stop {
-        with_state(update)?;
-    } else {
-        try_with_state(update)?;
-    }
+    // Always use non-blocking lock — a blocked lock + hook timeout = SIGKILL
+    // (exit 137), which Claude Code reports as a hook error. For Stop events
+    // this means the Done transition may be silently dropped if the lock is
+    // contended, but the dashboard will detect the stopped process anyway.
+    try_with_state(update)?;
 
     Ok(())
 }
@@ -111,8 +106,8 @@ fn format_tool(tool_name: &Option<String>, tool_input: &Option<serde_json::Value
                 .and_then(|v| v.get("command"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("?");
-            let truncated = if cmd.len() > 40 {
-                format!("{}...", &cmd[..40])
+            let truncated: String = if cmd.chars().count() > 40 {
+                format!("{}...", cmd.chars().take(40).collect::<String>())
             } else {
                 cmd.to_string()
             };

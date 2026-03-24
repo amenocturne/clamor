@@ -100,6 +100,7 @@ struct HookInput {
 fn allow() {
     let out = serde_json::json!({
         "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
             "permissionDecision": "allow"
         }
     });

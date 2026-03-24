@@ -33,6 +33,7 @@ struct HookInput {
 fn deny(reason: &str) {
     let out = serde_json::json!({
         "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
             "permissionDecisionReason": reason,
         }
