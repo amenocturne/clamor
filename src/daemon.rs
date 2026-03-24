@@ -156,9 +156,22 @@ pub fn start_daemon_background() -> Result<()> {
 }
 
 enum PtyEvent {
-    Output { id: String, data: Vec<u8> },
-    Exited { id: String },
-    QueryResponse { id: String, data: Vec<u8> },
+    Output {
+        id: String,
+        data: Vec<u8>,
+    },
+    Exited {
+        id: String,
+    },
+    QueryResponse {
+        id: String,
+        data: Vec<u8>,
+    },
+    /// Deferred CPR response — sent after Output events so the daemon-side
+    /// parser has processed the current data before we read cursor position.
+    CprRequest {
+        id: String,
+    },
 }
 
 /// Detects terminal capability queries in PTY output and generates responses.
@@ -167,17 +180,23 @@ enum PtyEvent {
 /// Without responses, it may fall back to degraded rendering paths.
 struct TerminalQueryResponder {
     partial: Vec<u8>,
+    cpr_requested: bool,
 }
 
 impl TerminalQueryResponder {
     fn new() -> Self {
         Self {
             partial: Vec::new(),
+            cpr_requested: false,
         }
     }
 
     /// Scan output data for terminal queries and return responses to write back.
+    /// CPR (cursor position) queries set `cpr_requested` instead of generating
+    /// an immediate response — the daemon event loop responds after the parser
+    /// has processed the current output, ensuring an accurate cursor position.
     fn scan_for_queries(&mut self, data: &[u8]) -> Vec<u8> {
+        self.cpr_requested = false;
         let mut responses = Vec::new();
         let mut combined = std::mem::take(&mut self.partial);
         combined.extend_from_slice(data);
@@ -185,6 +204,12 @@ impl TerminalQueryResponder {
         let mut i = 0;
         while i < combined.len() {
             if combined[i] == 0x1b && i + 1 < combined.len() && combined[i + 1] == b'[' {
+                // CPR check: ESC [ 6 n — set flag for deferred response
+                if i + 3 < combined.len() && combined[i + 2] == b'6' && combined[i + 3] == b'n' {
+                    self.cpr_requested = true;
+                    i += 4;
+                    continue;
+                }
                 if let Some((seq_len, response)) = Self::parse_csi_query(&combined[i..]) {
                     if let Some(resp) = response {
                         responses.extend_from_slice(&resp);
@@ -219,11 +244,7 @@ impl TerminalQueryResponder {
             return Some((4, Some(b"\x1b[?62;22c".to_vec())));
         }
 
-        // DSR CPR: ESC [ 6 n — skip, do NOT respond with fake cursor position.
-        // Claude Code uses the actual position for layout calculations.
-        if data.len() >= 4 && data[2] == b'6' && data[3] == b'n' {
-            return Some((4, None));
-        }
+        // DSR CPR (ESC [ 6 n) is handled in scan_for_queries via cpr_requested flag.
 
         // DECRQM: ESC [ ? <digits> $ p
         if data.len() >= 4 && data[2] == b'?' {
@@ -451,6 +472,14 @@ pub async fn run_daemon() -> Result<()> {
                     PtyEvent::QueryResponse { id, data } => {
                         if let Some(slot) = agents.get_mut(&id) {
                             let _ = slot.writer.write_all(&data);
+                            let _ = slot.writer.flush();
+                        }
+                    }
+                    PtyEvent::CprRequest { id } => {
+                        if let Some(slot) = agents.get_mut(&id) {
+                            let (row, col) = slot.parser.screen().cursor_position();
+                            let response = format!("\x1b[{};{}R", row + 1, col + 1);
+                            let _ = slot.writer.write_all(response.as_bytes());
                             let _ = slot.writer.flush();
                         }
                     }
@@ -745,6 +774,13 @@ fn spawn_agent_pty(
                     }
                     if broken {
                         break;
+                    }
+                    // Send CPR request AFTER output events so the daemon-side
+                    // parser has processed the current data before responding
+                    if responder.cpr_requested {
+                        let _ = tx.blocking_send(PtyEvent::CprRequest {
+                            id: agent_id.clone(),
+                        });
                     }
                 }
             }
