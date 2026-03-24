@@ -1,0 +1,7 @@
+{
+  "name": "context7",
+  "description": "Fetch up-to-date library documentation and code examples via Context7 API. Single command replaces two-step MCP flow.",
+  "author": "amenocturne",
+  "version": "1.0.0",
+  "tags": ["documentation", "libraries", "api-docs", "context7"]
+}
