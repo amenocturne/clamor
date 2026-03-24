@@ -1516,6 +1516,12 @@ async fn handle_terminal_event(
                 && key_event.code == KeyCode::Char('c')
             {
                 let _ = client.send_sigint(agent_id).await;
+                let id = agent_id.to_owned();
+                let _ = with_state(|state| {
+                    if let Some(agent) = state.agents.get_mut(&id) {
+                        agent.state = AgentState::Input;
+                    }
+                });
                 return Ok(LoopAction::Continue);
             }
 
