@@ -26,6 +26,25 @@ pytest skills/youtube/              # Skill-specific tests
 
 Scripts use PEP 723 inline metadata. Run with `uv run <script>`.
 
+## Skill Authoring
+
+Each skill lives in `skills/<name>/` with `SKILL.md` + `metadata.json` (+ optional `scripts/`).
+
+**SKILL.md structure rule**: The `description` field in frontmatter handles all "when and why to use" logic — it's what triggers skill activation. The markdown body should be purely operational (how to use, commands, flags, caveats). Don't repeat trigger conditions in the body — if the agent is reading the body, it already decided to use the skill.
+
+```yaml
+---
+name: my-skill
+description: "All trigger/routing info here. When to use, what it does, keyword triggers."
+author: amenocturne
+---
+
+# My Skill
+
+## Commands        <-- jump straight to usage
+## Important       <-- caveats, limits
+```
+
 ## Clamor Public Repo
 
 Clamor (`tools/clamor/`) is published as a standalone public repo and crate.
