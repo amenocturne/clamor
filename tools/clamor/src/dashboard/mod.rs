@@ -1550,6 +1550,18 @@ async fn handle_terminal_event(
                 pv.snap_to_bottom();
             }
 
+            // Escape interrupts Claude Code — transition to Input
+            if key_event.code == KeyCode::Esc {
+                let id = agent_id.to_owned();
+                let _ = with_state(|state| {
+                    if let Some(agent) = state.agents.get_mut(&id) {
+                        if agent.state == AgentState::Working {
+                            agent.state = AgentState::Input;
+                        }
+                    }
+                });
+            }
+
             if let Some(bytes) = pane::encode_key(*key_event) {
                 let _ = client.send_input(agent_id, &bytes).await;
             }
