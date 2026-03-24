@@ -13,6 +13,14 @@ author: amenocturne
 ## Commands
 
 ```bash
+# Server management
+uv run scripts/pinchtab.py start                   # Start headless (default)
+uv run scripts/pinchtab.py start --headed           # Start with visible browser
+uv run scripts/pinchtab.py stop                     # Stop server
+uv run scripts/pinchtab.py restart --headed          # Restart in headed mode
+uv run scripts/pinchtab.py restart                   # Restart in headless mode
+uv run scripts/pinchtab.py health                    # Check server status
+
 # Navigation & content
 uv run scripts/pinchtab.py navigate <url>
 uv run scripts/pinchtab.py text                    # Get page text (~800 tokens)
@@ -33,10 +41,11 @@ uv run scripts/pinchtab.py search "query" --engine google|ddg  # Fallbacks only
 Sessions persist across restarts. For initial login, use headed mode:
 
 ```bash
-BRIDGE_HEADLESS=false pinchtab
+uv run scripts/pinchtab.py restart --headed
 uv run scripts/pinchtab.py navigate https://kagi.com
 # Log in manually via email (Google OAuth blocked in automated browsers)
-# Session now persists - restart pinchtab and you're still logged in
+# Session now persists - switch back to headless:
+uv run scripts/pinchtab.py restart
 ```
 
 ## Kagi Search

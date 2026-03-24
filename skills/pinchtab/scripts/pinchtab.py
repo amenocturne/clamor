@@ -149,6 +149,32 @@ def start(headed: bool, port: int):
 
 
 @cli.command()
+def stop():
+    """Stop pinchtab server."""
+    if not server_is_listening():
+        click.echo("Pinchtab server is not running")
+        return
+    kill_server()
+    if server_is_listening():
+        click.echo("Failed to stop server", err=True)
+        sys.exit(1)
+    click.echo("Pinchtab server stopped")
+
+
+@cli.command()
+@click.option("--headed", is_flag=True, help="Run with visible browser")
+@click.option("--port", default=DEFAULT_PORT, help="Port to run on")
+def restart(headed: bool, port: int):
+    """Restart pinchtab server (useful to switch headed/headless mode)."""
+    if server_is_listening():
+        click.echo("Stopping pinchtab server...", err=True)
+        kill_server()
+
+    ctx = click.get_current_context()
+    ctx.invoke(start, headed=headed, port=port)
+
+
+@cli.command()
 def health():
     """Check if pinchtab server is running."""
     if check_server():
