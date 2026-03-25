@@ -153,5 +153,7 @@ export const update = (model: Model, msg: Msg): Model => {
 			}
 			return { ...model, collapsedDirs: dirs };
 		}
+		case "setSidebarWidth":
+			return { ...model, sidebarWidth: msg.width };
 	}
 };

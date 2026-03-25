@@ -191,6 +191,20 @@
       font-size: var(--font-md);
     }
 
+    /* === Sidebar Resize Handle === */
+    .sidebar-resize-handle {
+      width: 4px;
+      cursor: col-resize;
+      background: transparent;
+      flex-shrink: 0;
+      transition: background 150ms ease;
+    }
+
+    .sidebar-resize-handle:hover,
+    .sidebar-resize-handle.active {
+      background: var(--accent-primary);
+    }
+
     /* === Commit List === */
     .commit-item {
       display: flex;
@@ -232,9 +246,16 @@
     }
 
     .commit-msg {
+      flex: 1;
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .commit-item.active .commit-msg {
+      white-space: normal;
+      word-break: break-word;
     }
 
     /* === File List === */

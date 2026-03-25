@@ -138,9 +138,52 @@ export const rootView = (model: Model, dispatch: (msg: Msg) => void): VNode => {
 			])
 		: diffAreaView(model, dispatch);
 
+	const resizeHandle = model.sidebarOpen
+		? h("div.sidebar-resize-handle", {
+				on: {
+					mousedown: (e: MouseEvent) => {
+						e.preventDefault();
+						const startX = e.clientX;
+						const sidebar = document.querySelector(".sidebar") as HTMLElement;
+						if (!sidebar) return;
+						const startWidth = model.sidebarWidth;
+						const handle = e.currentTarget as HTMLElement;
+						handle.classList.add("active");
+						document.body.style.cursor = "col-resize";
+						document.body.style.userSelect = "none";
+
+						const onMouseMove = (ev: MouseEvent) => {
+							const delta = ev.clientX - startX;
+							const newWidth = Math.max(180, Math.min(600, startWidth + delta));
+							sidebar.style.setProperty("--sidebar-width", `${newWidth}px`);
+						};
+
+						const onMouseUp = (ev: MouseEvent) => {
+							handle.classList.remove("active");
+							document.body.style.cursor = "";
+							document.body.style.userSelect = "";
+
+							const delta = ev.clientX - startX;
+							const newWidth = Math.max(180, Math.min(600, startWidth + delta));
+							dispatch({ type: "setSidebarWidth", width: newWidth });
+
+							document.removeEventListener("mousemove", onMouseMove);
+							document.removeEventListener("mouseup", onMouseUp);
+						};
+
+						document.addEventListener("mousemove", onMouseMove);
+						document.addEventListener("mouseup", onMouseUp);
+					},
+				},
+			})
+		: null;
+
 	return h("div.app", [
 		headerView(model, dispatch),
-		h("div.main", [sidebarView(model, dispatch), mainContent]),
+		h(
+			"div.main",
+			[sidebarView(model, dispatch), resizeHandle, mainContent].filter(Boolean) as VNode[],
+		),
 		fileSearchView(model, dispatch),
 	]);
 };

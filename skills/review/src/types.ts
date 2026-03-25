@@ -122,6 +122,7 @@ export type Model = {
 	readonly fileSearchQuery: string;
 	readonly fileSearchSelectedIdx: number;
 	readonly collapsedDirs: ReadonlySet<string>;
+	readonly sidebarWidth: number;
 };
 
 // === Frontend Message Types ===
@@ -164,4 +165,5 @@ export type Msg =
 	| { readonly type: "closeFileSearch" }
 	| { readonly type: "setFileSearchQuery"; readonly query: string }
 	| { readonly type: "fileSearchNavigate"; readonly direction: 1 | -1 }
-	| { readonly type: "toggleDir"; readonly path: string };
+	| { readonly type: "toggleDir"; readonly path: string }
+	| { readonly type: "setSidebarWidth"; readonly width: number };

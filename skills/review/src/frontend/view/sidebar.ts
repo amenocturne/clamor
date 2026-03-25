@@ -148,7 +148,10 @@ const commitsSection = (model: Model, dispatch: (msg: Msg) => void): VNode => {
 				class: { active: model.activeView === "combined" },
 				on: { click: () => dispatch({ type: "setActiveView", view: "combined" }) },
 			},
-			[h("span.commit-radio"), h("span.commit-msg", "All changes")],
+			[
+				h("span.commit-radio"),
+				h("span.commit-msg", { attrs: { title: "All changes" } }, "All changes"),
+			],
 		),
 	];
 
@@ -163,7 +166,7 @@ const commitsSection = (model: Model, dispatch: (msg: Msg) => void): VNode => {
 				[
 					h("span.commit-radio"),
 					h("span.commit-hash", commit.hash.slice(0, 7)),
-					h("span.commit-msg", commit.message),
+					h("span.commit-msg", { attrs: { title: commit.message } }, commit.message),
 				],
 			),
 		);
@@ -289,10 +292,19 @@ export const sidebarView = (model: Model, dispatch: (msg: Msg) => void): VNode =
 		pastReviewsSection(model, dispatch),
 	];
 
+	const width = model.sidebarWidth;
 	return h(
 		"div.sidebar",
 		{
 			class: { hidden: !model.sidebarOpen },
+			hook: {
+				insert: (vnode) => {
+					(vnode.elm as HTMLElement).style.setProperty("--sidebar-width", `${width}px`);
+				},
+				update: (_old, vnode) => {
+					(vnode.elm as HTMLElement).style.setProperty("--sidebar-width", `${width}px`);
+				},
+			},
 		},
 		sections.filter(Boolean) as VNode[],
 	);

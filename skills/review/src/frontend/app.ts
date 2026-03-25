@@ -78,6 +78,12 @@ const dispatch = (msg: Msg): void => {
 		);
 	}
 
+	if (msg.type === "setSidebarWidth") {
+		try {
+			localStorage.setItem("reviewSidebarWidth", String(msg.width));
+		} catch {}
+	}
+
 	if (msg.type === "submit" && !prev.submitted) {
 		const submission: ReviewSubmission = {
 			verdict: msg.verdict,
