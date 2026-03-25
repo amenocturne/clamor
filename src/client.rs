@@ -7,6 +7,11 @@ use crate::protocol::{
     recv_message_async, send_message_async, ClientMessage, DaemonAgent, DaemonMessage,
 };
 
+pub struct SubscribeResult {
+    pub catch_up: Vec<u8>,
+    pub buffered: Vec<DaemonMessage>,
+}
+
 pub struct DaemonClient {
     stream: UnixStream,
 }
@@ -71,27 +76,54 @@ impl DaemonClient {
         self.expect_ok().await
     }
 
+    /// Like resize(), but returns any in-flight Output/Exited messages that
+    /// arrived while waiting for the OK response, instead of discarding them.
+    pub async fn resize_buffered(
+        &mut self,
+        id: &str,
+        rows: u16,
+        cols: u16,
+    ) -> Result<Vec<DaemonMessage>> {
+        self.send(ClientMessage::Resize {
+            id: id.to_string(),
+            rows,
+            cols,
+        })
+        .await?;
+        self.expect_ok_buffered().await
+    }
+
     pub async fn subscribe(&mut self, id: &str) -> Result<Vec<u8>> {
+        let result = self.subscribe_buffered(id).await?;
+        Ok(result.catch_up)
+    }
+
+    /// Like subscribe(), but returns any in-flight Output/Exited messages that
+    /// arrived while waiting for the CatchUp response, instead of discarding them.
+    pub async fn subscribe_buffered(&mut self, id: &str) -> Result<SubscribeResult> {
         self.send(ClientMessage::Subscribe { id: id.to_string() })
             .await?;
+        let mut buffered = Vec::new();
         loop {
             let msg: DaemonMessage =
                 tokio::time::timeout(Duration::from_secs(5), recv_message_async(&mut self.stream))
                     .await
                     .context("subscribe timed out")??;
 
-            match &msg {
+            match msg {
                 DaemonMessage::CatchUp { data, .. } => {
-                    return Ok(data.clone());
+                    return Ok(SubscribeResult {
+                        catch_up: data,
+                        buffered,
+                    });
                 }
                 DaemonMessage::Error { message } => {
                     anyhow::bail!("subscribe failed: {message}")
                 }
-                DaemonMessage::Output { .. }
-                | DaemonMessage::Exited { .. }
-                | DaemonMessage::Heartbeat => {
-                    continue;
+                DaemonMessage::Output { .. } | DaemonMessage::Exited { .. } => {
+                    buffered.push(msg);
                 }
+                DaemonMessage::Heartbeat => continue,
                 other => {
                     anyhow::bail!("unexpected response: {other:?}")
                 }
@@ -144,6 +176,12 @@ impl DaemonClient {
     }
 
     async fn expect_ok(&mut self) -> Result<()> {
+        let _ = self.expect_ok_buffered().await?;
+        Ok(())
+    }
+
+    async fn expect_ok_buffered(&mut self) -> Result<Vec<DaemonMessage>> {
+        let mut buffered = Vec::new();
         loop {
             let msg: DaemonMessage =
                 tokio::time::timeout(Duration::from_secs(5), recv_message_async(&mut self.stream))
@@ -151,11 +189,12 @@ impl DaemonClient {
                     .context("expect_ok timed out")??;
 
             match msg {
-                DaemonMessage::Ok => return Ok(()),
+                DaemonMessage::Ok => return Ok(buffered),
                 DaemonMessage::Error { message } => anyhow::bail!("{message}"),
-                DaemonMessage::Output { .. }
-                | DaemonMessage::Exited { .. }
-                | DaemonMessage::Heartbeat => continue,
+                DaemonMessage::Output { .. } | DaemonMessage::Exited { .. } => {
+                    buffered.push(msg);
+                }
+                DaemonMessage::Heartbeat => continue,
                 other => anyhow::bail!("unexpected response: {other:?}"),
             }
         }
