@@ -305,27 +305,37 @@ async fn main_loop(
                             let (term_cols, term_rows) = crossterm::terminal::size()?;
                             let content_rows = term_rows.saturating_sub(1);
 
-                            // Resize PTY first so the agent re-renders at
-                            // the correct size before we grab the catch-up
-                            let _ = client.resize(&agent_id, content_rows, term_cols).await;
-
                             let has_existing = pane_views.contains_key(&agent_id);
 
-                            match client.subscribe(&agent_id).await {
-                                Ok(catch_up) => {
+                            // Use buffered variants so in-flight Output messages
+                            // aren't silently discarded (causes parser state drift)
+                            let resize_msgs = client
+                                .resize_buffered(&agent_id, content_rows, term_cols)
+                                .await
+                                .unwrap_or_default();
+
+                            match client.subscribe_buffered(&agent_id).await {
+                                Ok(result) => {
                                     if has_existing {
-                                        // Reuse existing pane — parser stayed
-                                        // up-to-date via live output forwarding
                                         let pv = pane_views.get_mut(&agent_id).unwrap();
                                         pv.resize(content_rows, term_cols);
+                                        // Replay messages that were in-flight during
+                                        // resize + subscribe so the parser stays in sync
+                                        for msg in resize_msgs.into_iter().chain(result.buffered) {
+                                            apply_daemon_message(
+                                                &msg,
+                                                &mut pane_views,
+                                                state_source,
+                                            );
+                                        }
                                     } else {
-                                        let pv = if catch_up.is_empty() {
+                                        let pv = if result.catch_up.is_empty() {
                                             PaneView::new(content_rows, term_cols)
                                         } else {
                                             PaneView::from_catch_up(
                                                 content_rows,
                                                 term_cols,
-                                                &catch_up,
+                                                &result.catch_up,
                                             )
                                         };
                                         pane_views.insert(agent_id.clone(), pv);
@@ -412,6 +422,31 @@ async fn main_loop(
     }
 
     Ok(())
+}
+
+/// Apply a buffered daemon message (Output/Exited) to the appropriate pane view.
+/// Used to replay messages that were in-flight during resize/subscribe calls.
+fn apply_daemon_message(
+    msg: &DaemonMessage,
+    pane_views: &mut HashMap<String, PaneView>,
+    state_source: &StateSource,
+) {
+    match msg {
+        DaemonMessage::Output { id, data } => {
+            if let Some(pv) = pane_views.get_mut(id) {
+                pv.process_output(data);
+            }
+        }
+        DaemonMessage::Exited { id } => {
+            let _ = with_state(|state| {
+                if let Some(agent) = state.agents.get_mut(id) {
+                    agent.state = AgentState::Done;
+                }
+            });
+            state_source.invalidate();
+        }
+        _ => {}
+    }
 }
 
 enum LoopAction {
