@@ -156,20 +156,13 @@ pub fn start_daemon_background() -> Result<()> {
 }
 
 enum PtyEvent {
-    Output {
+    /// Raw data from PTY reader. All processing (query detection, sync buffering,
+    /// parser updates, CPR responses) happens daemon-side for correct ordering.
+    RawData {
         id: String,
         data: Vec<u8>,
     },
     Exited {
-        id: String,
-    },
-    QueryResponse {
-        id: String,
-        data: Vec<u8>,
-    },
-    /// Deferred CPR response — sent after Output events so the daemon-side
-    /// parser has processed the current data before we read cursor position.
-    CprRequest {
         id: String,
     },
 }
@@ -192,9 +185,8 @@ impl TerminalQueryResponder {
     }
 
     /// Scan output data for terminal queries and return responses to write back.
-    /// CPR (cursor position) queries set `cpr_requested` instead of generating
-    /// an immediate response — the daemon event loop responds after the parser
-    /// has processed the current output, ensuring an accurate cursor position.
+    /// CPR (cursor position) queries set `cpr_requested` — the caller handles
+    /// the response after feeding the parser up to the CPR byte offset.
     fn scan_for_queries(&mut self, data: &[u8]) -> Vec<u8> {
         self.cpr_requested = false;
         let mut responses = Vec::new();
@@ -269,6 +261,14 @@ impl TerminalQueryResponder {
     }
 }
 
+/// Find the byte offset of `\x1b[6n` (CPR query) in data.
+fn find_cpr_offset(data: &[u8]) -> Option<usize> {
+    if data.len() < 4 {
+        return None;
+    }
+    data.windows(4).position(|w| w == b"\x1b[6n")
+}
+
 const RING_BUFFER_CAP: usize = 4 * 1024 * 1024; // 4MB for scrollback history
 
 struct AgentSlot {
@@ -282,19 +282,21 @@ struct AgentSlot {
     /// Appended after ring buffer in catch-up to fix the visible area.
     parser: vt100::Parser,
     alive: bool,
+    /// Per-agent sync output buffer (moved from reader thread for CPR accuracy).
+    sync_buf: SyncOutputBuffer,
+    /// Per-agent terminal query responder.
+    responder: TerminalQueryResponder,
 }
 
 impl AgentSlot {
-    fn push_output(&mut self, data: &[u8]) {
+    /// Push sync-buffered output to the ring buffer (no parser update).
+    fn push_ring_buffer(&mut self, data: &[u8]) {
         let overflow = (self.ring_buffer.len() + data.len()).saturating_sub(RING_BUFFER_CAP);
         if overflow > 0 {
             self.ring_buffer.drain(..overflow);
-            // Drain may cut an escape sequence mid-stream. Skip past the
-            // partial sequence so the ring buffer starts at a clean boundary.
             skip_partial_escape(&mut self.ring_buffer);
         }
         self.ring_buffer.extend(data);
-        self.parser.process(data);
     }
 
     /// Ring buffer (scrollback) + contents_formatted (clean visible screen).
@@ -310,6 +312,52 @@ impl AgentSlot {
         data.extend_from_slice(b"\x18\x1b[m\x1b[H\x1b[2J");
         data.extend(self.parser.screen().contents_formatted());
         data
+    }
+
+    /// Process raw PTY data: detect queries, update parser (with CPR-aware
+    /// splitting), sync-buffer for ring buffer + client output.
+    ///
+    /// Returns sync-buffered output chunks to forward to the client.
+    fn process_raw_data(&mut self, raw: &[u8]) -> Vec<Vec<u8>> {
+        // 1. Detect terminal queries (DA1, DECRQM, CPR)
+        let responses = self.responder.scan_for_queries(raw);
+        if !responses.is_empty() {
+            let _ = self.writer.write_all(&responses);
+            let _ = self.writer.flush();
+        }
+
+        // 2. Update parser — split at CPR offset for accurate cursor position
+        if self.responder.cpr_requested {
+            if let Some(cpr_off) = find_cpr_offset(raw) {
+                // Feed data up to the CPR query into the parser
+                self.parser.process(&raw[..cpr_off]);
+                // Respond with cursor position at the CPR query point
+                let (row, col) = self.parser.screen().cursor_position();
+                let response = format!("\x1b[{};{}R", row + 1, col + 1);
+                let _ = self.writer.write_all(response.as_bytes());
+                let _ = self.writer.flush();
+                // Feed remaining data (CPR bytes are harmless — DSR is ignored)
+                self.parser.process(&raw[cpr_off..]);
+            } else {
+                // CPR sequence spans reads — respond with current parser state
+                // (parser was already updated by previous RawData events)
+                let (row, col) = self.parser.screen().cursor_position();
+                let response = format!("\x1b[{};{}R", row + 1, col + 1);
+                let _ = self.writer.write_all(response.as_bytes());
+                let _ = self.writer.flush();
+                // Then process this read's data
+                self.parser.process(raw);
+            }
+        } else {
+            self.parser.process(raw);
+        }
+
+        // 3. Sync-buffer the raw data for ring buffer + client (strips BSU/ESU)
+        let chunks = self.sync_buf.process(raw);
+        for chunk in &chunks {
+            self.push_ring_buffer(chunk);
+        }
+        chunks
     }
 }
 
@@ -435,16 +483,27 @@ pub async fn run_daemon() -> Result<()> {
 
             Some(evt) = pty_rx.recv() => {
                 match evt {
-                    PtyEvent::Output { id, data } => {
-                        if let Some(slot) = agents.get_mut(&id) {
-                            slot.push_output(&data);
-                        }
+                    PtyEvent::RawData { id, data } => {
+                        // All output processing happens here: query detection,
+                        // parser update (split at CPR offset), sync buffering,
+                        // ring buffer, and client forwarding.
+                        let chunks = if let Some(slot) = agents.get_mut(&id) {
+                            slot.process_raw_data(&data)
+                        } else {
+                            Vec::new()
+                        };
                         if subscriptions.contains(&id) {
                             let mut disconnect = false;
-                            if let Some(ref mut stream) = client {
-                                let msg = DaemonMessage::Output { id, data };
-                                if !send_to_client(stream, &msg).await {
-                                    disconnect = true;
+                            for chunk in chunks {
+                                if let Some(ref mut stream) = client {
+                                    let msg = DaemonMessage::Output {
+                                        id: id.clone(),
+                                        data: chunk,
+                                    };
+                                    if !send_to_client(stream, &msg).await {
+                                        disconnect = true;
+                                        break;
+                                    }
                                 }
                             }
                             if disconnect {
@@ -467,20 +526,6 @@ pub async fn run_daemon() -> Result<()> {
                         if disconnect {
                             client = None;
                             subscriptions.clear();
-                        }
-                    }
-                    PtyEvent::QueryResponse { id, data } => {
-                        if let Some(slot) = agents.get_mut(&id) {
-                            let _ = slot.writer.write_all(&data);
-                            let _ = slot.writer.flush();
-                        }
-                    }
-                    PtyEvent::CprRequest { id } => {
-                        if let Some(slot) = agents.get_mut(&id) {
-                            let (row, col) = slot.parser.screen().cursor_position();
-                            let response = format!("\x1b[{};{}R", row + 1, col + 1);
-                            let _ = slot.writer.write_all(response.as_bytes());
-                            let _ = slot.writer.flush();
                         }
                     }
                 }
@@ -736,10 +781,11 @@ fn spawn_agent_pty(
         .try_clone_reader()
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
+    // Reader thread is now minimal — just reads and forwards raw bytes.
+    // All processing (query detection, sync buffering, CPR handling)
+    // happens daemon-side in AgentSlot::process_raw_data().
     tokio::task::spawn_blocking(move || {
         let mut buf = [0u8; 65536];
-        let mut responder = TerminalQueryResponder::new();
-        let mut sync_buf = SyncOutputBuffer::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => {
@@ -749,38 +795,14 @@ fn spawn_agent_pty(
                     break;
                 }
                 Ok(n) => {
-                    // Detect terminal queries and generate responses
-                    let responses = responder.scan_for_queries(&buf[..n]);
-                    if !responses.is_empty() {
-                        let _ = tx.blocking_send(PtyEvent::QueryResponse {
+                    if tx
+                        .blocking_send(PtyEvent::RawData {
                             id: agent_id.clone(),
-                            data: responses,
-                        });
-                    }
-                    // Buffer synchronized updates, forward complete frames
-                    let chunks = sync_buf.process(&buf[..n]);
-                    let mut broken = false;
-                    for data in chunks {
-                        if tx
-                            .blocking_send(PtyEvent::Output {
-                                id: agent_id.clone(),
-                                data,
-                            })
-                            .is_err()
-                        {
-                            broken = true;
-                            break;
-                        }
-                    }
-                    if broken {
+                            data: buf[..n].to_vec(),
+                        })
+                        .is_err()
+                    {
                         break;
-                    }
-                    // Send CPR request AFTER output events so the daemon-side
-                    // parser has processed the current data before responding
-                    if responder.cpr_requested {
-                        let _ = tx.blocking_send(PtyEvent::CprRequest {
-                            id: agent_id.clone(),
-                        });
                     }
                 }
             }
@@ -797,5 +819,7 @@ fn spawn_agent_pty(
         ring_buffer: VecDeque::with_capacity(RING_BUFFER_CAP),
         parser: vt100::Parser::new(rows, cols, 0),
         alive: true,
+        sync_buf: SyncOutputBuffer::new(),
+        responder: TerminalQueryResponder::new(),
     })
 }
