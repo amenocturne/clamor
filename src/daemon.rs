@@ -195,23 +195,31 @@ impl TerminalQueryResponder {
 
         let mut i = 0;
         while i < combined.len() {
-            if combined[i] == 0x1b && i + 1 < combined.len() && combined[i + 1] == b'[' {
-                // CPR check: ESC [ 6 n — set flag for deferred response
-                if i + 3 < combined.len() && combined[i + 2] == b'6' && combined[i + 3] == b'n' {
-                    self.cpr_requested = true;
-                    i += 4;
-                    continue;
-                }
-                if let Some((seq_len, response)) = Self::parse_csi_query(&combined[i..]) {
-                    if let Some(resp) = response {
-                        responses.extend_from_slice(&resp);
-                    }
-                    i += seq_len;
-                    continue;
-                } else {
-                    // Incomplete sequence at end — buffer for next call
+            if combined[i] == 0x1b {
+                if i + 1 >= combined.len() {
+                    // Lone ESC at end — could be start of any escape sequence
                     self.partial = combined[i..].to_vec();
                     return responses;
+                }
+                if combined[i + 1] == b'[' {
+                    // CPR check: ESC [ 6 n — set flag for deferred response
+                    if i + 3 < combined.len() && combined[i + 2] == b'6' && combined[i + 3] == b'n'
+                    {
+                        self.cpr_requested = true;
+                        i += 4;
+                        continue;
+                    }
+                    if let Some((seq_len, response)) = Self::parse_csi_query(&combined[i..]) {
+                        if let Some(resp) = response {
+                            responses.extend_from_slice(&resp);
+                        }
+                        i += seq_len;
+                        continue;
+                    } else {
+                        // Incomplete sequence at end — buffer for next call
+                        self.partial = combined[i..].to_vec();
+                        return responses;
+                    }
                 }
             }
             i += 1;
@@ -256,8 +264,614 @@ impl TerminalQueryResponder {
             return None; // Possibly incomplete
         }
 
-        // Not a query — skip the ESC byte
-        Some((1, None))
+        // Unknown CSI — scan for a final byte (0x40-0x7E) to determine
+        // if the sequence is complete. Without a final byte, it could be
+        // a partially-received query (e.g. \x1b[6 waiting for 'n').
+        for (j, &b) in data.iter().enumerate().take(64).skip(2) {
+            if (0x40..=0x7e).contains(&b) {
+                return Some((j + 1, None)); // Complete non-query, skip it
+            }
+        }
+        None // No final byte yet — incomplete
+    }
+}
+
+#[cfg(test)]
+mod query_tests {
+    use super::*;
+
+    fn responder() -> TerminalQueryResponder {
+        TerminalQueryResponder::new()
+    }
+
+    // ── CPR detection across split boundaries ──────────────────────────
+
+    #[test]
+    fn cpr_not_split() {
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"Hello\x1b[6n world");
+        assert!(r.cpr_requested);
+    }
+
+    #[test]
+    fn cpr_split_esc() {
+        // \x1b | [6n
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"Hello\x1b");
+        assert!(!r.cpr_requested);
+        assert!(!r.partial.is_empty(), "lone ESC must be saved");
+        let _ = r.scan_for_queries(b"[6n rest");
+        assert!(r.cpr_requested);
+    }
+
+    #[test]
+    fn cpr_split_esc_bracket() {
+        // \x1b[ | 6n
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"Hello\x1b[");
+        assert!(!r.cpr_requested);
+        assert!(!r.partial.is_empty());
+        let _ = r.scan_for_queries(b"6n rest");
+        assert!(r.cpr_requested);
+    }
+
+    #[test]
+    fn cpr_split_esc_bracket_6() {
+        // \x1b[6 | n — the originally-broken case
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"Hello\x1b[6");
+        assert!(!r.cpr_requested);
+        assert!(!r.partial.is_empty(), "partial must be saved");
+        let _ = r.scan_for_queries(b"n world");
+        assert!(r.cpr_requested);
+    }
+
+    #[test]
+    fn cpr_at_very_end_of_data() {
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"\x1b[6n");
+        assert!(r.cpr_requested);
+        assert!(r.partial.is_empty());
+    }
+
+    // ── DA1 detection ──────────────────────────────────────────────────
+
+    #[test]
+    fn da1_basic() {
+        let mut r = responder();
+        let resp = r.scan_for_queries(b"\x1b[c");
+        assert_eq!(resp, b"\x1b[?62;22c");
+    }
+
+    #[test]
+    fn da1_variant_0c() {
+        let mut r = responder();
+        let resp = r.scan_for_queries(b"\x1b[0c");
+        assert_eq!(resp, b"\x1b[?62;22c");
+    }
+
+    #[test]
+    fn da1_split_esc_bracket() {
+        // \x1b[ | c — partial saved, then completed
+        let mut r = responder();
+        let resp1 = r.scan_for_queries(b"\x1b[");
+        assert!(resp1.is_empty(), "no response yet");
+        assert!(!r.partial.is_empty());
+        let resp2 = r.scan_for_queries(b"c");
+        assert_eq!(resp2, b"\x1b[?62;22c");
+    }
+
+    #[test]
+    fn da1_split_esc() {
+        // \x1b | [c
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"text\x1b");
+        assert!(!r.partial.is_empty());
+        let resp = r.scan_for_queries(b"[c more");
+        assert_eq!(resp, b"\x1b[?62;22c");
+    }
+
+    // ── DECRQM detection ───────────────────────────────────────────────
+
+    #[test]
+    fn decrqm_mode_2026() {
+        let mut r = responder();
+        let resp = r.scan_for_queries(b"\x1b[?2026$p");
+        // Mode 2026 → status 1 (supported)
+        assert_eq!(resp, b"\x1b[?2026;1$y");
+    }
+
+    #[test]
+    fn decrqm_unknown_mode() {
+        let mut r = responder();
+        let resp = r.scan_for_queries(b"\x1b[?9999$p");
+        // Unknown mode → status 0
+        assert_eq!(resp, b"\x1b[?9999;0$y");
+    }
+
+    #[test]
+    fn decrqm_split_at_dollar() {
+        // \x1b[?2026$ | p — partial saved at $, completed next read
+        let mut r = responder();
+        let resp1 = r.scan_for_queries(b"\x1b[?2026$");
+        assert!(resp1.is_empty());
+        assert!(!r.partial.is_empty());
+        let resp2 = r.scan_for_queries(b"p");
+        assert_eq!(resp2, b"\x1b[?2026;1$y");
+    }
+
+    #[test]
+    fn decrqm_split_mid_digits() {
+        // \x1b[?20 | 26$p
+        let mut r = responder();
+        let resp1 = r.scan_for_queries(b"\x1b[?20");
+        assert!(resp1.is_empty());
+        assert!(!r.partial.is_empty());
+        let resp2 = r.scan_for_queries(b"26$p");
+        assert_eq!(resp2, b"\x1b[?2026;1$y");
+    }
+
+    // ── Multiple queries in one read ───────────────────────────────────
+
+    #[test]
+    fn multiple_queries_one_read() {
+        let mut r = responder();
+        // DA1 + CPR + DECRQM all in one chunk
+        let resp = r.scan_for_queries(b"\x1b[c\x1b[6n\x1b[?2026$p");
+        assert!(r.cpr_requested);
+        // Response should contain DA1 response + DECRQM response (CPR is deferred)
+        let expected_da1 = b"\x1b[?62;22c";
+        let expected_decrqm = b"\x1b[?2026;1$y";
+        assert_eq!(resp.len(), expected_da1.len() + expected_decrqm.len());
+        assert_eq!(&resp[..expected_da1.len()], expected_da1.as_slice());
+        assert_eq!(&resp[expected_da1.len()..], expected_decrqm.as_slice());
+    }
+
+    #[test]
+    fn cpr_between_normal_csi_sequences() {
+        // SGR + CPR + cursor-move — CPR detected, non-queries skipped
+        let mut r = responder();
+        let resp = r.scan_for_queries(b"\x1b[31m\x1b[6n\x1b[H");
+        assert!(r.cpr_requested);
+        assert!(resp.is_empty(), "no DA1/DECRQM queries present");
+    }
+
+    // ── Incomplete CSI handling ────────────────────────────────────────
+
+    #[test]
+    fn incomplete_csi_saved_as_partial() {
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"text\x1b[31");
+        assert!(!r.partial.is_empty(), "incomplete CSI must be buffered");
+    }
+
+    #[test]
+    fn complete_csi_not_saved() {
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"text\x1b[31m");
+        assert!(r.partial.is_empty(), "complete CSI must not leave partial");
+    }
+
+    #[test]
+    fn incomplete_csi_completes_next_read() {
+        // \x1b[31 | m — partial restored, sequence completed
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"\x1b[31");
+        assert!(!r.partial.is_empty());
+        let _ = r.scan_for_queries(b"m text");
+        assert!(r.partial.is_empty());
+    }
+
+    #[test]
+    fn incomplete_csi_turns_into_cpr() {
+        // \x1b[ at end, next read is 6n — reassembles as CPR
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"content\x1b[");
+        assert!(!r.partial.is_empty());
+        let _ = r.scan_for_queries(b"6n");
+        assert!(r.cpr_requested);
+    }
+
+    // ── Non-CSI escapes ────────────────────────────────────────────────
+
+    #[test]
+    fn non_csi_escape_not_saved_as_partial() {
+        // \x1b] (OSC start) — not CSI, should not trigger partial save
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"text\x1b]0;title\x07");
+        assert!(r.partial.is_empty());
+    }
+
+    #[test]
+    fn lone_esc_before_non_csi() {
+        // \x1b at end, followed by ] — should save ESC then discard
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"text\x1b");
+        assert!(!r.partial.is_empty());
+        let _ = r.scan_for_queries(b"]0;title\x07");
+        assert!(r.partial.is_empty(), "non-CSI should clear partial");
+    }
+
+    // ── Edge cases ─────────────────────────────────────────────────────
+
+    #[test]
+    fn empty_data() {
+        let mut r = responder();
+        let resp = r.scan_for_queries(b"");
+        assert!(resp.is_empty());
+        assert!(!r.cpr_requested);
+        assert!(r.partial.is_empty());
+    }
+
+    #[test]
+    fn no_escape_sequences() {
+        let mut r = responder();
+        let resp = r.scan_for_queries(b"Hello world, no escapes here!");
+        assert!(resp.is_empty());
+        assert!(!r.cpr_requested);
+        assert!(r.partial.is_empty());
+    }
+
+    #[test]
+    fn cpr_resets_each_call() {
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"\x1b[6n");
+        assert!(r.cpr_requested);
+        // Next call without CPR should reset the flag
+        let _ = r.scan_for_queries(b"no cpr here");
+        assert!(!r.cpr_requested);
+    }
+
+    #[test]
+    fn partial_cleared_on_clean_data() {
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"text\x1b[");
+        assert!(!r.partial.is_empty());
+        // Next call: partial + "H" → complete CSI (cursor home), partial cleared
+        let _ = r.scan_for_queries(b"H more");
+        assert!(r.partial.is_empty());
+    }
+
+    #[test]
+    fn bsu_esc_sequence_not_false_cpr() {
+        // BSU (\x1b[?2026h) contains no CPR — should not set cpr_requested
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"\x1b[?2026h content \x1b[?2026l");
+        assert!(!r.cpr_requested);
+    }
+}
+
+#[cfg(test)]
+mod sync_buf_tests {
+    use super::*;
+
+    fn buf() -> SyncOutputBuffer {
+        SyncOutputBuffer::new()
+    }
+
+    fn concat(chunks: &[Vec<u8>]) -> Vec<u8> {
+        chunks.iter().flatten().copied().collect()
+    }
+
+    const BSU: &[u8] = b"\x1b[?2026h";
+    const ESU: &[u8] = b"\x1b[?2026l";
+
+    // ── Basic framing ──────────────────────────────────────────────────
+
+    #[test]
+    fn passthrough_without_markers() {
+        let mut b = buf();
+        let out = b.process(b"Hello world");
+        assert_eq!(concat(&out), b"Hello world");
+    }
+
+    #[test]
+    fn single_frame() {
+        let mut b = buf();
+        let mut data = Vec::new();
+        data.extend(BSU);
+        data.extend(b"content");
+        data.extend(ESU);
+        let out = b.process(&data);
+        assert_eq!(concat(&out), b"content");
+    }
+
+    #[test]
+    fn content_before_frame() {
+        let mut b = buf();
+        let mut data = Vec::new();
+        data.extend(b"before ");
+        data.extend(BSU);
+        data.extend(b"inside");
+        data.extend(ESU);
+        let out = b.process(&data);
+        // Two chunks: passthrough "before " + synced "inside"
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0], b"before ");
+        assert_eq!(out[1], b"inside");
+    }
+
+    #[test]
+    fn content_after_frame() {
+        let mut b = buf();
+        let mut data = Vec::new();
+        data.extend(BSU);
+        data.extend(b"inside");
+        data.extend(ESU);
+        data.extend(b" after");
+        let out = b.process(&data);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0], b"inside");
+        assert_eq!(out[1], b" after");
+    }
+
+    #[test]
+    fn multiple_frames() {
+        let mut b = buf();
+        let mut data = Vec::new();
+        data.extend(BSU);
+        data.extend(b"frame1");
+        data.extend(ESU);
+        data.extend(BSU);
+        data.extend(b"frame2");
+        data.extend(ESU);
+        let out = b.process(&data);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0], b"frame1");
+        assert_eq!(out[1], b"frame2");
+    }
+
+    #[test]
+    fn empty_frame() {
+        let mut b = buf();
+        let mut data = Vec::new();
+        data.extend(BSU);
+        data.extend(ESU);
+        let out = b.process(&data);
+        // Empty frame produces no output
+        assert!(out.is_empty() || concat(&out).is_empty());
+    }
+
+    // ── Split markers across reads ─────────────────────────────────────
+
+    #[test]
+    fn bsu_split_at_every_byte() {
+        // Split BSU (\x1b[?2026h) at each of the 7 internal boundaries
+        let bsu = b"\x1b[?2026h";
+        for split in 1..8 {
+            let mut b = buf();
+            let mut read1: Vec<u8> = Vec::new();
+            read1.extend(b"before");
+            read1.extend(&bsu[..split]);
+
+            let mut read2: Vec<u8> = Vec::new();
+            read2.extend(&bsu[split..]);
+            read2.extend(b"inside");
+
+            let out1 = b.process(&read1);
+            // "before" should be emitted (or trail saved)
+            let out2 = b.process(&read2);
+
+            // After both reads, we should be in syncing mode (BSU detected)
+            // and "inside" should be buffered (no ESU yet)
+            let total = concat(&out1).len() + concat(&out2).len();
+            // "before" is 6 bytes; "inside" should be buffered
+            assert!(
+                total <= 6,
+                "split={split}: 'inside' should be buffered, got total={total}"
+            );
+            assert!(
+                b.syncing,
+                "split={split}: should be in syncing mode after BSU"
+            );
+        }
+    }
+
+    #[test]
+    fn esu_split_at_every_byte() {
+        // Start with BSU, buffer content, then split ESU
+        let esu = b"\x1b[?2026l";
+        for split in 1..8 {
+            let mut b = buf();
+            // First: BSU + content
+            let mut read1: Vec<u8> = Vec::new();
+            read1.extend(BSU);
+            read1.extend(b"content");
+            read1.extend(&esu[..split]);
+
+            let out1 = b.process(&read1);
+
+            // Content should still be buffered (ESU incomplete)
+            assert!(
+                concat(&out1).is_empty(),
+                "split={split}: content should be buffered until ESU completes"
+            );
+
+            // Second: rest of ESU
+            let out2 = b.process(&esu[split..]);
+            assert_eq!(
+                concat(&out2),
+                b"content",
+                "split={split}: content should be emitted after ESU completes"
+            );
+        }
+    }
+
+    // ── Trail false positives ──────────────────────────────────────────
+
+    #[test]
+    fn trail_esc_followed_by_non_marker() {
+        // \x1b at end, next read is [31m (SGR, not BSU/ESU)
+        let mut b = buf();
+        let out1 = b.process(b"text\x1b");
+        // "text" emitted, \x1b saved as trail
+        let out2 = b.process(b"[31m more");
+        // Trail combined: \x1b[31m → not BSU/ESU → passthrough
+        let total: Vec<u8> = [concat(&out1), concat(&out2)].concat();
+        assert_eq!(total, b"text\x1b[31m more");
+    }
+
+    #[test]
+    fn trail_esc_bracket_followed_by_non_marker() {
+        // \x1b[ at end, next read starts with 2004h (bracketed paste, not 2026)
+        let mut b = buf();
+        let out1 = b.process(b"text\x1b[");
+        let out2 = b.process(b"?2004h more");
+        let total: Vec<u8> = [concat(&out1), concat(&out2)].concat();
+        assert_eq!(total, b"text\x1b[?2004h more");
+    }
+
+    #[test]
+    fn trail_esc_bracket_question_not_2026() {
+        // \x1b[? at end, next read is 1049h (alternate screen)
+        let mut b = buf();
+        let out1 = b.process(b"text\x1b[?");
+        let out2 = b.process(b"1049h");
+        let total: Vec<u8> = [concat(&out1), concat(&out2)].concat();
+        assert_eq!(total, b"text\x1b[?1049h");
+    }
+
+    // ── Orphan ESU ─────────────────────────────────────────────────────
+
+    #[test]
+    fn orphan_esu_stripped() {
+        // ESU without preceding BSU — ESU bytes stripped, content passes through
+        let mut b = buf();
+        let mut data = Vec::new();
+        data.extend(b"before");
+        data.extend(ESU);
+        data.extend(b"after");
+        let out = b.process(&data);
+        assert_eq!(concat(&out), b"beforeafter");
+    }
+
+    // ── Nested BSU ─────────────────────────────────────────────────────
+
+    #[test]
+    fn nested_bsu_content_not_lost() {
+        // BSU content1 BSU content2 ESU — content1 must not be dropped
+        let mut b = buf();
+        let mut data = Vec::new();
+        data.extend(BSU);
+        data.extend(b"content1");
+        data.extend(BSU);
+        data.extend(b"content2");
+        data.extend(ESU);
+        let out = b.process(&data);
+        assert_eq!(concat(&out), b"content1content2");
+    }
+
+    // ── BSU without ESU ────────────────────────────────────────────────
+
+    #[test]
+    fn bsu_without_esu_buffers_indefinitely() {
+        let mut b = buf();
+        let mut data = Vec::new();
+        data.extend(BSU);
+        data.extend(b"still waiting");
+        let out1 = b.process(&data);
+        assert!(concat(&out1).is_empty(), "content buffered until ESU");
+        assert!(b.syncing);
+
+        // More data without ESU
+        let out2 = b.process(b" more data");
+        assert!(concat(&out2).is_empty());
+        assert!(b.syncing);
+
+        // Finally ESU
+        let out3 = b.process(ESU);
+        assert_eq!(concat(&out3), b"still waiting more data");
+        assert!(!b.syncing);
+    }
+
+    // ── Data integrity ─────────────────────────────────────────────────
+
+    #[test]
+    fn markers_stripped_content_preserved() {
+        // All BSU/ESU bytes must be stripped; all other bytes preserved
+        let mut b = buf();
+        let mut data = Vec::new();
+        data.extend(b"A");
+        data.extend(BSU);
+        data.extend(b"B");
+        data.extend(ESU);
+        data.extend(b"C");
+        data.extend(BSU);
+        data.extend(b"D");
+        data.extend(ESU);
+        data.extend(b"E");
+        let out = b.process(&data);
+        assert_eq!(concat(&out), b"ABCDE");
+    }
+
+    #[test]
+    fn empty_data() {
+        let mut b = buf();
+        let out = b.process(b"");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn frame_split_across_three_reads() {
+        // BSU in read 1, content in read 2, ESU in read 3
+        let mut b = buf();
+        let out1 = b.process(BSU);
+        assert!(concat(&out1).is_empty());
+        let out2 = b.process(b"the content");
+        assert!(concat(&out2).is_empty());
+        let out3 = b.process(ESU);
+        assert_eq!(concat(&out3), b"the content");
+    }
+
+    #[test]
+    fn passthrough_between_frames() {
+        let mut b = buf();
+        let mut data = Vec::new();
+        data.extend(BSU);
+        data.extend(b"F1");
+        data.extend(ESU);
+        data.extend(b"GAP");
+        data.extend(BSU);
+        data.extend(b"F2");
+        data.extend(ESU);
+        let out = b.process(&data);
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0], b"F1");
+        assert_eq!(out[1], b"GAP");
+        assert_eq!(out[2], b"F2");
+    }
+}
+
+#[cfg(test)]
+mod find_cpr_tests {
+    use super::*;
+
+    #[test]
+    fn finds_cpr_at_start() {
+        assert_eq!(find_cpr_offset(b"\x1b[6n rest"), Some(0));
+    }
+
+    #[test]
+    fn finds_cpr_in_middle() {
+        assert_eq!(find_cpr_offset(b"before\x1b[6n after"), Some(6));
+    }
+
+    #[test]
+    fn no_cpr_in_data() {
+        assert_eq!(find_cpr_offset(b"no cpr here"), None);
+    }
+
+    #[test]
+    fn data_too_short() {
+        assert_eq!(find_cpr_offset(b"\x1b[6"), None);
+        assert_eq!(find_cpr_offset(b"\x1b["), None);
+        assert_eq!(find_cpr_offset(b"\x1b"), None);
+        assert_eq!(find_cpr_offset(b""), None);
+    }
+
+    #[test]
+    fn finds_first_occurrence() {
+        assert_eq!(find_cpr_offset(b"\x1b[6n\x1b[6n"), Some(0));
     }
 }
 
