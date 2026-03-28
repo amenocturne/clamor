@@ -132,6 +132,26 @@ smart-approve-install:
     cp tools/smart-approve/target/release/smart-approve ~/.local/bin/smart-approve
     @echo "smart-approve installed to ~/.local/bin/smart-approve"
 
+# Install Pi agent extensions to ~/.pi/agent/extensions/
+pi-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PI_EXT_DIR="$HOME/.pi/agent/extensions"
+    mkdir -p "$PI_EXT_DIR"
+    for ext in agents/pi/extensions/*/; do
+        name=$(basename "$ext")
+        target="$PI_EXT_DIR/$name"
+        if [[ -L "$target" ]]; then
+            rm "$target"
+        elif [[ -d "$target" ]]; then
+            echo "Warning: $target exists and is not a symlink, skipping"
+            continue
+        fi
+        ln -s "$(cd "$ext" && pwd)" "$target"
+        echo "$name → $target"
+    done
+    echo "Pi extensions installed."
+
 # Aliases
 alias i := install
 alias l := list
