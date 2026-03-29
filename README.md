@@ -4,15 +4,15 @@
 
 <h3 align="center"><i>ORCHESTRATE THE NOISE</i></h3>
 
-<p align="center"> Tmux for agents. Because one Claude isn't loud enough. </p>
+<p align="center"> Tmux for agents. Because one isn't loud enough. </p>
 
-<p align="center">A terminal multiplexer for managing parallel Claude Code sessions.</p>
+<p align="center">A terminal multiplexer for managing parallel coding agent sessions.</p>
 
 <!-- demo gif placeholder -->
 
 ## Why
 
-You're running five Claude Code sessions in parallel. Tab names blur together. You can't tell which agent needs input and which is still working. Switching between them means hunting through tmux windows or terminal tabs. Spawning a new one is a ritual of `cd`, naming, and arranging.
+You're running five coding agent sessions in parallel. Tab names blur together. You can't tell which agent needs input and which is still working. Switching between them means hunting through tmux windows or terminal tabs. Spawning a new one is a ritual of `cd`, naming, and arranging.
 
 Clamor fixes this without replacing your workflow. It's *not* a new terminal, *not* a new editor, *not* an IDE that swallows everything. It's a single tool that does one thing well: manage parallel agent sessions. It runs inside your existing terminal, alongside tmux, inside whatever setup you already have. Unix philosophy — small, composable, stays out of the way.
 
@@ -28,11 +28,11 @@ Clamor fixes this without replacing your workflow. It's *not* a new terminal, *n
 
 **Auto-resume** — The daemon automatically resumes agent sessions on restart. Terminal crash, SSH disconnect, daemon restart — agents pick up where they left off.
 
-**Session adoption** — Already have Claude Code sessions from before? Press `R` in the dashboard to adopt an existing session into Clamor.
+**Session adoption** — Already have agent sessions from before? Press `R` in the dashboard to adopt an existing session into Clamor.
 
 **Batch operations** — Select multiple agents with `v`, select all with `V`, then act on the selection. Filter agents by name with `/`.
 
-**Non-blocking hooks** — State tracking uses non-blocking file locks. Clamor never slows down your Claude Code sessions.
+**Non-blocking hooks** — State tracking uses non-blocking file locks. Clamor never slows down your agent sessions.
 
 ## Quick start
 
@@ -53,7 +53,7 @@ cp target/release/clamor ~/.local/bin/
 
 ### Hook setup
 
-Clamor tracks agent state (working/waiting/done) via Claude Code hooks. Add these to your `.claude/settings.json`:
+Clamor tracks agent state (working/waiting/done) via hooks. For Claude Code, add these to your `.claude/settings.json`:
 
 ```json
 {
@@ -114,7 +114,7 @@ clamor                  Open the dashboard (starts daemon if needed)
 clamor ls               List all agents
 clamor new <title>      Spawn a new agent
 clamor attach <ref>     Attach to an agent (by ID or jump key)
-clamor adopt <id>       Adopt an existing Claude Code session
+clamor adopt <id>       Adopt an existing agent session
 clamor edit <ref>       Update agent description
 clamor kill <ref>       Terminate an agent
 clamor kill --all       Terminate all agents
@@ -144,7 +144,7 @@ clamor stop             Stop the daemon
 | `v`            | Toggle select agent              |
 | `V`            | Select / deselect all            |
 | `/`            | Filter agents by name            |
-| `R`            | Adopt existing Claude session    |
+| `R`            | Adopt existing agent session     |
 | `?`            | Help popup                       |
 | `Esc`          | Clear selection                  |
 | `q`            | Quit dashboard                   |
