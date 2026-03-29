@@ -137,7 +137,6 @@ pub fn builtin_backends() -> HashMap<String, BackendConfig> {
                 spawn: BackendCommandConfig {
                     cmd: vec![
                         "opencode".to_string(),
-                        "run".to_string(),
                         "--prompt".to_string(),
                         "{{prompt}}".to_string(),
                     ],
