@@ -64,8 +64,9 @@ Current protocol messages include `Hello { version }` for version exchange betwe
 
 ### Spawn prompt
 
-- `Tab` / `Shift-Tab` — cycle backend for selected folder
-- `Tab` — toggle between title/description fields
+- `Tab` / `Shift+Tab` — cycle fields (title → description → backend)
+- `←` / `→` — select backend (when backend field active, skipped for single-backend folders)
+- `Shift+Enter` / `Alt+Enter` — new line in description
 - `Up`/`Down` — prompt history
 - `Ctrl+W` / `Alt+Backspace` — delete word
 - `Ctrl+U` — delete line

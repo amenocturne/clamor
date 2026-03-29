@@ -9,7 +9,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    Event, KeyCode, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+};
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::ExecutableCommand;
 use futures_util::StreamExt;
@@ -180,8 +183,20 @@ pub async fn run(config: &ClamorConfig, attach_to: Option<String>) -> Result<()>
     let mut terminal = setup_terminal()?;
     execute!(io::stdout(), EnableBracketedPaste, EnableMouseCapture)?;
 
+    let has_keyboard_enhancement =
+        crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false);
+    if has_keyboard_enhancement {
+        execute!(
+            io::stdout(),
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        )?;
+    }
+
     let result = main_loop(&mut terminal, config, &mut client, attach_to, &state_source).await;
 
+    if has_keyboard_enhancement {
+        execute!(io::stdout(), PopKeyboardEnhancementFlags)?;
+    }
     execute!(io::stdout(), DisableBracketedPaste, DisableMouseCapture)?;
     restore_terminal(&mut terminal)?;
 
@@ -192,7 +207,12 @@ fn install_panic_hook() {
     let original = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = terminal::disable_raw_mode();
-        let _ = execute!(io::stdout(), DisableMouseCapture, DisableBracketedPaste);
+        let _ = execute!(
+            io::stdout(),
+            PopKeyboardEnhancementFlags,
+            DisableMouseCapture,
+            DisableBracketedPaste
+        );
         let _ = io::stdout().execute(LeaveAlternateScreen);
         original(info);
     }));
@@ -595,14 +615,27 @@ fn build_overlay<'a>(
             description,
             active_field,
             ..
-        } => render::Overlay::PromptInput {
-            folder_name,
-            backend_label: folder_backend_label(config, state, folder_name)
-                .unwrap_or_else(|| "Unknown".to_string()),
-            title,
-            description,
-            active_field,
-        },
+        } => {
+            let selected_id = selected_backend_for_folder(config, state, folder_name);
+            let backends: Vec<(String, String, bool)> = config
+                .folder_backends(folder_name)
+                .unwrap_or(&[])
+                .iter()
+                .filter(|id| config.backends.contains_key(id.as_str()))
+                .map(|id| {
+                    let label = config.backend_display_name(id).to_string();
+                    let selected = selected_id.as_deref() == Some(id.as_str());
+                    (id.clone(), label, selected)
+                })
+                .collect();
+            render::Overlay::PromptInput {
+                folder_name,
+                backends,
+                title,
+                description,
+                active_field,
+            }
+        }
         InputMode::TypingAdopt { input, .. } => render::Overlay::AdoptInput { input },
         InputMode::ConfirmEmptySpawn { .. } => render::Overlay::ConfirmEmptySpawn,
         InputMode::ConfirmKill {
@@ -747,10 +780,13 @@ async fn handle_dashboard_event(
                 } = input_mode
                 {
                     let target = match active_field {
-                        PromptField::Title => title,
-                        PromptField::Description => description,
+                        PromptField::Title => Some(title),
+                        PromptField::Description => Some(description),
+                        PromptField::Backend => None,
                     };
-                    apply_edit(target, &edit);
+                    if let Some(target) = target {
+                        apply_edit(target, &edit);
+                    }
                 }
             }
             DashboardAction::AdoptInput(edit) => {
@@ -1039,16 +1075,48 @@ async fn handle_dashboard_event(
                 }
             }
 
-            DashboardAction::PromptToggleField => {
+            DashboardAction::PromptCycleField { reverse } => {
                 if let InputMode::TypingPrompt {
                     ref mut active_field,
+                    ref folder_name,
                     ..
                 } = input_mode
                 {
-                    *active_field = match active_field {
-                        PromptField::Title => PromptField::Description,
-                        PromptField::Description => PromptField::Title,
+                    let backend_count = config
+                        .folder_backends(folder_name)
+                        .map(|b| {
+                            b.iter()
+                                .filter(|id| config.backends.contains_key(id.as_str()))
+                                .count()
+                        })
+                        .unwrap_or(1);
+
+                    let next = if reverse {
+                        match active_field {
+                            PromptField::Title => {
+                                if backend_count > 1 {
+                                    PromptField::Backend
+                                } else {
+                                    PromptField::Description
+                                }
+                            }
+                            PromptField::Description => PromptField::Title,
+                            PromptField::Backend => PromptField::Description,
+                        }
+                    } else {
+                        match active_field {
+                            PromptField::Title => PromptField::Description,
+                            PromptField::Description => {
+                                if backend_count > 1 {
+                                    PromptField::Backend
+                                } else {
+                                    PromptField::Title
+                                }
+                            }
+                            PromptField::Backend => PromptField::Title,
+                        }
                     };
+                    *active_field = next;
                 }
             }
 
@@ -1115,10 +1183,13 @@ async fn handle_dashboard_event(
                             *history_index = None;
                             *history_stash = None;
                             let target = match active_field {
-                                PromptField::Title => title,
-                                PromptField::Description => description,
+                                PromptField::Title => Some(title),
+                                PromptField::Description => Some(description),
+                                PromptField::Backend => None,
                             };
-                            apply_edit(target, &edit);
+                            if let Some(target) = target {
+                                apply_edit(target, &edit);
+                            }
                         }
                     }
                 }

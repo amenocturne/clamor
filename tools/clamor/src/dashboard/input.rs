@@ -2,10 +2,11 @@ use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-/// Which field is active in the two-field spawn popup.
+/// Which field is active in the spawn popup.
 pub enum PromptField {
     Title,
     Description,
+    Backend,
 }
 
 /// Actions the dashboard can take in response to keyboard input.
@@ -23,7 +24,7 @@ pub enum DashboardAction {
     PromptSubmitted,
     PromptInput(PromptEdit),
     PromptCycleBackend { reverse: bool },
-    PromptToggleField,
+    PromptCycleField { reverse: bool },
     AdoptStart,
     AdoptInput(PromptEdit),
     AdoptSubmitted,
@@ -133,7 +134,7 @@ pub fn handle_input(
         InputMode::WaitingEdit => handle_pending_edit(event, key_map),
         InputMode::EditingDescription { .. } => handle_edit_input(event),
         InputMode::PickingFolder { folder_count, .. } => handle_folder_pick(event, *folder_count),
-        InputMode::TypingPrompt { .. } => handle_prompt_input(event),
+        InputMode::TypingPrompt { active_field, .. } => handle_prompt_input(event, active_field),
         InputMode::TypingAdopt { .. } => handle_adopt_input(event),
         InputMode::ConfirmEmptySpawn { .. } => handle_confirm_input(event),
         InputMode::ConfirmKill { .. } => handle_confirm_kill_input(event),
@@ -229,23 +230,41 @@ fn handle_folder_pick(event: KeyEvent, folder_count: usize) -> DashboardAction {
     }
 }
 
-fn handle_prompt_input(event: KeyEvent) -> DashboardAction {
-    if let Some(edit) = check_text_shortcut(&event) {
-        return DashboardAction::PromptInput(edit);
-    }
-    match event.code {
-        KeyCode::Enter => DashboardAction::PromptSubmitted,
-        KeyCode::Esc => DashboardAction::Cancel,
-        KeyCode::Tab => DashboardAction::PromptCycleBackend { reverse: false },
-        KeyCode::BackTab => DashboardAction::PromptCycleBackend { reverse: true },
-        KeyCode::Char('j') if event.modifiers.contains(KeyModifiers::CONTROL) => {
-            DashboardAction::PromptToggleField
+fn handle_prompt_input(event: KeyEvent, active_field: &PromptField) -> DashboardAction {
+    match active_field {
+        PromptField::Backend => match event.code {
+            KeyCode::Tab => DashboardAction::PromptCycleField { reverse: false },
+            KeyCode::BackTab => DashboardAction::PromptCycleField { reverse: true },
+            KeyCode::Left => DashboardAction::PromptCycleBackend { reverse: true },
+            KeyCode::Right => DashboardAction::PromptCycleBackend { reverse: false },
+            KeyCode::Enter => DashboardAction::PromptSubmitted,
+            KeyCode::Esc => DashboardAction::Cancel,
+            _ => DashboardAction::Refresh,
+        },
+        PromptField::Title | PromptField::Description => {
+            if let Some(edit) = check_text_shortcut(&event) {
+                return DashboardAction::PromptInput(edit);
+            }
+            match event.code {
+                // Shift+Enter or Alt+Enter inserts newline in description
+                KeyCode::Enter
+                    if matches!(active_field, PromptField::Description)
+                        && (event.modifiers.contains(KeyModifiers::SHIFT)
+                            || event.modifiers.contains(KeyModifiers::ALT)) =>
+                {
+                    DashboardAction::PromptInput(PromptEdit::Char('\n'))
+                }
+                KeyCode::Enter => DashboardAction::PromptSubmitted,
+                KeyCode::Esc => DashboardAction::Cancel,
+                KeyCode::Tab => DashboardAction::PromptCycleField { reverse: false },
+                KeyCode::BackTab => DashboardAction::PromptCycleField { reverse: true },
+                KeyCode::Up => DashboardAction::PromptInput(PromptEdit::HistoryPrev),
+                KeyCode::Down => DashboardAction::PromptInput(PromptEdit::HistoryNext),
+                KeyCode::Backspace => DashboardAction::PromptInput(PromptEdit::Backspace),
+                KeyCode::Char(c) => DashboardAction::PromptInput(PromptEdit::Char(c)),
+                _ => DashboardAction::Refresh,
+            }
         }
-        KeyCode::Up => DashboardAction::PromptInput(PromptEdit::HistoryPrev),
-        KeyCode::Down => DashboardAction::PromptInput(PromptEdit::HistoryNext),
-        KeyCode::Backspace => DashboardAction::PromptInput(PromptEdit::Backspace),
-        KeyCode::Char(c) => DashboardAction::PromptInput(PromptEdit::Char(c)),
-        _ => DashboardAction::Refresh,
     }
 }
 
@@ -371,23 +390,53 @@ mod tests {
     }
 
     #[test]
-    fn tab_cycles_backend_in_spawn_mode() {
-        let action = handle_prompt_input(key_event(KeyCode::Tab, KeyModifiers::NONE));
+    fn tab_cycles_field_in_spawn_mode() {
+        let action = handle_prompt_input(
+            key_event(KeyCode::Tab, KeyModifiers::NONE),
+            &PromptField::Title,
+        );
         assert!(matches!(
             action,
-            DashboardAction::PromptCycleBackend { reverse: false }
+            DashboardAction::PromptCycleField { reverse: false }
         ));
 
-        let action = handle_prompt_input(key_event(KeyCode::BackTab, KeyModifiers::SHIFT));
+        let action = handle_prompt_input(
+            key_event(KeyCode::BackTab, KeyModifiers::SHIFT),
+            &PromptField::Title,
+        );
         assert!(matches!(
             action,
-            DashboardAction::PromptCycleBackend { reverse: true }
+            DashboardAction::PromptCycleField { reverse: true }
         ));
     }
 
     #[test]
-    fn ctrl_j_toggles_prompt_field_when_tab_is_reserved() {
-        let action = handle_prompt_input(key_event(KeyCode::Char('j'), KeyModifiers::CONTROL));
-        assert!(matches!(action, DashboardAction::PromptToggleField));
+    fn left_right_cycles_backend_in_backend_field() {
+        let action = handle_prompt_input(
+            key_event(KeyCode::Left, KeyModifiers::NONE),
+            &PromptField::Backend,
+        );
+        assert!(matches!(
+            action,
+            DashboardAction::PromptCycleBackend { reverse: true }
+        ));
+
+        let action = handle_prompt_input(
+            key_event(KeyCode::Right, KeyModifiers::NONE),
+            &PromptField::Backend,
+        );
+        assert!(matches!(
+            action,
+            DashboardAction::PromptCycleBackend { reverse: false }
+        ));
+    }
+
+    #[test]
+    fn backend_field_ignores_char_input() {
+        let action = handle_prompt_input(
+            key_event(KeyCode::Char('a'), KeyModifiers::NONE),
+            &PromptField::Backend,
+        );
+        assert!(matches!(action, DashboardAction::Refresh));
     }
 }

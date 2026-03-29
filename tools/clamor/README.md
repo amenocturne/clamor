@@ -72,34 +72,74 @@ That's it — no files to copy. The hook reads events from stdin and updates age
 ### Configure folders
 
 ```bash
-clamor config init
-clamor config
+clamor config init    # Write starter config with built-in backends
+clamor config         # Open config in $EDITOR
 ```
 
-Clamor stores config in `~/.config/clamor/config.yaml`. If you still have a legacy `~/.clamor/config.json`, Clamor will offer to migrate it when you start the dashboard or run bare `clamor config`.
+Config lives at `~/.config/clamor/config.yaml`. Legacy `~/.clamor/config.json` is auto-detected — run `clamor config migrate` to convert.
 
-`clamor config init` writes a starter config with the built-in backends. `clamor config` opens the current config in `$EDITOR`.
+#### Folders
 
-Example:
+Each folder is a project directory where agents can be spawned:
 
 ```yaml
-backends:
-  claude-code:
-    display_name: Claude
-    spawn:
-      cmd: [claude, "{{prompt}}"]
-    resume:
-      cmd: [claude, --resume, "{{resume_token}}"]
-    capabilities:
-      resume: true
-      hooks: true
-      sync_output_mode: true
-
 folders:
   my-app:
     path: ~/projects/my-app
-    backends: [claude-code, open-code]
+    backends: [claude-code, open-code]  # Which backends are available here
+
+  scripts:
+    path: ~/scripts  # Omit backends → defaults to [claude-code]
 ```
+
+When a folder lists multiple backends, the spawn prompt shows a backend selector you can cycle through with arrow keys. The selection is persisted per folder.
+
+#### Backends
+
+Backends define how to spawn and resume agent sessions. Three are built-in (`claude-code`, `open-code`, `pi`) — you can override them or define your own:
+
+```yaml
+backends:
+  claude-code:              # Override a built-in
+    display_name: Claude
+    spawn:
+      cmd: [claude, "{{prompt}}"]
+      env:                  # Optional extra environment variables
+        CLAUDE_CODE_MAX_TURNS: "50"
+    resume:
+      cmd: [claude, --resume, "{{resume_token}}"]
+    capabilities:
+      resume: true          # Can resume sessions after daemon restart
+      hooks: true           # Supports clamor state tracking hooks
+      sync_output_mode: true  # Uses synchronized output (BSU/ESU)
+
+  my-custom-agent:          # Define a new backend
+    display_name: Custom
+    spawn:
+      cmd: [my-agent, --prompt, "{{prompt}}"]
+```
+
+**Template variables** available in `cmd`:
+
+| Variable | Description |
+| --- | --- |
+| `{{prompt}}` | User's description text (optional — omitted if empty) |
+| `{{title}}` | Agent title |
+| `{{folder_id}}` | Folder ID from config |
+| `{{folder_path}}` | Expanded folder path |
+| `{{cwd}}` | Working directory |
+| `{{backend_id}}` | Backend ID |
+| `{{resume_token}}` | Session ID for resume (resume commands only) |
+
+**Capabilities**:
+
+| Capability | Default | Description |
+| --- | --- | --- |
+| `resume` | `false` | Agent sessions can be resumed after daemon restart |
+| `hooks` | `false` | Backend supports `clamor hook` for state tracking |
+| `sync_output_mode` | `false` | Backend uses synchronized output markers |
+
+Use `clamor config print-example` to see a full config, or `clamor config print-backend claude-code` to see one backend's template.
 
 ### Launch
 
@@ -148,6 +188,18 @@ clamor stop             Stop the daemon
 | `?`            | Help popup                       |
 | `Esc`          | Clear selection                  |
 | `q`            | Quit dashboard                   |
+
+### Spawn prompt keys
+
+| Key              | Action                                |
+| ---------------- | ------------------------------------- |
+| `Tab` / `Shift+Tab` | Cycle fields (title → description → backend) |
+| `←` / `→`       | Select backend (when backend field active) |
+| `Shift+Enter`    | New line in description               |
+| `↑` / `↓`       | Prompt history                        |
+| `Ctrl+W`         | Delete word                           |
+| `Ctrl+U`         | Delete line                           |
+| `Enter`          | Spawn agent (empty = interactive)     |
 
 ### Terminal keys
 
