@@ -9,6 +9,7 @@ fn clamor_bin() -> PathBuf {
 fn clamor_cmd() -> Command {
     let mut cmd = Command::new(clamor_bin());
     cmd.env("CLAMOR_DEBUG", "1");
+    cmd.env_remove("XDG_CONFIG_HOME");
     cmd
 }
 
@@ -65,6 +66,7 @@ fn start_daemon(home: &PathBuf) {
         .arg("daemon")
         .env("HOME", home)
         .env("CLAMOR_DEBUG", "1")
+        .env_remove("XDG_CONFIG_HOME")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -385,6 +387,233 @@ fn test_clean_removes_done_agents() {
     // Verify empty
     let output = clamor_cmd().arg("ls").env("HOME", &home).output().unwrap();
     assert!(String::from_utf8_lossy(&output.stdout).contains("No agents"));
+
+    cleanup_test_env(&home);
+}
+
+// ── Multi-backend integration tests ──────────────────────────────
+
+/// Create an isolated HOME directory with a YAML config containing multiple backends.
+/// Returns the temp HOME path. The XDG config is at `{home}/.config/clamor/config.yaml`.
+///
+/// Because the host environment may have XDG_CONFIG_HOME set, all commands
+/// spawned against this env must use `multi_backend_cmd()` or
+/// `start_daemon_xdg()` which clear that variable so the config path
+/// falls through to `$HOME/.config/clamor/`.
+fn setup_multi_backend_env() -> PathBuf {
+    let test_home =
+        std::env::temp_dir().join(format!("clm-t-{}-{}", std::process::id(), rand_suffix()));
+    std::fs::create_dir_all(test_home.join(".clamor")).unwrap();
+    std::fs::create_dir_all(test_home.join(".config/clamor")).unwrap();
+
+    let config_yaml = format!(
+        r#"backends:
+  claude-code:
+    display_name: Claude
+    spawn:
+      cmd: [claude, "{{{{prompt}}}}"]
+    resume:
+      cmd: [claude, --resume, "{{{{resume_token}}}}"]
+    capabilities:
+      resume: true
+      hooks: true
+  open-code:
+    display_name: OpenCode
+    spawn:
+      cmd: [opencode, run, --prompt, "{{{{prompt}}}}"]
+    capabilities:
+      resume: false
+      hooks: false
+folders:
+  test:
+    path: {path}
+    backends: [claude-code, open-code]
+"#,
+        path = test_home.to_string_lossy()
+    );
+
+    std::fs::write(test_home.join(".config/clamor/config.yaml"), config_yaml).unwrap();
+
+    test_home
+}
+
+/// Build a Command pre-configured for multi-backend tests.
+/// Clears XDG_CONFIG_HOME so ClamorConfig falls back to $HOME/.config/clamor/.
+fn multi_backend_cmd(home: &PathBuf) -> Command {
+    let mut cmd = Command::new(clamor_bin());
+    cmd.env("CLAMOR_DEBUG", "1")
+        .env("HOME", home)
+        .env_remove("XDG_CONFIG_HOME");
+    cmd
+}
+
+/// Start the daemon with XDG_CONFIG_HOME cleared for multi-backend tests.
+fn start_daemon_xdg(home: &PathBuf) {
+    let mut child = Command::new(clamor_bin())
+        .arg("daemon")
+        .env("HOME", home)
+        .env("CLAMOR_DEBUG", "1")
+        .env_remove("XDG_CONFIG_HOME")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to start daemon");
+
+    let sock = home.join(".clamor/clamor.sock");
+    for _ in 0..50 {
+        if sock.exists() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let _ = child.kill();
+    panic!("daemon did not start within 5s");
+}
+
+#[test]
+fn test_spawn_records_backend_id() {
+    let home = setup_multi_backend_env();
+    start_daemon_xdg(&home);
+
+    let output = multi_backend_cmd(&home)
+        .args(["new", "--folder", "test", "backend test"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "spawn failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    let state_path = home.join(".clamor/state.json");
+    let state_str = std::fs::read_to_string(&state_path).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&state_str).unwrap();
+
+    let agents = state["agents"].as_object().unwrap();
+    assert_eq!(agents.len(), 1, "expected 1 agent, got {}", agents.len());
+
+    let agent = agents.values().next().unwrap();
+    assert_eq!(
+        agent["backend_id"].as_str().unwrap(),
+        "claude-code",
+        "default backend should be claude-code, got: {}",
+        agent["backend_id"]
+    );
+
+    cleanup_test_env(&home);
+}
+
+#[test]
+fn test_spawn_with_non_default_backend_selection() {
+    let home = setup_multi_backend_env();
+
+    // Pre-write state with open-code selected for the test folder
+    let state = serde_json::json!({
+        "agents": {},
+        "folder_state": {
+            "test": {
+                "selected_backend": "open-code"
+            }
+        },
+        "prompt_history": []
+    });
+    std::fs::write(
+        home.join(".clamor/state.json"),
+        serde_json::to_string_pretty(&state).unwrap(),
+    )
+    .unwrap();
+
+    start_daemon_xdg(&home);
+
+    let output = multi_backend_cmd(&home)
+        .args(["new", "--folder", "test", "open-code test"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "spawn failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    let state_path = home.join(".clamor/state.json");
+    let state_str = std::fs::read_to_string(&state_path).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&state_str).unwrap();
+
+    let agents = state["agents"].as_object().unwrap();
+    assert_eq!(agents.len(), 1, "expected 1 agent, got {}", agents.len());
+
+    let agent = agents.values().next().unwrap();
+    assert_eq!(
+        agent["backend_id"].as_str().unwrap(),
+        "open-code",
+        "selected backend should be open-code, got: {}",
+        agent["backend_id"]
+    );
+
+    cleanup_test_env(&home);
+}
+
+#[test]
+fn test_adopt_uses_resumable_backend() {
+    let home = setup_multi_backend_env();
+
+    // Pre-set folder_state to select open-code (which has resume: false)
+    let state = serde_json::json!({
+        "agents": {},
+        "folder_state": {
+            "test": {
+                "selected_backend": "open-code"
+            }
+        },
+        "prompt_history": []
+    });
+    std::fs::write(
+        home.join(".clamor/state.json"),
+        serde_json::to_string_pretty(&state).unwrap(),
+    )
+    .unwrap();
+
+    start_daemon_xdg(&home);
+
+    let output = multi_backend_cmd(&home)
+        .args([
+            "adopt",
+            "fake-session",
+            "--folder",
+            "test",
+            "-d",
+            "adopt test",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "adopt failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    let state_path = home.join(".clamor/state.json");
+    let state_str = std::fs::read_to_string(&state_path).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&state_str).unwrap();
+
+    let agents = state["agents"].as_object().unwrap();
+    assert_eq!(agents.len(), 1, "expected 1 agent, got {}", agents.len());
+
+    let agent = agents.values().next().unwrap();
+    assert_eq!(
+        agent["backend_id"].as_str().unwrap(),
+        "claude-code",
+        "adopt should pick first resumable backend (claude-code), not the folder selection (open-code), got: {}",
+        agent["backend_id"]
+    );
 
     cleanup_test_env(&home);
 }

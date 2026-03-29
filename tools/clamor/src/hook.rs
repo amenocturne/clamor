@@ -2,6 +2,7 @@ use chrono::Utc;
 use serde::Deserialize;
 
 use crate::agent::AgentState;
+use crate::config::ClamorConfig;
 use crate::state::try_with_state;
 
 #[derive(Debug, Deserialize)]
@@ -36,16 +37,30 @@ fn run_inner() -> anyhow::Result<()> {
 
     let event: HookEvent = serde_json::from_str(&input)?;
 
+    // Load config once — single file read, acceptable for hook path
+    let config = ClamorConfig::load().ok();
+
     let update = |state: &mut crate::state::ClamorState| {
         let agent = match state.agents.get_mut(&agent_id) {
             Some(a) => a,
             None => return,
         };
 
+        // Always extract resume_token — useful regardless of backend
         if let Some(ref sid) = event.session_id {
-            if agent.session_id.as_ref() != Some(sid) {
-                agent.session_id = Some(sid.clone());
+            if agent.resume_token.as_ref() != Some(sid) {
+                agent.resume_token = Some(sid.clone());
             }
+        }
+
+        // Skip state transitions if the backend doesn't support hooks
+        let hooks_supported = config
+            .as_ref()
+            .map(|c| should_process_hooks(c, &agent.backend_id))
+            .unwrap_or(false);
+
+        if !hooks_supported {
+            return;
         }
 
         match event.hook_event_name.as_str() {
@@ -85,6 +100,14 @@ fn run_inner() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn should_process_hooks(config: &ClamorConfig, backend_id: &str) -> bool {
+    config
+        .backends
+        .get(backend_id)
+        .map(|b| b.capabilities.hooks)
+        .unwrap_or(false)
+}
+
 fn format_tool(tool_name: &Option<String>, tool_input: &Option<serde_json::Value>) -> String {
     let name = match tool_name {
         Some(n) => n,
@@ -114,5 +137,48 @@ fn format_tool(tool_name: &Option<String>, tool_input: &Option<serde_json::Value
             format!("Bash: {truncated}")
         }
         other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{BackendCapabilities, BackendConfig};
+    use std::collections::HashMap;
+
+    fn config_with_backend(id: &str, hooks: bool) -> ClamorConfig {
+        let mut backends = HashMap::new();
+        backends.insert(
+            id.to_string(),
+            BackendConfig {
+                capabilities: BackendCapabilities {
+                    hooks,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        ClamorConfig {
+            backends,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn hooks_enabled_backend_returns_true() {
+        let config = config_with_backend("claude-code", true);
+        assert!(should_process_hooks(&config, "claude-code"));
+    }
+
+    #[test]
+    fn hooks_disabled_backend_returns_false() {
+        let config = config_with_backend("open-code", false);
+        assert!(!should_process_hooks(&config, "open-code"));
+    }
+
+    #[test]
+    fn unknown_backend_returns_false() {
+        let config = ClamorConfig::default();
+        assert!(!should_process_hooks(&config, "nonexistent"));
     }
 }

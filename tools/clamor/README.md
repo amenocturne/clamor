@@ -72,18 +72,33 @@ That's it — no files to copy. The hook reads events from stdin and updates age
 ### Configure folders
 
 ```bash
+clamor config init
 clamor config
 ```
 
-This opens `~/.clamor/config.json` — map names to paths:
+Clamor stores config in `~/.config/clamor/config.yaml`. If you still have a legacy `~/.clamor/config.json`, Clamor will offer to migrate it when you start the dashboard or run bare `clamor config`.
 
-```json
-{
-  "folders": {
-    "my-app": "~/projects/my-app",
-    "backend": "~/work/backend"
-  }
-}
+`clamor config init` writes a starter config with the built-in backends. `clamor config` opens the current config in `$EDITOR`.
+
+Example:
+
+```yaml
+backends:
+  claude-code:
+    display_name: Claude
+    spawn:
+      cmd: [claude, "{{prompt}}"]
+    resume:
+      cmd: [claude, --resume, "{{resume_token}}"]
+    capabilities:
+      resume: true
+      hooks: true
+      sync_output_mode: true
+
+folders:
+  my-app:
+    path: ~/projects/my-app
+    backends: [claude-code, open-code]
 ```
 
 ### Launch
@@ -105,6 +120,12 @@ clamor kill <ref>       Terminate an agent
 clamor kill --all       Terminate all agents
 clamor clean            Remove finished agents
 clamor config           Open config in $EDITOR
+clamor config init      Write a starter XDG config
+clamor config migrate   Copy legacy JSON config to XDG YAML
+clamor config print-example
+                        Print a full example config
+clamor config print-backend <id>
+                        Print one built-in backend template
 clamor stop             Stop the daemon
 ```
 

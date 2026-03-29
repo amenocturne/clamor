@@ -118,11 +118,11 @@ impl SyncOutputBuffer {
 }
 
 pub fn daemon_socket_path() -> Result<PathBuf> {
-    Ok(crate::config::ClamorConfig::config_dir()?.join("clamor.sock"))
+    Ok(crate::config::ClamorConfig::runtime_dir()?.join("clamor.sock"))
 }
 
 pub fn daemon_pid_path() -> Result<PathBuf> {
-    Ok(crate::config::ClamorConfig::config_dir()?.join("clamor.pid"))
+    Ok(crate::config::ClamorConfig::runtime_dir()?.join("clamor.pid"))
 }
 
 pub fn is_daemon_running() -> bool {

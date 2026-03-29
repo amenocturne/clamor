@@ -27,7 +27,10 @@ use crate::config::{resolve_path, ClamorConfig};
 use crate::daemon;
 use crate::pane::{self, PaneView};
 use crate::protocol::DaemonMessage;
-use crate::state::{with_state, ClamorState, PromptHistoryEntry};
+use crate::state::{
+    cycle_backend_for_folder, selected_backend_for_folder, with_state, ClamorState,
+    PromptHistoryEntry,
+};
 use crate::watcher::StateSource;
 
 use input::{DashboardAction, FolderPickReason, InputMode, PromptEdit, PromptField};
@@ -67,38 +70,45 @@ fn ensure_daemon() -> Result<()> {
     Ok(())
 }
 
-async fn reconcile_state(client: &mut DaemonClient, pty_rows: u16, pty_cols: u16) -> Result<()> {
+async fn reconcile_state(
+    config: &ClamorConfig,
+    client: &mut DaemonClient,
+    pty_rows: u16,
+    pty_cols: u16,
+) -> Result<()> {
     let daemon_agents = client.list_agents().await?;
     let daemon_ids: std::collections::HashSet<String> =
         daemon_agents.iter().map(|a| a.id.clone()).collect();
 
     let state = ClamorState::load()?;
-    let mut to_resume: Vec<(String, String, String)> = Vec::new(); // (id, cwd, session_id)
+    type ResumeEntry = (String, String, Vec<String>, Vec<(String, String)>);
+    let mut to_resume: Vec<ResumeEntry> = Vec::new();
     let mut to_remove: Vec<String> = Vec::new();
 
     for (id, agent) in &state.agents {
         if !daemon_ids.contains(id) {
-            if let Some(ref session_id) = agent.session_id {
-                to_resume.push((id.clone(), agent.cwd.clone(), session_id.clone()));
-            } else {
-                to_remove.push(id.clone());
+            match reconcile_resume_action(config, id, agent) {
+                ResumeReconcileAction::Resume { cwd, cmd, env } => {
+                    to_resume.push((id.clone(), cwd, cmd, env));
+                }
+                ResumeReconcileAction::Remove => {
+                    to_remove.push(id.clone());
+                }
             }
         }
     }
 
     // Resume agents with session IDs
-    for (id, cwd, session_id) in &to_resume {
-        let cmd = crate::spawn::build_resume_cmd(session_id);
-        let env = vec![("CLAMOR_AGENT_ID".to_string(), id.clone())];
+    for (id, cwd, cmd, env) in &to_resume {
         let _ = client
-            .spawn_agent(id, cwd, &cmd, &env, pty_rows, pty_cols)
+            .spawn_agent(id, cwd, cmd, env, pty_rows, pty_cols)
             .await;
     }
 
     // Update state: mark resumed agents as Working, remove non-resumable ones
     if !to_resume.is_empty() || !to_remove.is_empty() {
         with_state(|state| {
-            for (id, _, _) in &to_resume {
+            for (id, _, _, _) in &to_resume {
                 if let Some(agent) = state.agents.get_mut(id) {
                     agent.state = AgentState::Input;
                     agent.last_activity_at = chrono::Utc::now();
@@ -113,12 +123,56 @@ async fn reconcile_state(client: &mut DaemonClient, pty_rows: u16, pty_cols: u16
     Ok(())
 }
 
+enum ResumeReconcileAction {
+    Resume {
+        cwd: String,
+        cmd: Vec<String>,
+        env: Vec<(String, String)>,
+    },
+    Remove,
+}
+
+fn reconcile_resume_action(
+    config: &ClamorConfig,
+    agent_id: &str,
+    agent: &Agent,
+) -> ResumeReconcileAction {
+    let Some(resume_token) = agent.resume_token.as_deref() else {
+        return ResumeReconcileAction::Remove;
+    };
+
+    let folder_path = config
+        .folder_path(&agent.folder_id)
+        .unwrap_or(agent.cwd.as_str());
+    match crate::spawn::resolve_resume_launch(
+        config,
+        &agent.backend_id,
+        &agent.folder_id,
+        folder_path,
+        &agent.cwd,
+        &agent.title,
+        resume_token,
+    ) {
+        Ok(launch) => {
+            let mut env = launch.env;
+            env.push(("CLAMOR_AGENT_ID".to_string(), agent_id.to_string()));
+            ResumeReconcileAction::Resume {
+                cwd: agent.cwd.clone(),
+                cmd: launch.cmd,
+                env,
+            }
+        }
+        Err(_) => ResumeReconcileAction::Remove,
+    }
+}
+
 pub async fn run(config: &ClamorConfig, attach_to: Option<String>) -> Result<()> {
     ensure_daemon()?;
+    with_state(|state| crate::state::reconcile_folder_backend_selections(config, state))?;
     let mut client = DaemonClient::connect().await?;
 
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
-    reconcile_state(&mut client, term_rows, term_cols).await?;
+    reconcile_state(config, &mut client, term_rows, term_cols).await?;
 
     let state_source = StateSource::new(config);
 
@@ -212,12 +266,7 @@ async fn main_loop(
         AppMode::Dashboard
     };
 
-    let mut sorted_folders: Vec<(String, String)> = config
-        .folders
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    sorted_folders.sort_by(|a, b| a.0.cmp(&b.0));
+    let sorted_folders: Vec<(String, String)> = config.ordered_folders();
 
     let mut event_stream = EventStream::new();
     let mut frame_interval = tokio::time::interval(Duration::from_millis(16));
@@ -471,16 +520,31 @@ fn render_dashboard(
 ) -> Result<()> {
     let state = state_source.get();
     let killed_ids: Vec<String> = killed_at.keys().cloned().collect();
+    let folder_backend_labels: HashMap<String, String> = config
+        .folders
+        .keys()
+        .filter_map(|folder_id| {
+            folder_backend_label(config, &state, folder_id).map(|label| (folder_id.clone(), label))
+        })
+        .collect();
 
     let agent_refs: HashMap<String, &Agent> =
         state.agents.iter().map(|(id, a)| (id.clone(), a)).collect();
 
-    let overlay = build_overlay(input_mode, sorted_folders, filter_query, selected_agents);
+    let overlay = build_overlay(
+        config,
+        &state,
+        input_mode,
+        sorted_folders,
+        filter_query,
+        selected_agents,
+    );
 
     terminal.draw(|frame| {
         render::render(
             frame,
             config,
+            &folder_backend_labels,
             &agent_refs,
             &killed_ids,
             &overlay,
@@ -494,7 +558,18 @@ fn render_dashboard(
     Ok(())
 }
 
+fn folder_backend_label(
+    config: &ClamorConfig,
+    state: &ClamorState,
+    folder_id: &str,
+) -> Option<String> {
+    selected_backend_for_folder(config, state, folder_id)
+        .map(|backend_id| config.backend_display_name(&backend_id).to_string())
+}
+
 fn build_overlay<'a>(
+    config: &ClamorConfig,
+    state: &ClamorState,
     input_mode: &'a InputMode,
     sorted_folders: &'a [(String, String)],
     filter_query: &'a str,
@@ -522,6 +597,8 @@ fn build_overlay<'a>(
             ..
         } => render::Overlay::PromptInput {
             folder_name,
+            backend_label: folder_backend_label(config, state, folder_name)
+                .unwrap_or_else(|| "Unknown".to_string()),
             title,
             description,
             active_field,
@@ -818,12 +895,13 @@ async fn handle_dashboard_event(
                         Some((title, prompt)) => {
                             let state = state_source.get();
                             let ctx = SpawnContext {
+                                config,
                                 current_state: &state,
                                 state_source,
                                 pty_rows,
                                 pty_cols,
                             };
-                            let _ = spawn_inline(
+                            spawn_inline(
                                 client,
                                 &SpawnParams {
                                     folder_name: &folder_name_owned,
@@ -833,7 +911,7 @@ async fn handle_dashboard_event(
                                 },
                                 &ctx,
                             )
-                            .await;
+                            .await?;
                         }
                         None => {
                             *input_mode = InputMode::ConfirmEmptySpawn {
@@ -886,12 +964,13 @@ async fn handle_dashboard_event(
                                 Some((title, prompt)) => {
                                     let state = state_source.get();
                                     let ctx = SpawnContext {
+                                        config,
                                         current_state: &state,
                                         state_source,
                                         pty_rows,
                                         pty_cols,
                                     };
-                                    let _ = spawn_inline(
+                                    spawn_inline(
                                         client,
                                         &SpawnParams {
                                             folder_name: &folder_name_owned,
@@ -901,7 +980,7 @@ async fn handle_dashboard_event(
                                         },
                                         &ctx,
                                     )
-                                    .await;
+                                    .await?;
                                     *input_mode = InputMode::Normal;
                                 }
                                 None => {
@@ -970,6 +1049,17 @@ async fn handle_dashboard_event(
                         PromptField::Title => PromptField::Description,
                         PromptField::Description => PromptField::Title,
                     };
+                }
+            }
+
+            DashboardAction::PromptCycleBackend { reverse } => {
+                if let InputMode::TypingPrompt { folder_name, .. } = input_mode {
+                    let changed = with_state(|state| {
+                        cycle_backend_for_folder(config, state, folder_name, reverse)
+                    })?;
+                    if changed.is_some() {
+                        state_source.invalidate();
+                    }
                 }
             }
 
@@ -1055,12 +1145,13 @@ async fn handle_dashboard_event(
                             Some(format!("{title_trimmed}\n\n{desc_trimmed}"))
                         };
                         let ctx = SpawnContext {
+                            config,
                             current_state: &state,
                             state_source,
                             pty_rows,
                             pty_cols,
                         };
-                        let _ = spawn_inline(
+                        spawn_inline(
                             client,
                             &SpawnParams {
                                 folder_name,
@@ -1070,7 +1161,7 @@ async fn handle_dashboard_event(
                             },
                             &ctx,
                         )
-                        .await;
+                        .await?;
                         if !title_trimmed.is_empty() {
                             let entry = PromptHistoryEntry {
                                 title: title_trimmed,
@@ -1110,12 +1201,13 @@ async fn handle_dashboard_event(
                 } = input_mode
                 {
                     let ctx = SpawnContext {
+                        config,
                         current_state: &state,
                         state_source,
                         pty_rows,
                         pty_cols,
                     };
-                    let _ = spawn_inline(
+                    spawn_inline(
                         client,
                         &SpawnParams {
                             folder_name,
@@ -1125,7 +1217,7 @@ async fn handle_dashboard_event(
                         },
                         &ctx,
                     )
-                    .await;
+                    .await?;
                 }
                 *input_mode = InputMode::Normal;
             }
@@ -1245,13 +1337,13 @@ async fn handle_dashboard_event(
                     let session_id = input.trim().to_string();
                     if !session_id.is_empty() {
                         let ctx = SpawnContext {
+                            config,
                             current_state: &state,
                             state_source,
                             pty_rows,
                             pty_cols,
                         };
-                        let _ =
-                            adopt_inline(client, &session_id, folder_name, folder_path, &ctx).await;
+                        adopt_inline(client, &session_id, folder_name, folder_path, &ctx).await?;
                     }
                 }
                 *input_mode = InputMode::Normal;
@@ -1789,6 +1881,7 @@ struct SpawnParams<'a> {
 }
 
 struct SpawnContext<'a> {
+    config: &'a ClamorConfig,
     current_state: &'a ClamorState,
     state_source: &'a StateSource,
     pty_rows: u16,
@@ -1802,6 +1895,16 @@ async fn spawn_inline(
 ) -> Result<()> {
     let cwd = resolve_path(params.folder_path);
     let cwd_str = cwd.to_string_lossy().to_string();
+
+    let launch = crate::spawn::resolve_spawn_launch(
+        ctx.config,
+        ctx.current_state,
+        params.folder_name,
+        params.folder_path,
+        &cwd_str,
+        params.title,
+        params.prompt,
+    )?;
 
     let existing_ids: std::collections::HashSet<String> =
         ctx.current_state.agents.keys().cloned().collect();
@@ -1820,15 +1923,17 @@ async fn spawn_inline(
 
     let agent = Agent {
         id: id.clone(),
-        title: params.title.to_string(),
-        folder: params.folder_name.to_string(),
+        title: launch.title.clone(),
+        folder_id: params.folder_name.to_string(),
+        backend_id: launch.backend_id.clone(),
         cwd: cwd_str.clone(),
         initial_prompt: params.prompt.map(|s| s.to_string()),
         state: initial_state,
         started_at: now,
         last_activity_at: now,
         last_tool: None,
-        session_id: None,
+        resume_token: None,
+        metadata: HashMap::new(),
         key,
         color_index,
     };
@@ -1838,11 +1943,11 @@ async fn spawn_inline(
     })?;
     ctx.state_source.invalidate();
 
-    let cmd = crate::spawn::build_agent_cmd(params.prompt);
-    let env = vec![("CLAMOR_AGENT_ID".to_string(), id.clone())];
+    let mut env = launch.env.clone();
+    env.push(("CLAMOR_AGENT_ID".to_string(), id.clone()));
 
     client
-        .spawn_agent(&id, &cwd_str, &cmd, &env, ctx.pty_rows, ctx.pty_cols)
+        .spawn_agent(&id, &cwd_str, &launch.cmd, &env, ctx.pty_rows, ctx.pty_cols)
         .await?;
 
     Ok(())
@@ -1858,6 +1963,17 @@ async fn adopt_inline(
     let cwd = resolve_path(folder_path);
     let cwd_str = cwd.to_string_lossy().to_string();
 
+    let backend_id = crate::spawn::select_adopt_backend(ctx.config, folder_name)?;
+    let launch = crate::spawn::resolve_resume_launch(
+        ctx.config,
+        &backend_id,
+        folder_name,
+        folder_path,
+        &cwd_str,
+        &format!("adopted: {session_id}"),
+        session_id,
+    )?;
+
     let existing_ids: std::collections::HashSet<String> =
         ctx.current_state.agents.keys().cloned().collect();
     let id = generate_id(&existing_ids);
@@ -1869,15 +1985,17 @@ async fn adopt_inline(
 
     let agent = Agent {
         id: id.clone(),
-        title: format!("adopted: {session_id}"),
-        folder: folder_name.to_string(),
+        title: launch.title.clone(),
+        folder_id: folder_name.to_string(),
+        backend_id: launch.backend_id.clone(),
         cwd: cwd_str.clone(),
-        initial_prompt: Some(format!("--resume {session_id}")),
+        initial_prompt: None,
         state: AgentState::Input,
         started_at: now,
         last_activity_at: now,
         last_tool: None,
-        session_id: Some(session_id.to_string()),
+        resume_token: Some(session_id.to_string()),
+        metadata: HashMap::new(),
         key,
         color_index,
     };
@@ -1887,11 +2005,11 @@ async fn adopt_inline(
     })?;
     ctx.state_source.invalidate();
 
-    let cmd = crate::spawn::build_resume_cmd(session_id);
-    let env = vec![("CLAMOR_AGENT_ID".to_string(), id.clone())];
+    let mut env = launch.env.clone();
+    env.push(("CLAMOR_AGENT_ID".to_string(), id.clone()));
 
     client
-        .spawn_agent(&id, &cwd_str, &cmd, &env, ctx.pty_rows, ctx.pty_cols)
+        .spawn_agent(&id, &cwd_str, &launch.cmd, &env, ctx.pty_rows, ctx.pty_cols)
         .await?;
 
     Ok(())
@@ -1918,4 +2036,100 @@ where
     terminal.clear().context("Failed to clear terminal")?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn test_agent(backend_id: &str, resume_token: Option<&str>) -> Agent {
+        Agent {
+            id: "abc123".to_string(),
+            title: "task".to_string(),
+            folder_id: "work".to_string(),
+            backend_id: backend_id.to_string(),
+            cwd: "/tmp/work".to_string(),
+            initial_prompt: None,
+            state: AgentState::Input,
+            started_at: Utc::now(),
+            last_activity_at: Utc::now(),
+            last_tool: None,
+            resume_token: resume_token.map(ToString::to_string),
+            metadata: HashMap::new(),
+            key: None,
+            color_index: 0,
+        }
+    }
+
+    #[test]
+    fn reconcile_removes_agent_when_backend_cannot_resume() {
+        let config: ClamorConfig = serde_yaml::from_str(
+            r#"
+backends:
+  open-code:
+    display_name: OpenCode
+    spawn:
+      cmd: [opencode, run, --prompt, "{{prompt}}"]
+folders:
+  work:
+    path: ~/work
+    backends: [open-code]
+"#,
+        )
+        .unwrap();
+
+        let agent = test_agent("open-code", Some("sess-1"));
+        assert!(matches!(
+            reconcile_resume_action(&config, &agent.id, &agent),
+            ResumeReconcileAction::Remove
+        ));
+    }
+
+    #[test]
+    fn reconcile_removes_agent_when_backend_definition_is_missing() {
+        let config: ClamorConfig = serde_yaml::from_str(
+            r#"
+folders:
+  work:
+    path: ~/work
+    backends: [claude-code]
+"#,
+        )
+        .unwrap();
+        let agent = test_agent("missing-backend", Some("sess-1"));
+
+        assert!(matches!(
+            reconcile_resume_action(&config, &agent.id, &agent),
+            ResumeReconcileAction::Remove
+        ));
+    }
+
+    #[test]
+    fn reconcile_removes_agent_when_resume_template_is_invalid() {
+        let config: ClamorConfig = serde_yaml::from_str(
+            r#"
+backends:
+  claude-code:
+    display_name: Claude
+    spawn:
+      cmd: [claude, "{{prompt}}"]
+    resume:
+      cmd: [claude, --resume, "{{missing}}"]
+    capabilities:
+      resume: true
+folders:
+  work:
+    path: ~/work
+    backends: [claude-code]
+"#,
+        )
+        .unwrap();
+        let agent = test_agent("claude-code", Some("sess-1"));
+
+        assert!(matches!(
+            reconcile_resume_action(&config, &agent.id, &agent),
+            ResumeReconcileAction::Remove
+        ));
+    }
 }

@@ -22,6 +22,7 @@ pub enum DashboardAction {
     FolderPicked(usize),
     PromptSubmitted,
     PromptInput(PromptEdit),
+    PromptCycleBackend { reverse: bool },
     PromptToggleField,
     AdoptStart,
     AdoptInput(PromptEdit),
@@ -235,7 +236,11 @@ fn handle_prompt_input(event: KeyEvent) -> DashboardAction {
     match event.code {
         KeyCode::Enter => DashboardAction::PromptSubmitted,
         KeyCode::Esc => DashboardAction::Cancel,
-        KeyCode::Tab | KeyCode::BackTab => DashboardAction::PromptToggleField,
+        KeyCode::Tab => DashboardAction::PromptCycleBackend { reverse: false },
+        KeyCode::BackTab => DashboardAction::PromptCycleBackend { reverse: true },
+        KeyCode::Char('j') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            DashboardAction::PromptToggleField
+        }
         KeyCode::Up => DashboardAction::PromptInput(PromptEdit::HistoryPrev),
         KeyCode::Down => DashboardAction::PromptInput(PromptEdit::HistoryNext),
         KeyCode::Backspace => DashboardAction::PromptInput(PromptEdit::Backspace),
@@ -348,5 +353,41 @@ fn check_text_shortcut(event: &KeyEvent) -> Option<PromptEdit> {
             Some(PromptEdit::DeleteLine)
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyEventKind, KeyEventState};
+
+    fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        }
+    }
+
+    #[test]
+    fn tab_cycles_backend_in_spawn_mode() {
+        let action = handle_prompt_input(key_event(KeyCode::Tab, KeyModifiers::NONE));
+        assert!(matches!(
+            action,
+            DashboardAction::PromptCycleBackend { reverse: false }
+        ));
+
+        let action = handle_prompt_input(key_event(KeyCode::BackTab, KeyModifiers::SHIFT));
+        assert!(matches!(
+            action,
+            DashboardAction::PromptCycleBackend { reverse: true }
+        ));
+    }
+
+    #[test]
+    fn ctrl_j_toggles_prompt_field_when_tab_is_reserved() {
+        let action = handle_prompt_input(key_event(KeyCode::Char('j'), KeyModifiers::CONTROL));
+        assert!(matches!(action, DashboardAction::PromptToggleField));
     }
 }
