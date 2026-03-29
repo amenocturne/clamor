@@ -7,7 +7,7 @@ DEFAULT_SETTINGS = {
     "defaultModel": "tgpt/qwen35-397b-a17b-fp8",
     "defaultThinkingLevel": "medium",
 }
-DEFAULT_EXTENSIONS = {"nestor-provider"}
+DEFAULT_EXTENSIONS = {"nestor-provider", "permission-gate", "background-tasks", "permission-queue"}
 
 
 def validate_required_extensions(ctx: InstallContext) -> None:
