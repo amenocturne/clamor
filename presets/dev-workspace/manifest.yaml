@@ -1,4 +1,8 @@
 description: Multi-project development workspace with dev philosophy
+agents:
+  - claude-code
+  - open-code
+  - pi
 skills:
   - dev-philosophy
   - spec

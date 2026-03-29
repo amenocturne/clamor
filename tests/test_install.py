@@ -80,6 +80,10 @@ sys.modules.setdefault("rich.prompt", _mock_rich_prompt)
 
 import install  # noqa: E402
 
+CLAUDE_INSTALLER = install.load_agent_installer("claude-code")
+OPEN_CODE_INSTALLER = install.load_agent_installer("open-code")
+PI_INSTALLER = install.load_agent_installer("pi")
+
 
 # ---------------------------------------------------------------------------
 # Helpers to build fake repo layouts inside tmp_path
@@ -97,6 +101,8 @@ def make_preset(
     d = presets_dir / name
     d.mkdir(parents=True, exist_ok=True)
     if manifest is not None:
+        if "agents" not in manifest:
+            manifest = {**manifest, "agents": ["claude-code"]}
         (d / "manifest.yaml").write_text(json.dumps(manifest))
     if settings is not None:
         (d / "settings.json").write_text(json.dumps(settings))
@@ -127,7 +133,9 @@ def make_pipeline(pipelines_dir: Path, name: str):
     (d / "pipeline.py").write_text(f"# Pipeline: {name}")
 
 
-def make_common(common_dir: Path, name: str, content: str, requires: dict | None = None):
+def make_common(
+    common_dir: Path, name: str, content: str, requires: dict | None = None
+):
     """Create a common file with optional frontmatter.
 
     Uses JSON in the frontmatter block so the mock yaml parser can handle it.
@@ -172,6 +180,20 @@ def fake_repo(tmp_path):
         patch.object(install, "PIPELINES_DIR", pipelines_dir),
         patch.object(install, "COMMON_DIR", common_dir),
         patch.object(install, "REGISTRY_PATH", tmp_path / "installations.yaml"),
+        patch.object(
+            install,
+            "available_agents",
+            return_value=["claude-code", "open-code", "pi"],
+        ),
+        patch.object(
+            install,
+            "load_agent_installer",
+            side_effect=lambda name: {
+                "claude-code": CLAUDE_INSTALLER,
+                "open-code": OPEN_CODE_INSTALLER,
+                "pi": PI_INSTALLER,
+            }[name],
+        ),
     ):
         yield {
             "root": tmp_path,
@@ -214,8 +236,7 @@ class TestLoadManifest:
         d.mkdir()
         (d / "manifest.yaml").write_text("")
         result = install.load_manifest("empty")
-        # yaml.safe_load returns None for empty string
-        assert result is None
+        assert result == {}
 
     def test_manifest_with_only_description(self, fake_repo):
         make_preset(
@@ -225,6 +246,7 @@ class TestLoadManifest:
         )
         result = install.load_manifest("minimal")
         assert result["description"] == "Minimal"
+        assert result["agents"] == ["claude-code"]
         assert result.get("skills") is None
 
 
@@ -828,6 +850,22 @@ class TestMain:
             install.main()
         assert (target / ".claude").is_dir()
 
+    def test_choose_preset_interactively_returns_selected_preset(self, fake_repo):
+        make_preset(
+            fake_repo["presets"],
+            "base",
+            manifest={
+                "description": "Base",
+                "skills": [],
+                "hooks": [],
+                "pipelines": [],
+                "external": [],
+            },
+        )
+        with patch.object(install, "Prompt") as mock_prompt:
+            mock_prompt.ask.return_value = "1"
+            assert install.choose_preset_interactively() == "base"
+
     def test_interactive_no_selection(self, fake_repo, tmp_path):
         make_preset(
             fake_repo["presets"],
@@ -842,6 +880,16 @@ class TestMain:
             mock_prompt.ask.return_value = "99"
             install.main()
             # Should print "No presets selected" and return, not crash
+
+    def test_interactive_non_numeric_selection(self, fake_repo):
+        make_preset(
+            fake_repo["presets"],
+            "base",
+            manifest={"description": "Base"},
+        )
+        with patch.object(install, "Prompt") as mock_prompt:
+            mock_prompt.ask.return_value = "abc"
+            assert install.choose_preset_interactively() is None
 
 
 # ===================================================================
@@ -867,13 +915,11 @@ class TestEdgeCases:
             "nulls",
             settings={"hooks": {}},
         )
-        # collect_components calls .get(key, []) which returns None for yaml null
-        # The set.update(None) would fail; verify behavior
-        # Actually yaml null -> None, manifest.get("skills") -> None, not []
-        # But .get("skills", []) should return None since key exists with None
-        # This tests that the code handles None gracefully or not
-        with pytest.raises(TypeError):
-            install.collect_components("nulls")
+        result = install.collect_components("nulls")
+        assert result["skills"] == set()
+        assert result["hooks"] == set()
+        assert result["pipelines"] == set()
+        assert result["external"] == set()
 
     def test_hook_dir_placeholder_in_nested_json(self, fake_repo):
         """Placeholder appears in deeply nested values."""
@@ -1113,9 +1159,7 @@ class TestManifestCommonAndInstructions:
         target = tmp_path / "project"
         target.mkdir()
         make_common(fake_repo["common"], "git", "## Git\nCommit rules.")
-        make_instruction(
-            fake_repo["presets"], "p1", "saving", "## Saving\nSave notes."
-        )
+        make_instruction(fake_repo["presets"], "p1", "saving", "## Saving\nSave notes.")
         make_preset(
             fake_repo["presets"],
             "p1",
@@ -1186,7 +1230,7 @@ class TestManifestCommonAndInstructions:
             settings={"hooks": {}},
             claude_md="# Dev",
         )
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError, match="Common file dependencies not satisfied"):
             install.install("p1", target)
 
     def test_missing_instruction_file_raises(self, fake_repo, tmp_path):
@@ -1224,7 +1268,7 @@ class TestManifestCommonAndInstructions:
             settings={"hooks": {}},
             claude_md="# Dev",
         )
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError, match="Common file dependencies not satisfied"):
             install.install("p1", target)
 
     def test_collect_components_includes_common_and_instructions(self, fake_repo):
@@ -1267,6 +1311,20 @@ class TestRegistry:
         assert entries[0]["preset"] == "dev-workspace"
         assert entries[0]["target"] == "/some/target"
 
+    def test_update_registry_stores_agents_and_project_dirs(self, fake_repo):
+        install.update_registry(
+            "dev-workspace",
+            Path("/some/target"),
+            agents=["claude-code", "open-code"],
+            project_dirs={
+                "claude-code": Path("/some/target/.claude"),
+                "open-code": Path("/some/target/.opencode"),
+            },
+        )
+        entries = install.load_registry()
+        assert entries[0]["agents"] == ["claude-code", "open-code"]
+        assert entries[0]["project_dirs"]["claude-code"] == "/some/target/.claude"
+
     def test_update_registry_upserts_by_target(self, fake_repo):
         install.update_registry("dev-workspace", Path("/some/target"))
         install.update_registry("knowledge-base", Path("/some/target"))
@@ -1300,10 +1358,65 @@ class TestRegistry:
         assert len(entries) == 1
         assert entries[0]["preset"] == "test-preset"
         assert entries[0]["target"] == str(target)
+        assert entries[0]["agents"] == ["claude-code"]
+
+    def test_install_fails_clearly_when_agents_missing(self, fake_repo):
+        d = fake_repo["presets"] / "missing-agents"
+        d.mkdir(parents=True)
+        (d / "manifest.yaml").write_text(json.dumps({"skills": [], "hooks": []}))
+        target = fake_repo["root"] / "project"
+        target.mkdir()
+
+        with pytest.raises(ValueError, match="must declare 'agents:' explicitly"):
+            install.install("missing-agents", target)
+
+    def test_install_all_uses_stored_selected_agents(self, fake_repo):
+        make_skill(fake_repo["skills"], "spec")
+        make_preset(
+            fake_repo["presets"],
+            "p1",
+            manifest={"agents": ["claude-code", "open-code"], "skills": ["spec"]},
+            claude_md="# P1",
+        )
+        target = fake_repo["root"] / "t1"
+        target.mkdir()
+        install.update_registry("p1", target, agents=["open-code"])
+
+        count = install.install_all()
+
+        assert count == 1
+        assert not (target / ".claude").exists()
+        assert (target / ".opencode" / "skills" / "spec").is_symlink()
+
+    def test_install_all_legacy_registry_defaults_to_claude(self, fake_repo):
+        make_preset(
+            fake_repo["presets"],
+            "p1",
+            manifest={"agents": ["claude-code", "open-code"], "skills": []},
+            claude_md="# P1",
+        )
+        target = fake_repo["root"] / "t1"
+        target.mkdir()
+        install.update_registry("p1", target)
+
+        count = install.install_all()
+
+        assert count == 1
+        assert (target / ".claude" / "CLAUDE.md").exists()
+        assert not (target / ".opencode").exists()
 
     def test_install_all_empty_registry(self, fake_repo):
-        """install_all with no registry prints message and returns 0."""
-        count = install.install_all()
+        """install_all falls back to interactive install when registry is empty."""
+        with patch.object(
+            install, "install_interactive", return_value=True
+        ) as mock_run:
+            count = install.install_all()
+        assert count == 1
+        mock_run.assert_called_once_with()
+
+    def test_install_all_empty_registry_returns_zero_on_cancel(self, fake_repo):
+        with patch.object(install, "install_interactive", return_value=False):
+            count = install.install_all()
         assert count == 0
 
     def test_install_all_runs_all_entries(self, fake_repo):
@@ -1330,3 +1443,11 @@ class TestRegistry:
         assert count == 2
         assert (t1 / ".claude" / "CLAUDE.md").exists()
         assert (t2 / ".claude" / "CLAUDE.md").exists()
+
+
+class TestShippedPresetManifests:
+    def test_shipped_presets_declare_agents(self):
+        for preset in ["dev-workspace", "work", "knowledge-base"]:
+            manifest_path = REPO_ROOT / "presets" / preset / "manifest.yaml"
+            content = manifest_path.read_text()
+            assert "\nagents:" in f"\n{content}"

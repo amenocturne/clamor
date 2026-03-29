@@ -7,18 +7,35 @@
 Install an agent-kit preset into a target directory.
 
 Usage:
-    uv run install.py                      # Interactive preset selection
-    uv run install.py --preset knowledge-base   # Specify preset directly
-    uv run install.py --list               # List available presets
+    uv run install.py
+    uv run install.py --preset knowledge-base
+    uv run install.py --list
 """
 
+from __future__ import annotations
+
 import argparse
-import json
-import re
-import shutil
+import importlib.util
 from pathlib import Path
+from typing import Any
 
 import yaml
+from lib.install_types import InstallContext
+from lib.install_utils import (
+    extract_common_names_from_template,
+    get_hook_key,
+    load_hook_config as load_hook_config_from_root,
+    load_json,
+    load_registry as load_registry_file,
+    merge_hooks,
+    normalize_manifest_list,
+    parse_frontmatter,
+    process_includes as process_includes_from_root,
+    save_registry as save_registry_file,
+    strip_frontmatter,
+    sync_symlinks as sync_symlinks_with_console,
+    validate_common_dependencies as validate_common_dependencies_in_dir,
+)
 from rich.console import Console
 from rich.prompt import Prompt
 
@@ -31,263 +48,124 @@ HOOKS_DIR = REPO_ROOT / "hooks"
 PIPELINES_DIR = REPO_ROOT / "pipelines"
 COMMON_DIR = REPO_ROOT / "common"
 REGISTRY_PATH = REPO_ROOT / "installations.yaml"
+LEGACY_AGENTS = ["claude-code"]
 
-INCLUDE_PATTERN = r"\{\{include:([^}]+)\}\}"
-FRONTMATTER_PATTERN = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
+_AGENT_INSTALLERS: dict[str, Any] = {}
 
-
-def parse_frontmatter(content: str) -> tuple[dict, str]:
-    """Parse YAML frontmatter from markdown content. Returns (metadata, body)."""
-    match = FRONTMATTER_PATTERN.match(content)
-    if match:
-        metadata = yaml.safe_load(match.group(1)) or {}
-        body = content[match.end() :]
-        return metadata, body
-    return {}, content
-
-
-def strip_frontmatter(content: str) -> str:
-    """Remove YAML frontmatter from content."""
-    _, body = parse_frontmatter(content)
-    return body
+__all__ = [
+    "extract_common_names_from_template",
+    "get_hook_key",
+    "parse_frontmatter",
+    "strip_frontmatter",
+]
 
 
 def process_includes(content: str) -> str:
-    """Process {{include:path}} directives, replacing them with file contents."""
-
-    def replace_include(match):
-        include_path = match.group(1)
-        full_path = REPO_ROOT / include_path
-        if full_path.exists():
-            return strip_frontmatter(full_path.read_text()).strip()
-        else:
-            raise FileNotFoundError(f"Include not found: {include_path}")
-
-    return re.sub(INCLUDE_PATTERN, replace_include, content)
+    return process_includes_from_root(content, REPO_ROOT)
 
 
 def validate_common_dependencies(
     common_names: list[str], available_skills: set[str]
 ) -> list[str]:
-    """Check that common files' required skills are present in the preset.
-
-    Returns a list of error messages. Empty list means all dependencies are satisfied.
-    """
-    errors = []
-    for name in common_names:
-        path = COMMON_DIR / f"{name}.md"
-        if not path.exists():
-            errors.append(f"Common file not found: {name}.md")
-            continue
-        metadata, _ = parse_frontmatter(path.read_text())
-        required = set(metadata.get("required_skills") or [])
-        missing = required - available_skills
-        if missing:
-            errors.append(
-                f"{name}.md requires missing skills: {', '.join(sorted(missing))}"
-            )
-    return errors
-
-
-def extract_common_names_from_template(content: str) -> list[str]:
-    """Extract common file names from {{include:common/...}} directives."""
-    names = []
-    for match in re.finditer(INCLUDE_PATTERN, content):
-        path = match.group(1)
-        if path.startswith("common/"):
-            names.append(path.removeprefix("common/").removesuffix(".md"))
-    return names
+    return validate_common_dependencies_in_dir(
+        common_names, available_skills, COMMON_DIR
+    )
 
 
 def load_manifest(preset: str) -> dict:
-    """Load manifest.yaml for a preset."""
     manifest_path = PRESETS_DIR / preset / "manifest.yaml"
     if not manifest_path.exists():
         console.print(f"[red]Preset '{preset}' not found[/red]")
         return {}
-    return yaml.safe_load(manifest_path.read_text())
+    return yaml.safe_load(manifest_path.read_text()) or {}
 
 
 def load_hook_config(hook_name: str, hook_dir: Path) -> dict:
-    """Load hooks.json from a hook directory and resolve {hook_dir} placeholders."""
-    hooks_json = HOOKS_DIR / hook_name / "hooks.json"
-    if not hooks_json.exists():
-        return {}
-
-    content = hooks_json.read_text().replace("{hook_dir}", str(hook_dir))
-    return json.loads(content)
-
-
-def get_hook_key(hook_entry: dict) -> str | None:
-    """Extract unique identifier from a hook entry (the command path)."""
-    hooks_list = hook_entry.get("hooks", [])
-    if hooks_list and "command" in hooks_list[0]:
-        return hooks_list[0]["command"]
-    return None
-
-
-def merge_hooks(base: dict, new: dict) -> dict:
-    """Merge hook configurations, deduplicating and overriding existing hooks."""
-    for hook_type, new_hooks in new.items():
-        if hook_type not in base:
-            base[hook_type] = []
-
-        # Build index of existing hooks by their command
-        existing_by_key = {}
-        for i, hook_entry in enumerate(base[hook_type]):
-            key = get_hook_key(hook_entry)
-            if key:
-                existing_by_key[key] = i
-
-        # Add or replace hooks
-        for new_hook in new_hooks:
-            key = get_hook_key(new_hook)
-            if key and key in existing_by_key:
-                # Replace existing hook with new version
-                base[hook_type][existing_by_key[key]] = new_hook
-            else:
-                # Add new hook
-                base[hook_type].append(new_hook)
-                if key:
-                    existing_by_key[key] = len(base[hook_type]) - 1
-
-    return base
+    return load_hook_config_from_root(hook_name, hook_dir, HOOKS_DIR)
 
 
 def sync_symlinks(source_dir: Path, target_dir: Path, wanted: set[str], label: str):
-    """Sync symlinks in target_dir to match wanted set.
-
-    Removes stale symlinks (pointing into source_dir but not in wanted),
-    updates outdated ones, and creates missing ones.
-    """
-    target_dir.mkdir(exist_ok=True)
-
-    for entry in sorted(target_dir.iterdir()):
-        if not entry.is_symlink():
-            continue
-        link_target = entry.readlink()
-        try:
-            link_target.relative_to(source_dir)
-        except ValueError:
-            continue
-        if entry.name not in wanted:
-            entry.unlink()
-            console.print(f"  [yellow]−[/yellow] {label}: {entry.name} (removed)")
-        elif link_target != source_dir / entry.name:
-            entry.unlink()
-            entry.symlink_to(source_dir / entry.name)
-            console.print(f"  [blue]↻[/blue] {label}: {entry.name} (updated)")
-
-    for name in sorted(wanted):
-        src = source_dir / name
-        dst = target_dir / name
-        if src.exists() and not dst.exists():
-            dst.symlink_to(src)
-            console.print(f"  [green]✓[/green] {label}: {name}")
+    sync_symlinks_with_console(source_dir, target_dir, wanted, label, console=console)
 
 
 def load_existing_settings(target: Path) -> dict:
-    """Load existing .claude/settings.json if it exists."""
-    settings_path = target / ".claude" / "settings.json"
-    if settings_path.exists():
-        return json.loads(settings_path.read_text())
-    return {"hooks": {}, "permissions": {}}
+    return load_json(
+        target / ".claude" / "settings.json", {"hooks": {}, "permissions": {}}
+    )
 
 
 def merge_permissions(existing: dict, new: dict):
-    """Merge permissions from preset into existing permissions."""
     for key in ["allow", "deny"]:
-        if key in new:
-            if key not in existing:
-                existing[key] = []
-            # Add new permissions, avoiding duplicates
-            for perm in new[key]:
-                if perm not in existing[key]:
-                    existing[key].append(perm)
+        if key not in new:
+            continue
+        existing.setdefault(key, [])
+        for perm in new[key]:
+            if perm not in existing[key]:
+                existing[key].append(perm)
 
 
 def merge_settings(preset: str, target: Path) -> dict:
-    """Merge preset settings.json with existing settings."""
     merged = load_existing_settings(target)
-    # Always start fresh with hooks to avoid stale entries
     merged["hooks"] = {}
 
     settings_path = PRESETS_DIR / preset / "settings.json"
     if settings_path.exists():
-        settings = json.loads(settings_path.read_text())
+        settings = load_json(settings_path)
         merge_hooks(merged["hooks"], settings.get("hooks", {}))
-        # Merge permissions
         if "permissions" in settings:
-            if "permissions" not in merged:
-                merged["permissions"] = {}
+            merged.setdefault("permissions", {})
             merge_permissions(merged["permissions"], settings["permissions"])
     return merged
 
 
 def collect_components(preset: str) -> dict:
-    """Collect all skills, hooks, pipelines, instructions, and common includes."""
     manifest = load_manifest(preset)
     return {
-        "skills": set(manifest.get("skills", [])),
-        "hooks": set(manifest.get("hooks", [])),
-        "pipelines": set(manifest.get("pipelines", [])),
-        "external": set(manifest.get("external", [])),
-        "instructions": list(manifest.get("instructions", [])),
-        "common": list(manifest.get("common", [])),
+        "skills": set(normalize_manifest_list(manifest.get("skills"))),
+        "hooks": set(normalize_manifest_list(manifest.get("hooks"))),
+        "pipelines": set(normalize_manifest_list(manifest.get("pipelines"))),
+        "external": set(normalize_manifest_list(manifest.get("external"))),
+        "instructions": normalize_manifest_list(manifest.get("instructions")),
+        "common": normalize_manifest_list(manifest.get("common")),
+        "agents": normalize_manifest_list(manifest.get("agents"))
+        if "agents" in manifest
+        else None,
     }
 
 
 def resolve_dependencies(components: dict) -> dict:
-    """Add dependencies (e.g., workspace pipeline needs link-proxy)."""
     if "workspace" in components["pipelines"]:
         components["hooks"].add("link-proxy")
     return components
 
 
-def update_config(target: Path, preset: str, knowledge_base: Path | None = None):
-    """Create or update .claude/agentic-kit.json with paths."""
-    config_path = target / ".claude" / "agentic-kit.json"
-
-    if config_path.exists():
-        config = json.loads(config_path.read_text())
-    else:
-        # Bootstrap from preset template if available
-        template_path = PRESETS_DIR / preset / "agentic-kit.template.json"
-        config = json.loads(template_path.read_text()) if template_path.exists() else {}
-
-    # Always update agentic_kit path (detected from this script's location)
-    config["agentic_kit"] = str(REPO_ROOT)
-
-    # Update knowledge_base if provided
-    if knowledge_base:
-        config["knowledge_base"] = str(knowledge_base.expanduser().resolve())
-
-    config_path.write_text(json.dumps(config, indent=2))
-    return config
-
-
 def load_registry() -> list[dict]:
-    """Read installations.yaml and return list of entries. Empty list if missing."""
-    if not REGISTRY_PATH.exists():
-        return []
-    content = REGISTRY_PATH.read_text()
-    entries = yaml.safe_load(content)
-    return entries if isinstance(entries, list) else []
+    return load_registry_file(REGISTRY_PATH)
 
 
 def save_registry(entries: list[dict]):
-    """Write list of installation entries to installations.yaml."""
-    REGISTRY_PATH.write_text(yaml.dump(entries, default_flow_style=False, sort_keys=False))
+    save_registry_file(entries, REGISTRY_PATH)
 
 
-def update_registry(preset: str, target: Path, knowledge_base: Path | None = None):
-    """Upsert a registry entry by target path."""
+def update_registry(
+    preset: str,
+    target: Path,
+    knowledge_base: Path | None = None,
+    agents: list[str] | None = None,
+    project_dirs: dict[str, Path] | None = None,
+):
     entries = load_registry()
     target_str = str(target.resolve())
 
-    entry = {"preset": preset, "target": target_str}
+    entry: dict[str, Any] = {"preset": preset, "target": target_str}
     if knowledge_base is not None:
         entry["knowledge_base"] = str(knowledge_base.resolve())
+    if agents is not None:
+        entry["agents"] = list(agents)
+    if project_dirs is not None:
+        entry["project_dirs"] = {
+            name: str(path.resolve()) for name, path in sorted(project_dirs.items())
+        }
 
     for i, existing in enumerate(entries):
         if existing.get("target") == target_str:
@@ -299,152 +177,193 @@ def update_registry(preset: str, target: Path, knowledge_base: Path | None = Non
     save_registry(entries)
 
 
+def available_agents() -> list[str]:
+    result = []
+    agents_dir = REPO_ROOT / "agents"
+    for path in sorted(agents_dir.iterdir()):
+        if path.is_dir() and (path / "install.py").exists():
+            result.append(path.name)
+    return result
+
+
+def require_agents(preset: str, manifest: dict) -> list[str]:
+    if "agents" not in manifest:
+        supported = ", ".join(available_agents())
+        raise ValueError(
+            f"Preset '{preset}' must declare 'agents:' explicitly. "
+            f"Choose one or more supported agents: {supported}."
+        )
+
+    agents = normalize_manifest_list(manifest.get("agents"))
+    if not agents:
+        supported = ", ".join(available_agents())
+        raise ValueError(
+            f"Preset '{preset}' has an empty 'agents:' list. "
+            f"Choose one or more supported agents: {supported}."
+        )
+
+    unknown = [agent for agent in agents if agent not in available_agents()]
+    if unknown:
+        supported = ", ".join(available_agents())
+        raise ValueError(
+            f"Preset '{preset}' requests unsupported agents: {', '.join(unknown)}. "
+            f"Supported agents: {supported}."
+        )
+    return agents
+
+
+def load_agent_installer(agent_name: str) -> Any:
+    cached = _AGENT_INSTALLERS.get(agent_name)
+    if cached is not None:
+        return cached
+
+    install_path = REPO_ROOT / "agents" / agent_name / "install.py"
+    if not install_path.exists():
+        raise FileNotFoundError(f"Agent installer not found for '{agent_name}'")
+
+    module_name = f"agent_installer_{agent_name.replace('-', '_')}"
+    spec = importlib.util.spec_from_file_location(module_name, install_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load installer for '{agent_name}'")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _AGENT_INSTALLERS[agent_name] = module
+    return module
+
+
+def project_dirs_for_agents(target: Path, agents: list[str]) -> dict[str, Path]:
+    project_dirs = {}
+    for agent in agents:
+        installer = load_agent_installer(agent)
+        dirname = getattr(installer, "AGENT_DIRNAME", None)
+        if not dirname:
+            raise ValueError(f"Agent installer '{agent}' is missing AGENT_DIRNAME")
+        project_dirs[agent] = target / dirname
+    return project_dirs
+
+
+def registry_agents_for_reinstall(entry: dict) -> list[str] | None:
+    if "agents" in entry:
+        return normalize_manifest_list(entry.get("agents"))
+    return list(LEGACY_AGENTS)
+
+
+def choose_preset_interactively() -> str | None:
+    available = sorted([p.name for p in PRESETS_DIR.iterdir() if p.is_dir()])
+    console.print("[bold]Available presets:[/bold]")
+    for i, p in enumerate(available, 1):
+        manifest = load_manifest(p)
+        desc = manifest.get("description", "")
+        console.print(f"  {i}. [cyan]{p}[/cyan]: {desc}")
+
+    selection = Prompt.ask("\nSelect preset (number)")
+    try:
+        idx = int(selection.strip()) - 1
+    except ValueError:
+        console.print("[red]Invalid selection[/red]")
+        return None
+    if 0 <= idx < len(available):
+        return available[idx]
+
+    console.print("[red]Invalid selection[/red]")
+    return None
+
+
+def install_interactive(
+    target: Path | None = None, knowledge_base: Path | None = None
+) -> bool:
+    preset = choose_preset_interactively()
+    if preset is None:
+        return False
+
+    install(preset, target or Path.cwd(), knowledge_base)
+    return True
+
+
 def install_all() -> int:
-    """Reinstall all registered installations. Returns count of successes."""
     entries = load_registry()
     if not entries:
         console.print(
             "[yellow]No installations registered yet. Starting interactive install...[/yellow]"
         )
-        return 0
+        return 1 if install_interactive() else 0
 
     success = 0
     for entry in entries:
         preset = entry["preset"]
         target = Path(entry["target"])
         kb = Path(entry["knowledge_base"]) if entry.get("knowledge_base") else None
+        agents = registry_agents_for_reinstall(entry)
         console.print(f"\n[bold]━━━ {preset} → {target} ━━━[/bold]")
         try:
-            install(preset, target, kb)
+            install(preset, target, kb, agents=agents)
             success += 1
         except Exception as e:
             console.print(f"[red]Failed: {e}[/red]")
     return success
 
 
-def install(preset: str, target: Path, knowledge_base: Path | None = None):
-    """Main installation logic."""
+def install(
+    preset: str,
+    target: Path,
+    knowledge_base: Path | None = None,
+    *,
+    agents: list[str] | None = None,
+):
     console.print(f"[bold]Installing preset:[/bold] {preset}")
 
-    components = collect_components(preset)
-    components = resolve_dependencies(components)
-
-    target_claude = target / ".claude"
-    target_claude.mkdir(parents=True, exist_ok=True)
-
-    # Merge settings from preset with existing settings
-    settings = merge_settings(preset, target)
-
-    # Add hook configurations from hooks.json files
-    for hook in components["hooks"]:
-        hook_dir = (target_claude / "hooks" / hook).resolve()
-        hook_config = load_hook_config(hook, hook_dir)
-        merge_hooks(settings["hooks"], hook_config)
-
-    (target_claude / "settings.json").write_text(json.dumps(settings, indent=2))
-    console.print("  [green]✓[/green] .claude/settings.json")
-
-    # Create/update agentic-kit.json with paths
-    config = update_config(target, preset, knowledge_base)
-    console.print("  [green]✓[/green] .claude/agentic-kit.json")
-    console.print(f"      agentic_kit: {config.get('agentic_kit', 'not set')}")
-    if config.get("knowledge_base"):
-        console.print(f"      knowledge_base: {config['knowledge_base']}")
-
-    # Process and write .claude/CLAUDE.md (preset instructions with includes resolved)
-    # Root CLAUDE.md is left for user's project-specific instructions
-    target_claude_md = target_claude / "CLAUDE.md"
-    src = PRESETS_DIR / preset / "claude.md"
-    if src.exists():
-        content = src.read_text()
-
-        # Validate common file dependencies (from both template includes and manifest)
-        template_commons = extract_common_names_from_template(content)
-        all_commons = list(dict.fromkeys(template_commons + components["common"]))
-        dep_errors = validate_common_dependencies(all_commons, components["skills"])
-        if dep_errors:
-            for e in dep_errors:
-                console.print(f"  [red]✗[/red] {e}")
-            console.print(
-                "[red]Installation failed: common file dependencies not satisfied[/red]"
-            )
-            raise SystemExit(1)
-
-        processed = process_includes(content)  # Process first, may raise
-
-        # Append preset-specific instructions from manifest
-        if components["instructions"]:
-            instructions_dir = PRESETS_DIR / preset / "instructions"
-            sections = []
-            for name in components["instructions"]:
-                path = instructions_dir / f"{name}.md"
-                if path.exists():
-                    sections.append(strip_frontmatter(path.read_text()).strip())
-                else:
-                    raise FileNotFoundError(
-                        f"Instruction not found: {preset}/instructions/{name}.md"
-                    )
-            if sections:
-                processed = processed.rstrip() + "\n\n" + "\n\n".join(sections) + "\n"
-
-        # Append common sections from manifest
-        if components["common"]:
-            sections = []
-            for name in components["common"]:
-                path = COMMON_DIR / f"{name}.md"
-                if path.exists():
-                    _, body = parse_frontmatter(path.read_text())
-                    sections.append(body.strip())
-                else:
-                    raise FileNotFoundError(f"Common file not found: {name}.md")
-            if sections:
-                processed = processed.rstrip() + "\n\n" + "\n\n".join(sections) + "\n"
-
-        # Only delete after successful processing
-        if target_claude_md.exists() or target_claude_md.is_symlink():
-            target_claude_md.unlink()
-        target_claude_md.write_text(processed)
-        console.print("  [green]✓[/green] .claude/CLAUDE.md (includes processed)")
-
-    # Symlink templates folder
-    templates_src = PRESETS_DIR / preset / "templates"
-    if templates_src.exists():
-        templates_dst = target_claude / "templates"
-        if templates_dst.exists() or templates_dst.is_symlink():
-            if templates_dst.is_symlink():
-                templates_dst.unlink()
-            else:
-                shutil.rmtree(templates_dst)
-        templates_dst.symlink_to(templates_src)
-        console.print("  [green]✓[/green] .claude/templates/")
-
-    # Copy workspace template if preset has one and target doesn't exist
-    workspace_template = PRESETS_DIR / preset / "workspace_template.yaml"
-    workspace_target = target / "WORKSPACE.yaml"
-    if workspace_template.exists() and not workspace_target.exists():
-        shutil.copy(workspace_template, workspace_target)
-        console.print("  [green]✓[/green] WORKSPACE.yaml (from template)")
-
-    # Sync symlinks — adds missing, removes stale, updates outdated
-    sync_symlinks(SKILLS_DIR, target_claude / "skills", components["skills"], "Skill")
-    sync_symlinks(HOOKS_DIR, target_claude / "hooks", components["hooks"], "Hook")
-    if components["pipelines"]:
-        sync_symlinks(
-            PIPELINES_DIR, target / "pipelines", components["pipelines"], "Pipeline"
+    manifest = load_manifest(preset)
+    manifest_agents = require_agents(preset, manifest)
+    selected_agents = list(agents) if agents is not None else manifest_agents
+    unknown = [agent for agent in selected_agents if agent not in available_agents()]
+    if unknown:
+        raise ValueError(
+            f"Unsupported agents selected for install: {', '.join(unknown)}"
         )
 
-    # Print external recommendations
+    components = resolve_dependencies(collect_components(preset))
+    project_dirs = project_dirs_for_agents(target, selected_agents)
+
+    console.print(f"  [green]✓[/green] Agents: {', '.join(selected_agents)}")
+
+    for agent in selected_agents:
+        installer = load_agent_installer(agent)
+        ctx = InstallContext(
+            target_dir=target,
+            project_dir=project_dirs[agent],
+            repo_root=REPO_ROOT,
+            preset_name=preset,
+            preset_dir=PRESETS_DIR / preset,
+            skills=sorted(components["skills"]),
+            hooks=sorted(components["hooks"]),
+            common=list(components["common"]),
+            external=sorted(components["external"]),
+            pipelines=sorted(components["pipelines"]),
+            instructions=list(components["instructions"]),
+            all_agents=list(selected_agents),
+            project_dirs=project_dirs,
+            install_state_path=project_dirs[agent] / "agentic-kit.json",
+            knowledge_base=knowledge_base,
+        )
+        installer.install(ctx, console=console)
+
     if components["external"]:
         console.print("\n[bold]Recommended external skills:[/bold]")
-        for ext in components["external"]:
+        for ext in sorted(components["external"]):
             console.print(f"  npx skills add {ext}")
 
+    update_registry(
+        preset,
+        target,
+        knowledge_base,
+        agents=selected_agents,
+        project_dirs=project_dirs,
+    )
     console.print("\n[bold green]Done![/bold green]")
-    update_registry(preset, target, knowledge_base)
 
 
 def list_presets():
-    """List all available presets."""
     console.print("[bold]Available presets:[/bold]")
     for preset in sorted(PRESETS_DIR.iterdir()):
         if preset.is_dir():
@@ -484,19 +403,8 @@ def main():
     if args.preset:
         preset = args.preset
     else:
-        # Interactive selection
-        available = sorted([p.name for p in PRESETS_DIR.iterdir() if p.is_dir()])
-        console.print("[bold]Available presets:[/bold]")
-        for i, p in enumerate(available, 1):
-            manifest = load_manifest(p)
-            desc = manifest.get("description", "")
-            console.print(f"  {i}. [cyan]{p}[/cyan]: {desc}")
-        selection = Prompt.ask("\nSelect preset (number)")
-        idx = int(selection.strip()) - 1
-        if 0 <= idx < len(available):
-            preset = available[idx]
-        else:
-            console.print("[red]Invalid selection[/red]")
+        preset = choose_preset_interactively()
+        if preset is None:
             return
 
     try:

@@ -1,4 +1,7 @@
 description: Work workspace focused on Scala and infrastructure configs
+agents:
+  - claude-code
+  - open-code
 skills:
   - dp-jira
   - dp-gitlab

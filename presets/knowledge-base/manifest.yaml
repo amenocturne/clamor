@@ -1,4 +1,6 @@
 description: Obsidian knowledge base with atomic notes, sources, and auto-saving
+agents:
+  - claude-code
 skills:
   - workspace
   - youtube

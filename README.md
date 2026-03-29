@@ -1,6 +1,6 @@
 # Agentic Kit
 
-Dotfiles for Claude Code agents. Small, composable tools — skills, hooks, and presets — that shape how your agent thinks, works, and responds. Unix philosophy: each piece does one thing well, presets compose them.
+Dotfiles for agent CLIs like Claude Code, OpenCode, and Pi. Small, composable tools — skills, hooks, and presets — that shape how your agent thinks, works, and responds. Unix philosophy: each piece does one thing well, presets compose them.
 
 ## Why
 
@@ -8,18 +8,11 @@ Claude Code has skills, hooks, and settings — but no way to compose them. You 
 
 Agentic Kit treats agent configuration like dotfiles: declare what you want in a manifest, run the installer, get a reproducible environment. Change a skill or instruction once, reinstall, and every project picks up the update.
 
-## How It Relates to Claude Code
+## How It Relates to Supported Agents
 
-Agentic Kit doesn't extend Claude Code's runtime. It manages the config files that Claude Code already reads:
+Agentic Kit doesn't extend an agent runtime. It manages the project-local config files that supported agents already read, such as `.claude/`, `.opencode/`, and `.pi/`.
 
-**Claude Code reads natively** | **Agentic Kit adds**
---- | ---
-`.claude/skills/*/SKILL.md` | Presets: declarative manifests bundling skills + hooks + instructions
-`.claude/settings.json` | Common files: reusable instruction fragments with dependency validation
-`.claude/CLAUDE.md` | Symlink management: edit once, propagate everywhere
- | Registry: track installations across projects
-
-After installation, Claude Code has no idea Agentic Kit exists — it just sees its normal config files. Skills are individual primitives. Presets are curated bundles with composition logic on top.
+After installation, the agent just sees its normal config directory. Skills are individual primitives. Presets are curated bundles with composition logic on top.
 
 ## Quick Start
 
@@ -41,7 +34,8 @@ Or without just:
 
 ```bash
 uv run install.py --preset dev-workspace --target ~/projects/my-app
-uv run install.py                    # reinstall all registered targets
+uv run install.py --all              # reinstall all registered targets
+uv run install.py                    # interactive preset selection
 uv run install.py --list
 ```
 
@@ -63,21 +57,38 @@ Running `just install-to ~/projects dev-workspace` produces:
 │       ├── notification/ →    # Symlinks to agentic-kit/hooks/*
 │       ├── clamor/       →
 │       └── ...
-└── WORKSPACE.yaml             # Project index (from template, if not present)
+├── .opencode/
+│   ├── agentic-kit.json       # Shared install state + project paths
+│   └── skills/
+│       ├── workspace/  →
+│       ├── checkpoint/ →
+│       └── ...
+├── .pi/
+│   ├── agentic-kit.json       # Shared install state + project paths
+│   ├── settings.json          # Pi defaults managed by the installer
+│   ├── skills/
+│   │   ├── workspace/  →
+│   │   ├── checkpoint/ →
+│   │   └── ...
+│   └── extensions/
+│       └── nestor-provider/ →
+└── WORKSPACE.yaml             # Only if the preset ships a workspace template and target lacks one
 ```
 
-**Symlinked** (live-linked, updates propagate automatically): skills, hooks, pipelines
-**Generated** (written once per install): CLAUDE.md, settings.json, agentic-kit.json
+Installed agent directories depend on the preset's `agents:` list. `dev-workspace` currently installs Claude Code, OpenCode, and Pi; other presets can install a different subset.
+
+**Symlinked** (live-linked, updates propagate automatically): skills, hooks, pipelines, Pi extensions
+**Generated** (written once per install): agent-specific config files such as `CLAUDE.md`, `settings.json`, and `agentic-kit.json`
 
 ## Architecture
 
 ```
 agentic-kit/
-├── skills/           # 28 self-contained skill folders
-├── hooks/            # 9 event-triggered scripts
+├── skills/           # 31 self-contained skill folders
+├── hooks/            # 10 event-triggered scripts
 ├── presets/          # 3 composable installation recipes
 ├── common/           # 6 reusable instruction fragments
-├── pipelines/        # Data processing pipelines
+├── pipelines/        # 1 data processing pipeline
 ├── tools/            # External tools (clamor)
 ├── install.py        # Core installer
 └── installations.yaml  # Registry of installed presets
@@ -90,6 +101,10 @@ A preset is a manifest (`manifest.yaml`) that declares which components to insta
 ```yaml
 # presets/dev-workspace/manifest.yaml
 description: Multi-project development workspace
+agents:
+  - claude-code
+  - open-code
+  - pi
 skills:
   - workspace
   - orchestrator
@@ -108,7 +123,7 @@ external:
   - github.com/anthropics/skills/skill-creator
 ```
 
-The installer reads the manifest, symlinks all components, processes `{{include:common/git.md}}` directives in the template, validates that common files' required skills are present, merges hook configs from each hook's `hooks.json`, and writes the final `.claude/CLAUDE.md`.
+The installer reads the manifest, symlinks all components, processes `{{include:common/git.md}}` directives in the template, validates that common files' required skills are present, merges hook configs from each hook's `hooks.json`, and then delegates final layout generation to each selected agent installer.
 
 Components are symlinked, not copied — editing a skill in Agentic Kit and running `just install` updates every project that uses it. No duplication, no drift.
 
@@ -148,15 +163,15 @@ Event-triggered scripts that Claude Code executes at specific moments (session s
 
 ### Registry
 
-`installations.yaml` tracks every installed preset and its target path. Running `just install` reinstalls all entries — useful after modifying any skill, hook, or instruction in Agentic Kit.
+`installations.yaml` tracks every installed preset, target path, and selected agents. Running `just install` reinstalls all entries — useful after modifying any skill, hook, or instruction in Agentic Kit.
 
 ## Presets
 
 | Preset | Skills | Hooks | Focus |
 | ------ | ------ | ----- | ----- |
-| `dev-workspace` | 20 | 6 | Multi-project development, orchestration, code review |
-| `knowledge-base` | 18 | 6 | Obsidian vault, atomic notes, auto-saving, zettelkasten |
-| `work` | 16 | 5 | Scala/infrastructure, Jira, GitLab, corporate tooling |
+| `dev-workspace` | 23 | 7 | Multi-project development, orchestration, code review |
+| `knowledge-base` | 20 | 7 | Obsidian vault, atomic notes, auto-saving, zettelkasten |
+| `work` | 18 | 6 | Scala/infrastructure, Jira, GitLab, corporate tooling |
 
 ## Skills
 
@@ -168,6 +183,8 @@ Event-triggered scripts that Claude Code executes at specific moments (session s
 | `confluence` | Import Confluence pages to Markdown |
 | `crazy` | Altered-state thinking for boundary-breaking ideation |
 | `creative-freedom` | Deep autonomous creative exploration |
+| `context7` | Up-to-date library and framework documentation lookup |
+| `dev-cycle` | Automated implement-review-test development loop |
 | `dev-philosophy` | Core development principles across languages |
 | `documentation` | Project documentation guidelines |
 | `dp-gitlab` | GitLab interaction via dp CLI |
@@ -184,6 +201,7 @@ Event-triggered scripts that Claude Code executes at specific moments (session s
 | `review` | Browser-based code review and file annotation |
 | `shh` | Kill TTS playback |
 | `spec` | Technical specification generator |
+| `spectrogram` | Audio spectrogram generation for visual analysis |
 | `talk` | Voice conversation mode with TTS |
 | `todo` | Cross-session task tracking |
 | `transcribe` | Audio transcription with Whisper |
@@ -201,6 +219,7 @@ Event-triggered scripts that Claude Code executes at specific moments (session s
 | `link-proxy` | SessionStart, PreToolUse, PostToolUse | URL masking for corporate environments |
 | `notification` | Notification, Stop | System notifications on events and session end |
 | `save-conversation` | Stop | Auto-save transcripts and commit to git |
+| `smart-approve` | PreToolUse | Auto-approve safe read-only Bash commands |
 | `tts` | Stop | Text-to-speech via kokoro-tts |
 | `workflow-check` | SubagentStop | Remind agents about uncommitted changes |
 | `worktree` | Stop | Auto-clean git worktrees after agent sessions |
