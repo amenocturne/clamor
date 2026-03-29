@@ -6,6 +6,7 @@ pub struct Shortcut {
 
 const SECTIONS: &[(&str, &[Shortcut])] = &[
     ("Dashboard", DASHBOARD_SHORTCUTS),
+    ("Spawn Prompt", SPAWN_PROMPT_SHORTCUTS),
     ("Terminal", TERMINAL_SHORTCUTS),
     ("Copy Mode", COPY_MODE_SHORTCUTS),
 ];
@@ -154,14 +155,21 @@ pub const COPY_MODE_SHORTCUTS: &[Shortcut] = &[
     },
 ];
 
-#[allow(dead_code)] // available for future contextual help
 pub const SPAWN_PROMPT_SHORTCUTS: &[Shortcut] = &[
     Shortcut {
-        keys: "Tab",
-        description: "toggle title / description",
+        keys: "Tab / Shift+Tab",
+        description: "cycle fields (title \u{2192} description \u{2192} backend)",
     },
     Shortcut {
-        keys: "↑ / ↓",
+        keys: "\u{2190} / \u{2192}",
+        description: "select backend (when backend field active)",
+    },
+    Shortcut {
+        keys: "Shift+Enter",
+        description: "new line in description",
+    },
+    Shortcut {
+        keys: "\u{2191} / \u{2193}",
         description: "prompt history",
     },
     Shortcut {

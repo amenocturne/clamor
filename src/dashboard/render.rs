@@ -32,7 +32,7 @@ pub enum Overlay<'a> {
     },
     PromptInput {
         folder_name: &'a str,
-        backend_label: String,
+        backends: Vec<(String, String, bool)>, // (backend_id, display_name, is_selected)
         title: &'a str,
         description: &'a str,
         active_field: &'a PromptField,
@@ -207,7 +207,7 @@ pub fn render(
         }
         Overlay::PromptInput {
             folder_name,
-            backend_label,
+            backends,
             title,
             description,
             active_field,
@@ -216,7 +216,7 @@ pub fn render(
                 frame,
                 area,
                 folder_name,
-                backend_label,
+                backends,
                 title,
                 description,
                 active_field,
@@ -857,7 +857,7 @@ fn render_prompt_popup(
     frame: &mut Frame,
     area: Rect,
     folder_name: &str,
-    backend_label: &str,
+    backends: &[(String, String, bool)],
     title_text: &str,
     desc_text: &str,
     active_field: &PromptField,
@@ -877,10 +877,10 @@ fn render_prompt_popup(
     frame.render_widget(block, popup);
 
     let cursor = "\u{258e}";
-    let (title_active, desc_active) = match active_field {
-        PromptField::Title => (true, false),
-        PromptField::Description => (false, true),
-    };
+    let title_active = matches!(active_field, PromptField::Title);
+    let desc_active = matches!(active_field, PromptField::Description);
+    let backend_active = matches!(active_field, PromptField::Backend);
+    let multi_backend = backends.len() > 1;
 
     let title_label_style = if title_active {
         Style::default().fg(Color::Cyan)
@@ -905,22 +905,12 @@ fn render_prompt_popup(
     };
 
     let desc_width = inner.width as usize;
-    let wrapped_desc: Vec<String> = if desc_width == 0 {
-        vec![desc_display]
-    } else {
-        let chars: Vec<char> = desc_display.chars().collect();
-        if chars.is_empty() {
-            vec![String::new()]
-        } else {
-            chars
-                .chunks(desc_width)
-                .map(|chunk| chunk.iter().collect())
-                .collect()
-        }
-    };
+    let wrapped_desc = wrap_text_with_newlines(&desc_display, desc_width);
 
-    // 6 fixed lines: backend + title + blank + "Description:" + blank before hint + hint
-    let desc_area_height = (inner.height as usize).saturating_sub(6);
+    // Fixed lines: title + blank + "Description:" + blank before hint + hint
+    // + optional backend row + blank before it
+    let fixed_lines = if multi_backend { 7 } else { 5 };
+    let desc_area_height = (inner.height as usize).saturating_sub(fixed_lines);
     let visible_desc: &[String] = if wrapped_desc.len() > desc_area_height && desc_area_height > 0 {
         &wrapped_desc[wrapped_desc.len() - desc_area_height..]
     } else {
@@ -928,13 +918,6 @@ fn render_prompt_popup(
     };
 
     let mut lines = vec![
-        Line::from(vec![
-            Span::styled("Backend: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                format!("[{}]", backend_label),
-                Style::default().fg(Color::Cyan),
-            ),
-        ]),
         Line::from(vec![
             Span::styled("Title: ", title_label_style),
             Span::raw(title_display),
@@ -946,13 +929,67 @@ fn render_prompt_popup(
         lines.push(Line::from(Span::raw(line.clone())));
     }
     lines.push(Line::from(""));
+
+    if multi_backend {
+        let mut spans = Vec::new();
+        for (i, (_id, label, selected)) in backends.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::raw("   "));
+            }
+            if *selected {
+                let style = Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD);
+                spans.push(Span::styled(format!("\u{25C6} {label}"), style));
+            } else {
+                let color = if backend_active {
+                    Color::White
+                } else {
+                    Color::DarkGray
+                };
+                spans.push(Span::styled(
+                    format!("\u{25C7} {label}"),
+                    Style::default().fg(color),
+                ));
+            }
+        }
+        lines.push(Line::from(spans));
+        lines.push(Line::from(""));
+    }
+
+    let hint = if multi_backend {
+        "Tab field | \u{2190}\u{2192} backend | Enter spawn"
+    } else {
+        "Tab field | Enter spawn"
+    };
     lines.push(Line::from(Span::styled(
-        "Tab backend | Ctrl+J field | empty = interactive session",
+        hint,
         Style::default().fg(Color::DarkGray),
     )));
 
     let paragraph = Paragraph::new(lines);
     frame.render_widget(paragraph, inner);
+}
+
+fn wrap_text_with_newlines(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![text.to_string()];
+    }
+    let mut result = Vec::new();
+    for segment in text.split('\n') {
+        let chars: Vec<char> = segment.chars().collect();
+        if chars.is_empty() {
+            result.push(String::new());
+        } else {
+            for chunk in chars.chunks(width) {
+                result.push(chunk.iter().collect());
+            }
+        }
+    }
+    if result.is_empty() {
+        result.push(String::new());
+    }
+    result
 }
 
 fn render_adopt_popup(frame: &mut Frame, area: Rect, input: &str) {
