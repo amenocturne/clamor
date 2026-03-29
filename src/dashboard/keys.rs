@@ -22,16 +22,18 @@ mod tests {
         Agent {
             id: String::new(),
             title: String::new(),
-            folder: String::new(),
+            folder_id: String::new(),
+            backend_id: "claude-code".to_string(),
             cwd: String::new(),
             initial_prompt: None,
             state: AgentState::Working,
             started_at: now,
             last_activity_at: now,
             last_tool: None,
+            resume_token: None,
+            metadata: std::collections::HashMap::new(),
             key,
             color_index: 0,
-            session_id: None,
         }
     }
 

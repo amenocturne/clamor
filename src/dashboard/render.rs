@@ -18,6 +18,7 @@ use super::input::PromptField;
 /// An agent prepared for display, with its assigned jump key and status flags.
 pub struct DisplayAgent<'a> {
     pub agent: &'a Agent,
+    pub backend_label: String,
     pub key: Option<char>,
     pub killed: bool,
 }
@@ -31,6 +32,7 @@ pub enum Overlay<'a> {
     },
     PromptInput {
         folder_name: &'a str,
+        backend_label: String,
         title: &'a str,
         description: &'a str,
         active_field: &'a PromptField,
@@ -79,7 +81,7 @@ pub fn ordered_agent_ids(
 
     let mut extra_folders: Vec<String> = agents
         .values()
-        .map(|a| a.folder.clone())
+        .map(|a| a.folder_id.clone())
         .filter(|f| !config.folders.contains_key(f))
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
@@ -98,12 +100,12 @@ pub fn ordered_agent_ids(
     for folder_key in &all_folder_keys {
         let mut folder_agents: Vec<(&String, &&Agent)> = agents
             .iter()
-            .filter(|(_, a)| a.folder == *folder_key)
+            .filter(|(_, a)| a.folder_id == *folder_key)
             .collect();
 
         if !q.is_empty() {
             folder_agents.retain(|(_, a)| {
-                a.title.to_lowercase().contains(&q) || a.folder.to_lowercase().contains(&q)
+                a.title.to_lowercase().contains(&q) || a.folder_id.to_lowercase().contains(&q)
             });
         }
 
@@ -125,6 +127,7 @@ pub fn ordered_agent_ids(
 pub fn render(
     frame: &mut Frame,
     config: &ClamorConfig,
+    folder_backend_labels: &HashMap<String, String>,
     agents: &HashMap<String, &Agent>,
     killed_ids: &[String],
     overlay: &Overlay,
@@ -136,7 +139,13 @@ pub fn render(
     let area = frame.area();
 
     // Build display agents grouped by folder
-    let groups = build_groups(config, agents, killed_ids, filter_query);
+    let groups = build_groups(
+        config,
+        folder_backend_labels,
+        agents,
+        killed_ids,
+        filter_query,
+    );
 
     // Count stats (exclude killed from count)
     let total = agents.len()
@@ -198,11 +207,20 @@ pub fn render(
         }
         Overlay::PromptInput {
             folder_name,
+            backend_label,
             title,
             description,
             active_field,
         } => {
-            render_prompt_popup(frame, area, folder_name, title, description, active_field);
+            render_prompt_popup(
+                frame,
+                area,
+                folder_name,
+                backend_label,
+                title,
+                description,
+                active_field,
+            );
         }
         Overlay::AdoptInput { input } => {
             render_adopt_popup(frame, area, input);
@@ -291,7 +309,7 @@ pub fn render_terminal(
         frame,
         chunks[0],
         &pane::TitleBarParams {
-            folder: &agent.folder,
+            folder: &agent.folder_id,
             description: &agent.title,
             state: state_str,
             duration: &duration,
@@ -456,11 +474,13 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay, batch_count: 
 /// A group of agents under a folder heading.
 struct AgentGroup<'a> {
     folder_name: String,
+    folder_backend_label: Option<String>,
     agents: Vec<DisplayAgent<'a>>,
 }
 
 fn build_groups<'a>(
     config: &ClamorConfig,
+    folder_backend_labels: &HashMap<String, String>,
     agents: &HashMap<String, &'a Agent>,
     killed_ids: &[String],
     filter_query: &str,
@@ -472,7 +492,7 @@ fn build_groups<'a>(
     // Also collect folder keys that appear in agents but not in config
     let mut extra_folders: Vec<String> = agents
         .values()
-        .map(|a| a.folder.clone())
+        .map(|a| a.folder_id.clone())
         .filter(|f| !config.folders.contains_key(f))
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
@@ -492,12 +512,12 @@ fn build_groups<'a>(
     for folder_key in &all_folder_keys {
         let mut folder_agents: Vec<(&String, &&Agent)> = agents
             .iter()
-            .filter(|(_, a)| a.folder == *folder_key)
+            .filter(|(_, a)| a.folder_id == *folder_key)
             .collect();
 
         if !q.is_empty() {
             folder_agents.retain(|(_, a)| {
-                a.title.to_lowercase().contains(&q) || a.folder.to_lowercase().contains(&q)
+                a.title.to_lowercase().contains(&q) || a.folder_id.to_lowercase().contains(&q)
             });
         }
 
@@ -511,6 +531,7 @@ fn build_groups<'a>(
             .iter()
             .map(|(id, agent)| DisplayAgent {
                 agent,
+                backend_label: config.backend_display_name(&agent.backend_id).to_string(),
                 key: agent.key,
                 killed: killed_ids.contains(id),
             })
@@ -520,6 +541,7 @@ fn build_groups<'a>(
 
         groups.push(AgentGroup {
             folder_name,
+            folder_backend_label: folder_backend_labels.get(folder_key).cloned(),
             agents: display_agents,
         });
     }
@@ -560,10 +582,18 @@ fn render_body(
         }
 
         // Folder header
-        lines.push(Line::from(Span::styled(
+        let mut folder_spans = vec![Span::styled(
             format!(" {}", group.folder_name),
             Style::default().add_modifier(Modifier::BOLD),
-        )));
+        )];
+        if let Some(backend_label) = &group.folder_backend_label {
+            folder_spans.push(Span::raw("  "));
+            folder_spans.push(Span::styled(
+                format!("[{}]", truncate(backend_label, 12)),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        lines.push(Line::from(folder_spans));
 
         for da in &group.agents {
             let batch_selected = selected_agents.contains(&da.agent.id);
@@ -669,6 +699,7 @@ fn render_agent_line(
     };
 
     let duration = format_duration(da.agent.started_at);
+    let backend_badge = format!("[{}]", truncate(&da.backend_label, 10));
 
     // Build tool suffix: "  ToolName 2m" in very dim style
     let tool_suffix = if !da.killed && da.agent.state != AgentState::Done {
@@ -686,8 +717,9 @@ fn render_agent_line(
     let state_display = format!("{:<6}", state_label);
 
     // Calculate available space for description:
-    // marker(2) + key(3) + state(6) + spacing(4) + duration(~8) + padding(2) + tool_suffix
-    let overhead = 2 + key_str.len() + 6 + 4 + duration.len() + 2 + tool_suffix_len;
+    // marker(2) + key(3) + state(6) + spacing(4) + backend badge + duration + padding + tool suffix
+    let overhead =
+        2 + key_str.len() + 6 + 4 + backend_badge.len() + 3 + duration.len() + 2 + tool_suffix_len;
     let desc_width = width.saturating_sub(overhead);
     let description = truncate(&da.agent.title, desc_width);
 
@@ -722,6 +754,8 @@ fn render_agent_line(
         Span::raw("  "),
         Span::styled(padded_desc, desc_style),
         Span::raw("  "),
+        Span::styled(backend_badge, Style::default().fg(Color::DarkGray)),
+        Span::raw(" "),
         Span::styled(duration, duration_style),
     ];
 
@@ -823,6 +857,7 @@ fn render_prompt_popup(
     frame: &mut Frame,
     area: Rect,
     folder_name: &str,
+    backend_label: &str,
     title_text: &str,
     desc_text: &str,
     active_field: &PromptField,
@@ -884,8 +919,8 @@ fn render_prompt_popup(
         }
     };
 
-    // 5 fixed lines: title + blank + "Description:" label + blank before hint + hint
-    let desc_area_height = (inner.height as usize).saturating_sub(5);
+    // 6 fixed lines: backend + title + blank + "Description:" + blank before hint + hint
+    let desc_area_height = (inner.height as usize).saturating_sub(6);
     let visible_desc: &[String] = if wrapped_desc.len() > desc_area_height && desc_area_height > 0 {
         &wrapped_desc[wrapped_desc.len() - desc_area_height..]
     } else {
@@ -893,6 +928,13 @@ fn render_prompt_popup(
     };
 
     let mut lines = vec![
+        Line::from(vec![
+            Span::styled("Backend: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("[{}]", backend_label),
+                Style::default().fg(Color::Cyan),
+            ),
+        ]),
         Line::from(vec![
             Span::styled("Title: ", title_label_style),
             Span::raw(title_display),
@@ -905,7 +947,7 @@ fn render_prompt_popup(
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "Tab switch \u{00b7} empty = interactive session",
+        "Tab backend | Ctrl+J field | empty = interactive session",
         Style::default().fg(Color::DarkGray),
     )));
 

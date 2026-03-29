@@ -15,7 +15,7 @@ mod watcher;
 
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Command};
+use cli::{Cli, Command, ConfigCommand};
 use config::ClamorConfig;
 
 #[tokio::main]
@@ -24,9 +24,12 @@ async fn main() -> Result<()> {
 
     match cli.command {
         None => {
+            let _ = config::prompt_to_migrate_legacy_config()?;
             let config = ClamorConfig::load()?;
             if config.folders.is_empty() {
-                eprintln!("Error: No folders configured. Run `clamor config` to add folders.");
+                eprintln!(
+                    "Error: No folders configured. Run `clamor config` to edit folders or `clamor config print-example` for a starter template."
+                );
                 std::process::exit(1);
             }
             dashboard::run(&config, None).await?;
@@ -79,8 +82,38 @@ async fn main() -> Result<()> {
         Some(Command::Clean) => {
             spawn::clean_agents()?;
         }
-        Some(Command::Config) => {
+        Some(Command::Config { command: None }) => {
             spawn::open_config()?;
+        }
+        Some(Command::Config {
+            command: Some(ConfigCommand::Init),
+        }) => {
+            let path = config::init_config()?;
+            println!("Initialized config at {}", path.display());
+        }
+        Some(Command::Config {
+            command: Some(ConfigCommand::Migrate),
+        }) => {
+            let outcome = config::migrate_legacy_config()?;
+            println!(
+                "Migrated {} to {}",
+                outcome.from.display(),
+                outcome.to.display()
+            );
+            println!("Left the legacy file in place for safety.");
+        }
+        Some(Command::Config {
+            command: Some(ConfigCommand::PrintBackend { backend_id }),
+        }) => {
+            print!("{}", config::serialize_backend_yaml(&backend_id)?);
+        }
+        Some(Command::Config {
+            command: Some(ConfigCommand::PrintExample),
+        }) => {
+            print!(
+                "{}",
+                config::serialize_config_yaml(&config::example_config())?
+            );
         }
         Some(Command::DefaultTheme) => {
             let theme = config::ThemeConfig::default();

@@ -1,6 +1,6 @@
 # clamor
 
-Terminal multiplexer TUI for managing multiple Claude Code agents via a daemon/client architecture.
+Terminal multiplexer TUI for managing multiple coding agents via a daemon/client architecture.
 
 ## Commands
 
@@ -20,7 +20,19 @@ cargo fmt                    # Format
 - **protocol** (`protocol.rs`) — wire format (4-byte BE length + JSON), both sync and async variants
 - **pane** (`pane.rs`) — `vt100::Parser` wrapper with scrollback, selection, clipboard
 - **state** (`state.rs`) — file-locked JSON persistence (`~/.clamor/state.json`); three states: Working, Input, Done (Lost was removed — daemon auto-resumes sessions on restart)
+- **config** (`config.rs`) — YAML config at `~/.config/clamor/config.yaml`, backend registry with built-in templates, folder-to-backend mapping, legacy JSON migration
+- **spawn** (`spawn.rs`) — backend-driven spawn/resume resolver with `{{var}}` template rendering
 - **hook** (`hook.rs`) — sync, runs in separate process (no tokio), must stay fast
+
+## Multi-Backend Support
+
+Clamor is backend-agnostic. Each folder can list multiple backends; one is selected at a time.
+
+- **Config**: `~/.config/clamor/config.yaml` defines backends (spawn/resume commands, capabilities) and folders (path + allowed backends)
+- **Built-in backends**: `claude-code`, `open-code`, `pi` — merged with user config at load time
+- **Runtime state**: selected backend per folder persists in `~/.clamor/state.json`
+- **Hooks**: only enabled for backends with `capabilities.hooks: true` (currently Claude Code)
+- **Process exit**: all backends get `Done` state via PTY exit detection, regardless of hook support
 
 ## Versioning
 
@@ -52,6 +64,7 @@ Current protocol messages include `Hello { version }` for version exchange betwe
 
 ### Spawn prompt
 
+- `Tab` / `Shift-Tab` — cycle backend for selected folder
 - `Tab` — toggle between title/description fields
 - `Up`/`Down` — prompt history
 - `Ctrl+W` / `Alt+Backspace` — delete word

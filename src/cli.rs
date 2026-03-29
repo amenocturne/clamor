@@ -63,7 +63,10 @@ pub enum Command {
     Clean,
 
     /// Open config in $EDITOR
-    Config,
+    Config {
+        #[command(subcommand)]
+        command: Option<ConfigCommand>,
+    },
 
     /// Print default theme as JSON
     DefaultTheme,
@@ -93,4 +96,36 @@ pub enum Command {
         #[arg(long, default_value = "30")]
         duration: u64,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigCommand {
+    /// Create a starter XDG config with built-in backends
+    Init,
+
+    /// Migrate legacy ~/.clamor/config.json to XDG YAML
+    Migrate,
+
+    /// Print one built-in backend template as YAML
+    PrintBackend { backend_id: String },
+
+    /// Print a full example config with built-in backends
+    PrintExample,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_nested_config_commands() {
+        let cli = Cli::parse_from(["clamor", "config", "print-backend", "claude-code"]);
+
+        match cli.command {
+            Some(Command::Config {
+                command: Some(ConfigCommand::PrintBackend { backend_id }),
+            }) => assert_eq!(backend_id, "claude-code"),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
 }
