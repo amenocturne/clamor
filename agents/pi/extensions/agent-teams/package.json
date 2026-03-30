@@ -8,6 +8,7 @@
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",
-    "@sinclair/typebox": "*"
+    "@sinclair/typebox": "*",
+    "yaml": "*"
   }
 }
