@@ -7,13 +7,17 @@ DEFAULT_SETTINGS = {
     "defaultModel": "tgpt/qwen35-397b-a17b-fp8",
     "defaultThinkingLevel": "medium",
 }
-DEFAULT_EXTENSIONS = {"nestor-provider", "permission-gate", "background-tasks", "permission-queue"}
+DEFAULT_EXTENSIONS = {"nestor-provider", "permission-gate", "background-tasks"}
+# Libraries symlinked alongside extensions but not loaded by Pi directly
+SUPPORT_LIBS = {"permission-queue"}
 
 
 def validate_required_extensions(ctx: InstallContext) -> None:
     extensions_root = ctx.repo_root / "agents" / "pi" / "extensions"
     missing = sorted(
-        name for name in DEFAULT_EXTENSIONS if not (extensions_root / name).exists()
+        name
+        for name in DEFAULT_EXTENSIONS | SUPPORT_LIBS
+        if not (extensions_root / name).exists()
     )
     if missing:
         raise FileNotFoundError(
@@ -34,7 +38,7 @@ def install(ctx: InstallContext, console=None) -> None:
     sync_symlinks(
         ctx.repo_root / "agents" / "pi" / "extensions",
         ctx.project_dir / "extensions",
-        DEFAULT_EXTENSIONS,
+        DEFAULT_EXTENSIONS | SUPPORT_LIBS,
         "Extension",
         console=console,
     )
