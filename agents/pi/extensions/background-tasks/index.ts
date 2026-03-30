@@ -694,35 +694,35 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // Ctrl+K shortcut to kill tasks quickly
-  pi.registerShortcut("ctrl+k", {
-    description: "Kill background tasks",
+  // Double-Escape: abort everything — current operation + all background tasks
+  // Single Escape is Pi's built-in cancel. Double-Escape is the nuclear option.
+  let lastEscapeTime = 0;
+
+  pi.registerShortcut("escape", {
+    description: "Double-tap: abort everything (current operation + all background tasks)",
     handler: async (ctx) => {
+      const now = Date.now();
+      const gap = now - lastEscapeTime;
+      lastEscapeTime = now;
+
+      // Double-tap: within 500ms
+      if (gap > 500) return;
+
       const running = getAllTasks().filter((t) => t.status === "running");
-      if (running.length === 0) {
-        ctx.ui.notify("No running tasks.", "info");
-        return;
-      }
 
-      if (running.length === 1) {
-        killTask(running[0].id);
-        ctx.ui.notify(`Killed task ${running[0].id}.`, "warning");
-        updateWidget();
-        return;
-      }
-
-      // Multiple running — kill all with confirm
-      const confirmed = await ctx.ui.confirm(
-        "Kill all background tasks?",
-        `${running.length} tasks running. Kill all?`,
-        { timeout: 15_000 },
-      );
-
-      if (confirmed) {
+      // Kill all background tasks
+      if (running.length > 0) {
         killAllTasks();
-        ctx.ui.notify(`Killed ${running.length} task(s).`, "warning");
         updateWidget();
       }
+
+      // Abort current agent operation
+      ctx.abort();
+
+      const msg = running.length > 0
+        ? `Aborted. Killed ${running.length} background task(s).`
+        : "Aborted.";
+      ctx.ui.notify(msg, "warning");
     },
   });
 
