@@ -694,8 +694,8 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // Ctrl+K: kill all background tasks and abort current operation
-  pi.registerShortcut("ctrl+k", {
+  // Ctrl+X: kill all background tasks and abort current operation
+  pi.registerShortcut("ctrl+x", {
     description: "Kill all background tasks and abort",
     handler: async (ctx) => {
       const running = getAllTasks().filter((t) => t.status === "running");
