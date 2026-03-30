@@ -658,6 +658,74 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // ── /kill Command ───────────────────────────────────────────────────
+
+  pi.registerCommand("kill", {
+    description: "Kill a running background task (or all)",
+    handler: async (_args, ctx) => {
+      const running = getAllTasks().filter((t) => t.status === "running");
+      if (running.length === 0) {
+        ctx.ui.notify("No running tasks.", "info");
+        return;
+      }
+
+      const options = [
+        ...running.map((t) => {
+          const typeLabel = t.type === "agent" ? "Agent: " : "";
+          const preview = t.command.length > 40 ? t.command.slice(0, 37) + "..." : t.command;
+          return `${t.id} — ${typeLabel}${preview}`;
+        }),
+        "Kill all",
+      ];
+
+      const choice = await ctx.ui.select("Kill background task", options);
+      if (choice === undefined) return;
+
+      if (choice === "Kill all") {
+        killAllTasks();
+        ctx.ui.notify(`Killed ${running.length} task(s).`, "warning");
+      } else {
+        const id = choice.split(" — ")[0];
+        killTask(id);
+        ctx.ui.notify(`Killed task ${id}.`, "warning");
+      }
+
+      updateWidget();
+    },
+  });
+
+  // Ctrl+K shortcut to kill tasks quickly
+  pi.registerShortcut("ctrl+k", {
+    description: "Kill background tasks",
+    handler: async (ctx) => {
+      const running = getAllTasks().filter((t) => t.status === "running");
+      if (running.length === 0) {
+        ctx.ui.notify("No running tasks.", "info");
+        return;
+      }
+
+      if (running.length === 1) {
+        killTask(running[0].id);
+        ctx.ui.notify(`Killed task ${running[0].id}.`, "warning");
+        updateWidget();
+        return;
+      }
+
+      // Multiple running — kill all with confirm
+      const confirmed = await ctx.ui.confirm(
+        "Kill all background tasks?",
+        `${running.length} tasks running. Kill all?`,
+        { timeout: 15_000 },
+      );
+
+      if (confirmed) {
+        killAllTasks();
+        ctx.ui.notify(`Killed ${running.length} task(s).`, "warning");
+        updateWidget();
+      }
+    },
+  });
+
   // ── Event Hooks ───────────────────────────────────────────────────────
 
   pi.on("before_agent_start", async () => ({
