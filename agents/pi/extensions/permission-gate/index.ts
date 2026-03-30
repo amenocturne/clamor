@@ -110,7 +110,8 @@ export default function (pi: ExtensionAPI) {
         logInterception(pi, event.toolName, input, decision, "via permission queue");
         if (decision === "deny") {
           ctx.abort();
-          return { block: true, reason: "Permission denied by user" };
+          const summary = formatToolSummary(event.toolName, input);
+          return { block: true, reason: `The user denied permission for: ${summary}\n\nDo not retry this operation unless the user explicitly asks.` };
         }
         return { block: false };
       }
@@ -173,7 +174,7 @@ async function promptUser(
 
   logInterception(pi, toolName, input, "deny", "user denied");
   ctx.abort();
-  return { block: true, reason: "Permission denied by user" };
+  return { block: true, reason: `The user denied permission for: ${summary}\n\nDo not retry this operation unless the user explicitly asks.` };
 }
 
 /** Subagent mode: write to file queue, wait for main session response */
@@ -208,9 +209,10 @@ async function requestPermission(
     return { block: false };
   }
 
+  const summary = formatToolSummary(toolName, input);
   logInterception(pi, toolName, input, "deny", response.reason || "denied via queue");
   ctx.abort();
-  return { block: true, reason: response.reason || "Permission denied by main session" };
+  return { block: true, reason: `The user denied permission for: ${summary}\n\nDo not retry this operation unless the user explicitly asks.` };
 }
 
 function isWithinProject(toolName: string, input: Record<string, unknown>, cwd: string): boolean {

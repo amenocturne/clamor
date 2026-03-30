@@ -737,8 +737,19 @@ export default function (pi: ExtensionAPI) {
     setOnTaskComplete((task) => {
       updateWidget();
 
-      // Don't notify for killed tasks — user already knows
-      if (task.status === "killed") return;
+      // Killed tasks: short message so agent knows user cancelled intentionally
+      if (task.status === "killed") {
+        const typeLabel = task.type === "agent" ? "Agent task" : "Command";
+        pi.sendMessage(
+          {
+            customType: "bg-task-killed",
+            content: `${typeLabel} ${task.id} was killed by the user. Do not retry or restart it unless the user asks.`,
+            display: true,
+          },
+          { triggerTurn: true },
+        );
+        return;
+      }
 
       const icon = task.status === "done" ? "✓" : "✗";
       const elapsed = formatElapsed(task);
