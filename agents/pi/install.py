@@ -1,5 +1,11 @@
 from lib.install_types import InstallContext
-from lib.install_utils import sync_symlinks, update_managed_config, write_json
+from lib.install_utils import (
+    load_hook_config,
+    merge_hooks,
+    sync_symlinks,
+    update_managed_config,
+    write_json,
+)
 
 AGENT_DIRNAME = ".pi"
 DEFAULT_SETTINGS = {
@@ -19,6 +25,32 @@ def validate_required_extensions(ctx: InstallContext) -> None:
         raise FileNotFoundError(
             "Missing required Pi bundled extensions: " + ", ".join(missing)
         )
+
+
+def install_hooks(ctx: InstallContext, console=None) -> None:
+    """Symlink hooks and generate merged .pi/hooks.json for permission-gate."""
+    if not ctx.hooks:
+        return
+
+    # Symlink hook directories
+    sync_symlinks(
+        ctx.repo_root / "hooks",
+        ctx.project_dir / "hooks",
+        set(ctx.hooks),
+        "Hook",
+        console=console,
+    )
+
+    # Merge all hook configs into a single hooks.json
+    merged: dict = {}
+    for hook_name in ctx.hooks:
+        # Resolve hook_dir to the symlinked location so paths work at runtime
+        hook_dir = ctx.project_dir / "hooks" / hook_name
+        config = load_hook_config(hook_name, hook_dir, ctx.repo_root / "hooks")
+        if config:
+            merge_hooks(merged, config)
+
+    write_json(ctx.project_dir / "hooks.json", merged)
 
 
 def install(ctx: InstallContext, console=None) -> None:
@@ -48,5 +80,6 @@ def install(ctx: InstallContext, console=None) -> None:
             "Failed to install required Pi bundled extensions: "
             + ", ".join(missing_links)
         )
+    install_hooks(ctx, console=console)
     write_json(ctx.project_dir / "settings.json", DEFAULT_SETTINGS)
     update_managed_config(ctx.project_dir / "agentic-kit.json", ctx)

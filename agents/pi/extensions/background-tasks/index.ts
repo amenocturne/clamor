@@ -82,10 +82,20 @@ let widgetRefreshInterval: ReturnType<typeof setInterval> | null = null;
 
 // ── Widget Rendering ────────────────────────────────────────────────────
 
+/** Only show running tasks and recently finished ones (last 10s). */
+function visibleTasks(): TaskInfo[] {
+  const now = Date.now();
+  return getAllTasks().filter((t) => {
+    if (t.status === "running") return true;
+    if (!t.finishedAt) return false;
+    return now - new Date(t.finishedAt).getTime() < 10_000;
+  });
+}
+
 function updateWidget(): void {
   if (!widgetCtx) return;
 
-  const tasks = getAllTasks();
+  const tasks = visibleTasks();
 
   if (tasks.length === 0) {
     widgetCtx.ui.setWidget("bg-tasks", undefined);
@@ -105,11 +115,11 @@ function updateWidget(): void {
 
       return {
         render(width: number): string[] {
-          const currentTasks = getAllTasks();
+          const currentTasks = visibleTasks();
+          if (currentTasks.length === 0) return [];
           const running = currentTasks.filter((t) => t.status === "running").length;
           const header =
-            theme.fg("accent", `Background Tasks (${currentTasks.length})`) +
-            (running > 0 ? theme.fg("dim", ` - ${running} running`) : "");
+            theme.fg("accent", `Background Tasks (${running} running)`);
 
           const lines: string[] = [header];
 
