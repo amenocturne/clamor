@@ -258,7 +258,6 @@ function formatTaskResult(task: TaskInfo): string {
 function sendKilledMessage(pi: ExtensionAPI, content: string): void {
   pi.sendMessage(
     { customType: "bg-task-killed", content, display: true },
-    { triggerTurn: true },
   );
 }
 
