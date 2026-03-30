@@ -106,32 +106,19 @@ function updateWidget(): void {
   widgetCtx.ui.setWidget(
     "bg-tasks",
     (_tui, theme) => {
-      const container = new Container();
-      container.addChild(new Text("", 0, 0));
-      container.addChild(new DynamicBorder((s) => theme.fg("dim", s)));
-      const content = new Text("", 1, 0);
-      container.addChild(content);
-      container.addChild(new DynamicBorder((s) => theme.fg("dim", s)));
+      const text = new Text("", 0, 0);
 
       return {
         render(width: number): string[] {
           const currentTasks = visibleTasks();
           if (currentTasks.length === 0) return [];
-          const running = currentTasks.filter((t) => t.status === "running").length;
-          const header =
-            theme.fg("accent", `Background Tasks (${running} running)`);
 
-          const lines: string[] = [header];
-
-          for (const t of currentTasks) {
-            lines.push(formatTaskLine(t, width, theme));
-          }
-
-          content.setText(lines.join("\n"));
-          return container.render(width);
+          const lines = currentTasks.map((t) => formatTaskLine(t, width, theme));
+          text.setText(lines.join("\n"));
+          return text.render(width);
         },
         invalidate() {
-          container.invalidate();
+          text.invalidate();
         },
       };
     },
