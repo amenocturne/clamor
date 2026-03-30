@@ -1,0 +1,12 @@
+{
+  "name": "@agentic-kit/context-loader",
+  "version": "0.1.0",
+  "description": "Pi extension that detects work context and injects relevant instructions",
+  "type": "module",
+  "pi": {
+    "extensions": ["."]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  }
+}

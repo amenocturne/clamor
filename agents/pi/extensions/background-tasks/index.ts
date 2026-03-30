@@ -30,6 +30,7 @@ import {
   setOnTaskComplete,
   spawnAgent,
   spawnCommand,
+  type NotifyMode,
   type TaskInfo,
 } from "./task-manager.ts";
 
@@ -278,13 +279,19 @@ export default function (pi: ExtensionAPI) {
       command: Type.String({
         description: "Shell command to execute in the background",
       }),
+      notify: Type.Optional(Type.Union([
+        Type.Literal("immediate"),
+        Type.Literal("when_idle"),
+        Type.Literal("silent"),
+      ], { description: "When to notify on completion. immediate (default): trigger immediately. when_idle: trigger only when all tasks done. silent: no trigger.", default: "immediate" })),
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       widgetCtx = ctx;
       const id = generateTaskId();
       const cwd = process.cwd();
-      const info = spawnCommand(id, params.command, cwd);
+      const notify = (params.notify ?? "immediate") as NotifyMode;
+      const info = spawnCommand(id, params.command, cwd, notify);
 
       updateWidget();
 
@@ -341,6 +348,11 @@ export default function (pi: ExtensionAPI) {
       task: Type.String({
         description: "Task description for the subagent to perform",
       }),
+      notify: Type.Optional(Type.Union([
+        Type.Literal("immediate"),
+        Type.Literal("when_idle"),
+        Type.Literal("silent"),
+      ], { description: "When to notify on completion. immediate (default): trigger immediately. when_idle: trigger only when all tasks done. silent: no trigger.", default: "immediate" })),
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -353,10 +365,20 @@ export default function (pi: ExtensionAPI) {
 
       const id = generateTaskId();
       const cwd = process.cwd();
-      const model = `${ctx.model.provider}/${ctx.model.id}`;
+      const notify = (params.notify ?? "immediate") as NotifyMode;
+
+      // Use model-router's worker role if available, otherwise fall back to session model
+      let model: string;
+      try {
+        const { getModelForRole } = await import("../model-router/index.ts");
+        const workerModel = getModelForRole("worker");
+        model = workerModel || `${ctx.model.provider}/${ctx.model.id}`;
+      } catch {
+        model = `${ctx.model.provider}/${ctx.model.id}`;
+      }
 
       const extensionPaths = getExtensionsForSubagent(cwd);
-      const info = await spawnAgent(id, params.task, model, cwd, extensionPaths);
+      const info = await spawnAgent(id, params.task, model, cwd, extensionPaths, notify);
 
       updateWidget();
 
@@ -597,6 +619,9 @@ export default function (pi: ExtensionAPI) {
     const activeTools = pi.getActiveTools().filter((t) => t !== "bash");
     pi.setActiveTools(activeTools);
 
+    // Track completed tasks since last notification for batched delivery
+    const completedSinceLastTurn: TaskInfo[] = [];
+
     // Push results into agent context when tasks complete
     setOnTaskComplete((task) => {
       updateWidget();
@@ -604,34 +629,49 @@ export default function (pi: ExtensionAPI) {
       // Killed tasks already notified from the kill handler — skip here
       if (task.status === "killed") return;
 
-      const icon = task.status === "done" ? "✓" : "✗";
-      const elapsed = formatElapsed(task);
-      const typeLabel = task.type === "agent" ? "Agent task" : "Command";
+      // Silent tasks: update widget only, never trigger
+      if (task.notify === "silent") return;
+
+      completedSinceLastTurn.push(task);
+
       const allTasks = getAllTasks();
       const stillRunning = allTasks.filter((t) => t.status === "running").length;
 
-      // For agents: use final report (last assistant message), not full tool history
-      // For commands: use raw stdout
-      const resultText = task.type === "agent" && task.finalReport
-        ? task.finalReport
-        : task.output;
-      const truncatedResult = resultText.length > 6000
-        ? resultText.slice(-6000) + "\n... [truncated]"
-        : resultText;
+      // when_idle: only trigger when ALL running tasks are done
+      if (task.notify === "when_idle" && stillRunning > 0) return;
+
+      // Build aggregated message from all completed tasks since last turn
+      const messageParts: string[] = [];
+      for (const t of completedSinceLastTurn) {
+        const icon = t.status === "done" ? "✓" : "✗";
+        const elapsed = formatElapsed(t);
+        const typeLabel = t.type === "agent" ? "Agent task" : "Command";
+
+        const resultText = t.type === "agent" && t.finalReport
+          ? t.finalReport
+          : t.output;
+        const truncatedResult = resultText.length > 6000
+          ? resultText.slice(-6000) + "\n... [truncated]"
+          : resultText;
+
+        messageParts.push([
+          `${icon} ${typeLabel} ${t.id} ${t.status === "done" ? "completed" : "failed"} (${elapsed})`,
+          `Task: ${t.command}`,
+          t.exitCode !== undefined ? `Exit code: ${t.exitCode}` : "",
+          "",
+          truncatedResult,
+          t.errors ? `\n--- stderr ---\n${t.errors.slice(-2000)}` : "",
+        ].filter(Boolean).join("\n"));
+      }
 
       const remainingNote = stillRunning > 0
         ? `\n⏳ ${stillRunning} task(s) still running — wait for their completion messages before summarizing.`
         : "\n✓ All background tasks have completed.";
 
-      const message = [
-        `${icon} ${typeLabel} ${task.id} ${task.status === "done" ? "completed" : "failed"} (${elapsed})`,
-        `Task: ${task.command}`,
-        task.exitCode !== undefined ? `Exit code: ${task.exitCode}` : "",
-        remainingNote,
-        "",
-        truncatedResult,
-        task.errors ? `\n--- stderr ---\n${task.errors.slice(-2000)}` : "",
-      ].filter(Boolean).join("\n");
+      const message = messageParts.join("\n\n---\n\n") + remainingNote;
+
+      // Clear the batch
+      completedSinceLastTurn.length = 0;
 
       pi.sendMessage(
         {

@@ -23,6 +23,12 @@ skills:
 extensions:
   - permission-gate
   - background-tasks
+  - nestor-provider
+  - provider-filter
+  - workspace-context
+  - model-router
+  - behavioral-reminders
+  - context-loader
 
 hooks:
   - deny-read

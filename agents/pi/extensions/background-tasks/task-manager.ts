@@ -13,12 +13,14 @@ import { type ChildProcess, spawn } from "child_process";
 
 export type TaskStatus = "running" | "waiting" | "done" | "failed" | "killed";
 export type TaskType = "command" | "agent";
+export type NotifyMode = "immediate" | "when_idle" | "silent";
 
 export interface TaskInfo {
   id: string;
   type: TaskType;
   command: string;
   status: TaskStatus;
+  notify: NotifyMode;
   startedAt: string;
   finishedAt?: string;
   exitCode?: number;
@@ -51,12 +53,13 @@ export function generateTaskId(): string {
 
 // ── Command Spawning ────────────────────────────────────────────────────
 
-export function spawnCommand(id: string, command: string, cwd: string): TaskInfo {
+export function spawnCommand(id: string, command: string, cwd: string, notify: NotifyMode = "immediate"): TaskInfo {
   const info: TaskInfo = {
     id,
     type: "command",
     command,
     status: "running",
+    notify,
     startedAt: new Date().toISOString(),
     output: "",
     errors: "",
@@ -120,12 +123,14 @@ export async function spawnAgent(
   model: string,
   cwd: string,
   extensionPaths: string[],
+  notify: NotifyMode = "immediate",
 ): Promise<TaskInfo> {
   const info: TaskInfo = {
     id,
     type: "agent",
     command: task,
     status: "running",
+    notify,
     startedAt: new Date().toISOString(),
     output: "",
     errors: "",

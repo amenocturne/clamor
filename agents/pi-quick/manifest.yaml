@@ -14,6 +14,9 @@ skills:
 extensions:
   - permission-gate
   - background-tasks
+  - nestor-provider
+  - provider-filter
+  - workspace-context
 
 settings:
   defaultProvider: nestor

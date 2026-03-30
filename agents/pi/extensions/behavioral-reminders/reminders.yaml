@@ -1,0 +1,57 @@
+# Behavioral Reminders Configuration
+#
+# Each reminder has:
+#   trigger: detection rule (type + threshold)
+#   message: text sent via sendMessage
+#   cooldown: minimum tool calls between repeated fires
+#   max_per_session: hard cap on total fires per session
+
+reminders:
+  exploration_spiral:
+    trigger:
+      type: consecutive_reads
+      threshold: 5
+    message: >
+      Break the exploration spiral. You have enough context — propose a plan
+      or ask a clarifying question. Do not read more files without a reason.
+    cooldown: 10
+    max_per_session: 3
+
+  write_after_plan_only:
+    trigger:
+      type: write_when_plan_mode
+      tools: [write, edit]
+    message: >
+      STOP. The user asked for a plan only. Do not modify files.
+      Propose changes in text and wait for approval.
+    cooldown: 1
+    max_per_session: 5
+
+  verbose_output:
+    trigger:
+      type: long_response
+      threshold: 2000
+    message: >
+      Be concise. Your response is too long. Summarize key points
+      and use bullet points instead of paragraphs.
+    cooldown: 5
+    max_per_session: 3
+
+  repeated_tool_call:
+    trigger:
+      type: repeated_call
+      threshold: 3
+    message: >
+      You're in a loop — same tool with same arguments 3 times.
+      Step back and try a different approach.
+    cooldown: 5
+    max_per_session: 3
+
+  premature_summary:
+    trigger:
+      type: tasks_still_running
+    message: >
+      Background tasks are still running. Wait for all completion
+      messages before summarizing results.
+    cooldown: 3
+    max_per_session: 5
