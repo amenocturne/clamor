@@ -716,7 +716,8 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async () => ({
     appendSystemPrompt:
       "## Background Tasks\n" +
-      "You have bg-run (shell commands) and bg-agent (subagents) tools for background work.\n\n" +
+      "ALWAYS use bg-run instead of the bash tool for ALL shell commands. " +
+      "The bash tool blocks the session and cannot be cancelled. bg-run is non-blocking and killable (Ctrl+X).\n\n" +
       "### Rules\n" +
       "- Do NOT poll with bg-status or bg-result. Results are pushed to you automatically when each task completes.\n" +
       "- Each task delivers its own completion message. If you dispatched 3 tasks, you will receive 3 separate completion messages — one per task.\n" +
