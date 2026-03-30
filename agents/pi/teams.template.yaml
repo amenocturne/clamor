@@ -1,0 +1,78 @@
+# Teams Configuration
+#
+# Define named teams of agents. Each team has an orchestrator (the root)
+# that coordinates its subagents. Subagents can have their own subagents,
+# forming an arbitrarily deep tree.
+#
+# Switch teams with /team during a session.
+#
+# Fields:
+#   prompt:     System prompt or path to .md file (relative to this file)
+#   role:       Model role for model-router (orchestrator, lead, worker, reviewer, or custom)
+#   domain:     Optional file path restrictions
+#     read:     Glob patterns the agent can read (default: all)
+#     write:    Glob patterns the agent can write (default: all)
+#   subagents:  Child agents this node coordinates (recursive, unlimited depth)
+
+teams:
+  # Solo agent — no subagents, just you and the model.
+  # This is the simplest configuration.
+  solo:
+    prompt: "You are a senior engineer. Be concise, follow instructions exactly."
+    role: orchestrator
+
+  # Plan-then-build — orchestrator plans, delegates implementation.
+  plan-build:
+    prompt: "You plan and coordinate. Delegate all implementation to subagents."
+    role: orchestrator
+    subagents:
+      builder:
+        prompt: "You implement code changes as instructed. Be precise, minimal diffs."
+        role: worker
+      reviewer:
+        prompt: "You review code for correctness, security, and style issues."
+        role: reviewer
+
+  # Full engineering team — orchestrator delegates to specialized subagents.
+  # Subagents can have their own subagents for deeper specialization.
+  engineering:
+    prompt: "You are the engineering lead. Break tasks into clear subtasks and delegate."
+    role: orchestrator
+    subagents:
+      frontend:
+        prompt: "You implement UI components, pages, and client-side logic."
+        role: worker
+        domain:
+          write: ["src/frontend/**", "src/components/**", "src/styles/**"]
+      backend:
+        prompt: "You implement API endpoints, services, and business logic."
+        role: worker
+        domain:
+          write: ["src/backend/**", "src/api/**", "src/services/**"]
+        # Subagents can have their own subagents — the tree goes as deep as needed
+        subagents:
+          database:
+            prompt: "You handle database migrations, queries, and schema changes."
+            role: worker
+            domain:
+              write: ["migrations/**", "src/db/**", "src/models/**"]
+      testing:
+        prompt: "You write and fix tests. Ensure coverage for changed code."
+        role: worker
+        domain:
+          write: ["tests/**", "src/**/*.test.*", "src/**/*.spec.*"]
+
+  # Review team — multiple reviewers with different focus areas.
+  review:
+    prompt: "You coordinate a multi-perspective code review."
+    role: orchestrator
+    subagents:
+      correctness:
+        prompt: "Review for logical errors, edge cases, and incorrect behavior."
+        role: reviewer
+      security:
+        prompt: "Review for security vulnerabilities: injection, auth bypass, data exposure."
+        role: reviewer
+      architecture:
+        prompt: "Review for architectural fit, abstractions, and maintainability."
+        role: reviewer

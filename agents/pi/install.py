@@ -1,4 +1,6 @@
 import json
+import shutil
+from pathlib import Path
 
 from lib.install_types import InstallContext
 from lib.install_utils import (
@@ -77,9 +79,25 @@ def install_hooks(ctx: InstallContext, console=None) -> None:
         write_json(ctx.project_dir / "hooks.json", merged)
 
 
+def install_teams_template(ctx: InstallContext, console=None) -> None:
+    """Copy teams.template.yaml to the workspace root as teams.yaml if it doesn't exist."""
+    # target_dir is the workspace root (parent of .pi/ project_dir)
+    workspace_root = ctx.project_dir.parent
+    teams_dest = workspace_root / "teams.yaml"
+    if teams_dest.exists():
+        return
+    template = ctx.repo_root / "agents" / "pi" / "teams.template.yaml"
+    if not template.exists():
+        return
+    shutil.copy2(template, teams_dest)
+    if console:
+        console.print(f"  Created teams.yaml template at {teams_dest}")
+
+
 def install(ctx: InstallContext, console=None) -> None:
     ctx.project_dir.mkdir(parents=True, exist_ok=True)
     validate_required_extensions(ctx)
+    install_teams_template(ctx, console=console)
     wanted = get_extensions(ctx)
     sync_symlinks(
         ctx.repo_root / "skills",
