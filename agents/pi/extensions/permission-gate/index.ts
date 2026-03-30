@@ -23,6 +23,11 @@ const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 /** Tools that modify files — also safe within project dir */
 const FILE_TOOLS = new Set(["read", "write", "edit", "grep", "find", "ls"]);
 
+/** Extension-registered tools that handle their own permissions — skip the gate */
+const PASSTHROUGH_TOOLS = new Set([
+  "bg-run", "bg-agent", "bg-status", "bg-result", "bg-kill",
+]);
+
 export default function (pi: ExtensionAPI) {
   let config: HookConfig = {};
   let interactive = true;
@@ -45,6 +50,11 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("tool_call", async (event, ctx) => {
+    // Extension tools that manage their own permissions — don't gate them
+    if (PASSTHROUGH_TOOLS.has(event.toolName)) {
+      return { block: false };
+    }
+
     const hooks = findMatchingHooks(config, event.toolName);
     const input = event.input as Record<string, unknown>;
 
