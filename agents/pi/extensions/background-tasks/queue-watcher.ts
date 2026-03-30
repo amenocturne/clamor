@@ -2,9 +2,9 @@
  * Queue Watcher — Permission request monitoring
  *
  * Polls the permission queue directory for pending `.request.json` files from
- * subagents. When a request is found, it surfaces a UI prompt to the user
- * (allow/deny) and writes the response back for the subagent to pick up.
- * Also updates the parent task's `pendingPermissions` count.
+ * subagents. Requests are queued and processed one at a time (Pi's UI can
+ * only show one prompt at a time). Writes responses back for subagents to
+ * pick up and updates parent task's pendingPermissions count.
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -13,13 +13,15 @@ import {
   scanRequests,
   writeResponse,
 } from "../permission-queue/index.ts";
-import type { PermissionResponse } from "../permission-queue/types.ts";
+import type { PermissionRequest, PermissionResponse } from "../permission-queue/types.ts";
 import { getTask } from "./task-manager.ts";
 
 // ── State ───────────────────────────────────────────────────────────────
 
 let watchInterval: ReturnType<typeof setInterval> | null = null;
 const handledRequests = new Set<string>();
+const pendingQueue: PermissionRequest[] = [];
+let processing = false;
 
 // ── Watcher ─────────────────────────────────────────────────────────────
 
@@ -37,6 +39,8 @@ export function stopWatching(): void {
     watchInterval = null;
   }
   handledRequests.clear();
+  pendingQueue.length = 0;
+  processing = false;
 }
 
 export function cleanupQueue(): void {
@@ -54,55 +58,62 @@ function pollOnce(ctx: ExtensionContext): void {
     if (handledRequests.has(key)) continue;
     handledRequests.add(key);
 
-    // Update the parent task's pending count
     const task = getTask(req.taskId);
     if (task) {
       task.pendingPermissions++;
     }
 
-    // Surface to user
-    handleRequest(ctx, req.id, req.taskId, req.toolName, req.toolInput);
+    pendingQueue.push(req);
   }
+
+  // Process queue sequentially — one prompt at a time
+  if (pendingQueue.length > 0 && !processing) {
+    processNext(ctx);
+  }
+}
+
+async function processNext(ctx: ExtensionContext): Promise<void> {
+  if (pendingQueue.length === 0) {
+    processing = false;
+    return;
+  }
+
+  processing = true;
+  const req = pendingQueue.shift()!;
+  await handleRequest(ctx, req);
+
+  // Continue to next request
+  processNext(ctx);
 }
 
 async function handleRequest(
   ctx: ExtensionContext,
-  requestId: string,
-  taskId: string,
-  toolName: string,
-  toolInput: Record<string, unknown>,
+  req: PermissionRequest,
 ): Promise<void> {
-  const summary = formatToolSummary(toolName, toolInput);
+  const summary = formatToolSummary(req.toolName, req.toolInput);
+  const queuedCount = pendingQueue.length;
+  const queueHint = queuedCount > 0 ? ` (+${queuedCount} queued)` : "";
 
   let decision: "allow" | "deny" = "deny";
 
   if (ctx.hasUI) {
-    const choices = [
-      `Allow: ${toolName} ${summary}`,
-      "Deny",
-    ];
-
-    const selected = await ctx.ui.select(
-      `Permission request from subagent ${taskId}`,
-      choices,
+    const confirmed = await ctx.ui.confirm(
+      `Subagent ${req.taskId}: ${req.toolName}${queueHint}`,
+      summary,
+      { timeout: 120_000 },
     );
-
-    decision = selected?.startsWith("Allow") ? "allow" : "deny";
-  } else {
-    // Non-interactive mode: auto-deny for safety
-    decision = "deny";
+    decision = confirmed ? "allow" : "deny";
   }
 
   const response: PermissionResponse = {
-    id: requestId,
+    id: req.id,
     decision,
     respondedAt: new Date().toISOString(),
   };
 
-  writeResponse(response, taskId);
+  writeResponse(response, req.taskId);
 
-  // Decrement pending count
-  const task = getTask(taskId);
+  const task = getTask(req.taskId);
   if (task && task.pendingPermissions > 0) {
     task.pendingPermissions--;
   }
@@ -116,19 +127,19 @@ function formatToolSummary(
 ): string {
   switch (toolName) {
     case "bash":
-      return truncate(String(toolInput.command ?? ""), 60);
+      return truncate(String(toolInput.command ?? ""), 120);
     case "read":
-      return truncate(String(toolInput.file_path ?? toolInput.path ?? ""), 60);
+      return truncate(String(toolInput.file_path ?? toolInput.path ?? ""), 120);
     case "write":
     case "edit":
-      return truncate(String(toolInput.file_path ?? toolInput.path ?? ""), 60);
+      return truncate(String(toolInput.file_path ?? toolInput.path ?? ""), 120);
     case "grep":
     case "find":
-      return truncate(String(toolInput.pattern ?? toolInput.path ?? ""), 60);
+      return truncate(String(toolInput.pattern ?? toolInput.path ?? ""), 120);
     case "ls":
-      return truncate(String(toolInput.path ?? "."), 60);
+      return truncate(String(toolInput.path ?? "."), 120);
     default:
-      return truncate(JSON.stringify(toolInput), 60);
+      return truncate(JSON.stringify(toolInput), 120);
   }
 }
 
