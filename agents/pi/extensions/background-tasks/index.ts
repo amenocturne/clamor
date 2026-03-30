@@ -267,8 +267,9 @@ export default function (pi: ExtensionAPI) {
     name: "bg-run",
     label: "Background Run",
     description:
-      "Run a shell command in the background. Returns a task ID immediately — " +
-      "use bg-status or bg-result to check progress later.",
+      "Run a shell command in the background. Returns a task ID immediately. " +
+      "Do NOT poll with bg-status/bg-result — you will be automatically notified " +
+      "when the task completes with its full output. Continue other work or stop.",
     parameters: Type.Object({
       command: Type.String({
         description: "Shell command to execute in the background",
@@ -330,7 +331,8 @@ export default function (pi: ExtensionAPI) {
       "Spawn a Pi subagent in the background to perform a task autonomously. " +
       "The subagent has read, write, edit, bash, grep, find, and ls tools. " +
       "Permission requests from the subagent will be surfaced for approval. " +
-      "Returns a task ID immediately — use bg-status or bg-result to check progress.",
+      "Returns a task ID immediately. Do NOT poll — you will be automatically " +
+      "notified when the agent finishes with its full output. Continue other work or stop.",
     parameters: Type.Object({
       task: Type.String({
         description: "Task description for the subagent to perform",
@@ -396,8 +398,9 @@ export default function (pi: ExtensionAPI) {
     name: "bg-status",
     label: "Background Status",
     description:
-      "List all background tasks with their current status, elapsed time, " +
-      "and pending permission request count.",
+      "List all background tasks with their current status. " +
+      "Only use this if you need to check on tasks that haven't completed yet. " +
+      "Completed tasks push their results to you automatically — no need to poll.",
     parameters: Type.Object({}),
 
     async execute() {
@@ -467,8 +470,9 @@ export default function (pi: ExtensionAPI) {
     name: "bg-result",
     label: "Background Result",
     description:
-      "Get the full output of a background task by ID. Returns stdout, stderr, " +
-      "exit code, and status. If the task is still running, returns output so far.",
+      "Get the full output of a background task by ID. " +
+      "Only use this if you need to re-read a result or check partial output of a running task. " +
+      "Completed tasks push their results to you automatically.",
     parameters: Type.Object({
       id: Type.String({ description: "Task ID (e.g. t1, t2)" }),
     }),
@@ -645,6 +649,15 @@ export default function (pi: ExtensionAPI) {
   });
 
   // ── Event Hooks ───────────────────────────────────────────────────────
+
+  pi.on("before_agent_start", async () => ({
+    appendSystemPrompt:
+      "## Background Tasks\n" +
+      "You have bg-run (shell commands) and bg-agent (subagents) tools for background work. " +
+      "IMPORTANT: After dispatching a background task, do NOT poll with bg-status or bg-result. " +
+      "Results are pushed to you automatically when tasks complete. " +
+      "Just dispatch and move on to other work, or stop and wait.",
+  }));
 
   pi.on("session_start", async (_event, ctx) => {
     widgetCtx = ctx;
