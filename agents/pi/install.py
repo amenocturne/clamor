@@ -8,16 +8,12 @@ DEFAULT_SETTINGS = {
     "defaultThinkingLevel": "medium",
 }
 DEFAULT_EXTENSIONS = {"nestor-provider", "permission-gate", "background-tasks"}
-# Libraries symlinked alongside extensions but not loaded by Pi directly
-SUPPORT_LIBS = {"permission-queue"}
 
 
 def validate_required_extensions(ctx: InstallContext) -> None:
     extensions_root = ctx.repo_root / "agents" / "pi" / "extensions"
     missing = sorted(
-        name
-        for name in DEFAULT_EXTENSIONS | SUPPORT_LIBS
-        if not (extensions_root / name).exists()
+        name for name in DEFAULT_EXTENSIONS if not (extensions_root / name).exists()
     )
     if missing:
         raise FileNotFoundError(
@@ -38,7 +34,7 @@ def install(ctx: InstallContext, console=None) -> None:
     sync_symlinks(
         ctx.repo_root / "agents" / "pi" / "extensions",
         ctx.project_dir / "extensions",
-        DEFAULT_EXTENSIONS | SUPPORT_LIBS,
+        DEFAULT_EXTENSIONS,
         "Extension",
         console=console,
     )
