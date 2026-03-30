@@ -564,7 +564,7 @@ function streamNestor(
 export default function (pi: ExtensionAPI) {
 	piRef = pi;
 
-	// Register with a placeholder model — real models loaded after /login
+	// Register with a placeholder model — real models loaded after /login or auto-login
 	pi.registerProvider("nestor", {
 		baseUrl: API_BASE,
 		apiKey: "NESTOR_JWT",
@@ -591,5 +591,18 @@ export default function (pi: ExtensionAPI) {
 			getApiKey,
 		},
 		streamSimple: streamNestor,
+	});
+
+	// Auto-login on session start: silently try existing DP session
+	// so real models are available without explicit /login
+	pi.on("session_start", async (_event, _ctx) => {
+		try {
+			dpPath = findDpBinary();
+			const dpToken = getDpToken(dpPath);
+			const { jwt } = await exchangeForJwt(dpToken);
+			await updateModels(jwt);
+		} catch {
+			// No active DP session — user will need /login nestor
+		}
 	});
 }

@@ -10,11 +10,18 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { randomUUID } from "crypto";
+import { resolve } from "path";
 import { loadHookConfig, findMatchingHooks } from "./config.ts";
 import type { HookConfig } from "./config.ts";
 import { runHook } from "./hook-runner.ts";
 import { writeRequest, waitForResponse } from "../permission-queue/index.ts";
 import type { PermissionRequest } from "../permission-queue/types.ts";
+
+/** Tools that only read — safe to auto-allow within project dir */
+const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
+
+/** Tools that modify files — also safe within project dir */
+const FILE_TOOLS = new Set(["read", "write", "edit", "grep", "find", "ls"]);
 
 export default function (pi: ExtensionAPI) {
   let config: HookConfig = {};
@@ -60,6 +67,12 @@ export default function (pi: ExtensionAPI) {
       }
 
       // "abstain" — continue to next hook
+    }
+
+    // Auto-allow file tools targeting paths within the project directory
+    if (FILE_TOOLS.has(event.toolName) && isWithinProject(event.toolName, input, cwd)) {
+      logInterception(pi, event.toolName, input, "allow", "within project dir");
+      return { block: false };
     }
 
     // All hooks abstained or no hooks matched — fall through to user decision
@@ -159,6 +172,24 @@ async function requestPermission(
   logInterception(pi, toolName, input, "deny", response.reason || "denied via queue");
   ctx.abort();
   return { block: true, reason: response.reason || "Permission denied by main session" };
+}
+
+function isWithinProject(toolName: string, input: Record<string, unknown>, cwd: string): boolean {
+  const resolvedCwd = resolve(cwd);
+
+  // Extract the target path from the tool input
+  const rawPath = (input.file_path ?? input.path ?? "") as string;
+  if (!rawPath) {
+    // Tools with no explicit path default to cwd — that's within project
+    return READ_ONLY_TOOLS.has(toolName);
+  }
+
+  try {
+    const resolved = resolve(cwd, rawPath);
+    return resolved.startsWith(resolvedCwd + "/") || resolved === resolvedCwd;
+  } catch {
+    return false;
+  }
 }
 
 function formatToolSummary(toolName: string, input: Record<string, unknown>): string {
