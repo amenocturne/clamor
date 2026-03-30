@@ -84,16 +84,20 @@ export function spawnCommand(id: string, command: string, cwd: string): TaskInfo
 
   proc.on("close", (code) => {
     info.exitCode = code ?? undefined;
-    info.status = code === 0 ? "done" : "failed";
-    info.finishedAt = new Date().toISOString();
+    if (info.status !== "killed") {
+      info.status = code === 0 ? "done" : "failed";
+    }
+    info.finishedAt = info.finishedAt ?? new Date().toISOString();
     processRegistry.delete(id);
     onTaskComplete?.(info);
   });
 
   proc.on("error", (err) => {
-    info.status = "failed";
+    if (info.status !== "killed") {
+      info.status = "failed";
+    }
     info.errors += `\nProcess error: ${err.message}`;
-    info.finishedAt = new Date().toISOString();
+    info.finishedAt = info.finishedAt ?? new Date().toISOString();
     processRegistry.delete(id);
     onTaskComplete?.(info);
   });
@@ -170,14 +174,18 @@ export function spawnAgent(
   proc.on("close", (code) => {
     if (buffer.trim()) processJsonLine(info, buffer);
     info.exitCode = code ?? undefined;
-    info.status = code === 0 ? "done" : "failed";
-    info.finishedAt = new Date().toISOString();
+    if (info.status !== "killed") {
+      info.status = code === 0 ? "done" : "failed";
+    }
+    info.finishedAt = info.finishedAt ?? new Date().toISOString();
     processRegistry.delete(id);
     onTaskComplete?.(info);
   });
 
   proc.on("error", (err) => {
-    info.status = "failed";
+    if (info.status !== "killed") {
+      info.status = "failed";
+    }
     info.errors += `\nProcess error: ${err.message}`;
     info.finishedAt = new Date().toISOString();
     processRegistry.delete(id);
