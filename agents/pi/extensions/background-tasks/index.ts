@@ -27,6 +27,7 @@ import {
   getTask,
   killAllTasks,
   killTask,
+  setOnTaskComplete,
   spawnAgent,
   spawnCommand,
   type TaskInfo,
@@ -650,6 +651,36 @@ export default function (pi: ExtensionAPI) {
     startWatching(ctx);
     updateWidget();
     ctx.ui.setStatus("bg: idle", "bg-tasks");
+
+    // Push results into agent context when tasks complete
+    setOnTaskComplete((task) => {
+      updateWidget();
+
+      const icon = task.status === "done" ? "✓" : "✗";
+      const elapsed = formatElapsed(task);
+      const typeLabel = task.type === "agent" ? "Agent task" : "Command";
+      const truncatedOutput = task.output.length > 6000
+        ? task.output.slice(-6000) + "\n... [truncated]"
+        : task.output;
+
+      const message = [
+        `${icon} ${typeLabel} ${task.id} finished (${task.status}, ${elapsed})`,
+        `Task: ${task.command}`,
+        task.exitCode !== undefined ? `Exit code: ${task.exitCode}` : "",
+        "",
+        truncatedOutput,
+        task.errors ? `\n--- stderr ---\n${task.errors.slice(-2000)}` : "",
+      ].filter(Boolean).join("\n");
+
+      pi.sendMessage(
+        {
+          customType: "bg-task-complete",
+          content: message,
+          display: true,
+        },
+        { triggerTurn: true },
+      );
+    });
   });
 
   pi.on("agent_end", async (_event, _ctx) => {

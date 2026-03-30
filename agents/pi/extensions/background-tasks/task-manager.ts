@@ -33,6 +33,12 @@ export interface TaskInfo {
 const taskRegistry = new Map<string, TaskInfo>();
 const processRegistry = new Map<string, ChildProcess>();
 let taskCounter = 0;
+let onTaskComplete: ((task: TaskInfo) => void) | null = null;
+
+/** Register a callback invoked when any task finishes (done/failed). */
+export function setOnTaskComplete(cb: (task: TaskInfo) => void): void {
+  onTaskComplete = cb;
+}
 
 // ── ID Generation ───────────────────────────────────────────────────────
 
@@ -81,6 +87,7 @@ export function spawnCommand(id: string, command: string, cwd: string): TaskInfo
     info.status = code === 0 ? "done" : "failed";
     info.finishedAt = new Date().toISOString();
     processRegistry.delete(id);
+    onTaskComplete?.(info);
   });
 
   proc.on("error", (err) => {
@@ -88,6 +95,7 @@ export function spawnCommand(id: string, command: string, cwd: string): TaskInfo
     info.errors += `\nProcess error: ${err.message}`;
     info.finishedAt = new Date().toISOString();
     processRegistry.delete(id);
+    onTaskComplete?.(info);
   });
 
   return info;
@@ -165,6 +173,7 @@ export function spawnAgent(
     info.status = code === 0 ? "done" : "failed";
     info.finishedAt = new Date().toISOString();
     processRegistry.delete(id);
+    onTaskComplete?.(info);
   });
 
   proc.on("error", (err) => {
@@ -172,6 +181,7 @@ export function spawnAgent(
     info.errors += `\nProcess error: ${err.message}`;
     info.finishedAt = new Date().toISOString();
     processRegistry.delete(id);
+    onTaskComplete?.(info);
   });
 
   return info;
