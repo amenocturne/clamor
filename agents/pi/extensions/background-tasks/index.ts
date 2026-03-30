@@ -653,10 +653,12 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async () => ({
     appendSystemPrompt:
       "## Background Tasks\n" +
-      "You have bg-run (shell commands) and bg-agent (subagents) tools for background work. " +
-      "IMPORTANT: After dispatching a background task, do NOT poll with bg-status or bg-result. " +
-      "Results are pushed to you automatically when tasks complete. " +
-      "Just dispatch and move on to other work, or stop and wait.",
+      "You have bg-run (shell commands) and bg-agent (subagents) tools for background work.\n\n" +
+      "### Rules\n" +
+      "- Do NOT poll with bg-status or bg-result. Results are pushed to you automatically when each task completes.\n" +
+      "- Each task delivers its own completion message. If you dispatched 3 tasks, you will receive 3 separate completion messages — one per task.\n" +
+      "- Do NOT say all tasks are done after the first completion. Wait for ALL completion messages before summarizing.\n" +
+      "- After dispatching, stop and wait. You will be triggered again for each completion.",
   }));
 
   pi.on("session_start", async (_event, ctx) => {
@@ -672,14 +674,21 @@ export default function (pi: ExtensionAPI) {
       const icon = task.status === "done" ? "✓" : "✗";
       const elapsed = formatElapsed(task);
       const typeLabel = task.type === "agent" ? "Agent task" : "Command";
+      const allTasks = getAllTasks();
+      const stillRunning = allTasks.filter((t) => t.status === "running").length;
       const truncatedOutput = task.output.length > 6000
         ? task.output.slice(-6000) + "\n... [truncated]"
         : task.output;
+
+      const remainingNote = stillRunning > 0
+        ? `\n⏳ ${stillRunning} task(s) still running — wait for their completion messages before summarizing.`
+        : "\n✓ All background tasks have completed.";
 
       const message = [
         `${icon} ${typeLabel} ${task.id} finished (${task.status}, ${elapsed})`,
         `Task: ${task.command}`,
         task.exitCode !== undefined ? `Exit code: ${task.exitCode}` : "",
+        remainingNote,
         "",
         truncatedOutput,
         task.errors ? `\n--- stderr ---\n${task.errors.slice(-2000)}` : "",
