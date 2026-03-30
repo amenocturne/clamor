@@ -593,6 +593,10 @@ export default function (pi: ExtensionAPI) {
     updateWidget();
     ctx.ui.setStatus("bg: idle", "bg-tasks");
 
+    // Remove bash tool — agent must use bg-run for all shell commands
+    const activeTools = pi.getActiveTools().filter((t) => t !== "bash");
+    pi.setActiveTools(activeTools);
+
     // Push results into agent context when tasks complete
     setOnTaskComplete((task) => {
       updateWidget();
