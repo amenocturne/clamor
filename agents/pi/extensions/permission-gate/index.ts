@@ -3,9 +3,12 @@
  *
  * Intercepts all tool calls, runs configured agentic-kit hooks (smart-approve,
  * deny-read, etc.) as subprocesses, and blocks/allows based on their output.
- * When no hook has an opinion and the session is interactive, prompts the user.
- * In non-interactive (subagent) mode, delegates to the permission queue for
- * the main session to handle.
+ *
+ * When no hook has an opinion:
+ * - Interactive (main session): enqueues into the unified permission queue
+ *   (shared with subagent requests) for sequential user prompting.
+ * - Non-interactive (subagent): writes to the file-based permission queue
+ *   for the main session to handle.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -27,6 +30,20 @@ const FILE_TOOLS = new Set(["read", "write", "edit", "grep", "find", "ls"]);
 const PASSTHROUGH_TOOLS = new Set([
   "bg-run", "bg-agent", "bg-status", "bg-result", "bg-kill",
 ]);
+
+/**
+ * Try to import enqueuePermission from the sibling background-tasks extension.
+ * This is the unified permission queue that processes prompts one at a time.
+ * Falls back to direct ctx.ui.confirm() if background-tasks isn't loaded.
+ */
+let enqueuePermission: ((toolName: string, toolInput: Record<string, unknown>) => Promise<"allow" | "deny">) | null = null;
+
+try {
+  const qw = await import("../background-tasks/queue-watcher.ts");
+  enqueuePermission = qw.enqueuePermission;
+} catch {
+  // background-tasks not available — will fall back to direct prompting
+}
 
 export default function (pi: ExtensionAPI) {
   let config: HookConfig = {};
@@ -85,17 +102,27 @@ export default function (pi: ExtensionAPI) {
       return { block: false };
     }
 
-    // All hooks abstained or no hooks matched — fall through to user decision
+    // All hooks abstained — enqueue for user decision
     if (interactive) {
+      // Use unified queue if available, fall back to direct prompt
+      if (enqueuePermission) {
+        const decision = await enqueuePermission(event.toolName, input);
+        logInterception(pi, event.toolName, input, decision, "via permission queue");
+        if (decision === "deny") {
+          ctx.abort();
+          return { block: true, reason: "Permission denied by user" };
+        }
+        return { block: false };
+      }
       return promptUser(pi, ctx, event.toolName, input);
     }
 
-    // Non-interactive: delegate to permission queue
+    // Non-interactive (subagent): delegate to file-based permission queue
     if (taskId) {
       return requestPermission(pi, ctx, taskId, event.toolName, input);
     }
 
-    // No hooks, not interactive, no task ID — block by default for safety
+    // No hooks, not interactive, no task ID — block by default
     logInterception(pi, event.toolName, input, "deny", "No permission source available");
     ctx.abort();
     return {
@@ -125,6 +152,7 @@ function logInterception(
   pi.appendEntry("permission-gate-log", { tool: toolName, input, decision, reason });
 }
 
+/** Fallback: direct prompt when queue-watcher isn't available */
 async function promptUser(
   pi: ExtensionAPI,
   ctx: any,
@@ -148,6 +176,7 @@ async function promptUser(
   return { block: true, reason: "Permission denied by user" };
 }
 
+/** Subagent mode: write to file queue, wait for main session response */
 async function requestPermission(
   pi: ExtensionAPI,
   ctx: any,
@@ -186,14 +215,10 @@ async function requestPermission(
 
 function isWithinProject(toolName: string, input: Record<string, unknown>, cwd: string): boolean {
   const resolvedCwd = resolve(cwd);
-
-  // Extract the target path from the tool input
   const rawPath = (input.file_path ?? input.path ?? "") as string;
   if (!rawPath) {
-    // Tools with no explicit path default to cwd — that's within project
     return READ_ONLY_TOOLS.has(toolName);
   }
-
   try {
     const resolved = resolve(cwd, rawPath);
     return resolved.startsWith(resolvedCwd + "/") || resolved === resolvedCwd;

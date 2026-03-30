@@ -1,10 +1,13 @@
 /**
- * Queue Watcher — Permission request monitoring
+ * Queue Watcher — Unified permission queue
  *
- * Polls the permission queue directory for pending `.request.json` files from
- * subagents. Requests are queued and processed one at a time (Pi's UI can
- * only show one prompt at a time). Writes responses back for subagents to
- * pick up and updates parent task's pendingPermissions count.
+ * Single sequential queue for ALL permission requests — from the main agent's
+ * own tools, from subagent file-based requests, and from background commands.
+ * Pi's UI can only show one prompt at a time, so requests are processed
+ * one-by-one in FIFO order regardless of source.
+ *
+ * Main agent tools:  permission-gate → enqueuePermission() → prompt → resolve
+ * Subagent tools:    file queue → pollOnce() → enqueuePermission() → prompt → file response
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -13,23 +16,39 @@ import {
   scanRequests,
   writeResponse,
 } from "../permission-queue/index.ts";
-import type { PermissionRequest, PermissionResponse } from "../permission-queue/types.ts";
+import type { PermissionResponse } from "../permission-queue/types.ts";
 import { getTask } from "./task-manager.ts";
+
+// ── Types ───────────────────────────────────────────────────────────────
+
+interface QueueEntry {
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  source: "main" | "subagent";
+  /** For subagent requests: task ID and request ID for file response */
+  taskId?: string;
+  requestId?: string;
+  /** Resolve the caller's promise with the decision */
+  resolve: (decision: "allow" | "deny") => void;
+}
 
 // ── State ───────────────────────────────────────────────────────────────
 
 let watchInterval: ReturnType<typeof setInterval> | null = null;
+let extensionCtx: ExtensionContext | null = null;
 const handledRequests = new Set<string>();
-const pendingQueue: PermissionRequest[] = [];
+const queue: QueueEntry[] = [];
 let processing = false;
 
-// ── Watcher ─────────────────────────────────────────────────────────────
+// ── Public API ──────────────────────────────────────────────────────────
 
 export function startWatching(ctx: ExtensionContext): void {
+  extensionCtx = ctx;
   if (watchInterval) return;
 
   watchInterval = setInterval(() => {
-    pollOnce(ctx);
+    pollSubagentRequests();
+    processNext();
   }, 500);
 }
 
@@ -39,8 +58,9 @@ export function stopWatching(): void {
     watchInterval = null;
   }
   handledRequests.clear();
-  pendingQueue.length = 0;
+  queue.length = 0;
   processing = false;
+  extensionCtx = null;
 }
 
 export function cleanupQueue(): void {
@@ -48,9 +68,23 @@ export function cleanupQueue(): void {
   cleanupAll();
 }
 
-// ── Poll Logic ──────────────────────────────────────────────────────────
+/**
+ * Enqueue a permission request from the main agent's permission-gate.
+ * Returns a promise that resolves with "allow" or "deny" when the user responds.
+ */
+export function enqueuePermission(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+): Promise<"allow" | "deny"> {
+  return new Promise((resolve) => {
+    queue.push({ toolName, toolInput, source: "main", resolve });
+    processNext();
+  });
+}
 
-function pollOnce(ctx: ExtensionContext): void {
+// ── Subagent File Queue Polling ─────────────────────────────────────────
+
+function pollSubagentRequests(): void {
   const requests = scanRequests();
 
   for (const req of requests) {
@@ -63,59 +97,68 @@ function pollOnce(ctx: ExtensionContext): void {
       task.pendingPermissions++;
     }
 
-    pendingQueue.push(req);
-  }
-
-  // Process queue sequentially — one prompt at a time
-  if (pendingQueue.length > 0 && !processing) {
-    processNext(ctx);
+    queue.push({
+      toolName: req.toolName,
+      toolInput: req.toolInput,
+      source: "subagent",
+      taskId: req.taskId,
+      requestId: req.id,
+      resolve: () => {}, // resolved via file response
+    });
   }
 }
 
-async function processNext(ctx: ExtensionContext): Promise<void> {
-  if (pendingQueue.length === 0) {
-    processing = false;
-    return;
-  }
+// ── Sequential Processing ───────────────────────────────────────────────
+
+async function processNext(): Promise<void> {
+  if (processing || queue.length === 0 || !extensionCtx) return;
 
   processing = true;
-  const req = pendingQueue.shift()!;
-  await handleRequest(ctx, req);
 
-  // Continue to next request
-  processNext(ctx);
+  while (queue.length > 0) {
+    const entry = queue.shift()!;
+    await handleEntry(extensionCtx, entry);
+  }
+
+  processing = false;
 }
 
-async function handleRequest(
+async function handleEntry(
   ctx: ExtensionContext,
-  req: PermissionRequest,
+  entry: QueueEntry,
 ): Promise<void> {
-  const summary = formatToolSummary(req.toolName, req.toolInput);
-  const queuedCount = pendingQueue.length;
-  const queueHint = queuedCount > 0 ? ` (+${queuedCount} queued)` : "";
+  const summary = formatToolSummary(entry.toolName, entry.toolInput);
+  const sourceLabel = entry.source === "subagent" ? ` (subagent ${entry.taskId})` : "";
+  const queuedCount = queue.length;
+  const queueHint = queuedCount > 0 ? ` [+${queuedCount} queued]` : "";
 
   let decision: "allow" | "deny" = "deny";
 
   if (ctx.hasUI) {
     const confirmed = await ctx.ui.confirm(
-      `Subagent ${req.taskId}: ${req.toolName}${queueHint}`,
+      `${entry.toolName}${sourceLabel}${queueHint}`,
       summary,
       { timeout: 120_000 },
     );
     decision = confirmed ? "allow" : "deny";
   }
 
-  const response: PermissionResponse = {
-    id: req.id,
-    decision,
-    respondedAt: new Date().toISOString(),
-  };
+  // Resolve the caller's promise (main agent permission-gate)
+  entry.resolve(decision);
 
-  writeResponse(response, req.taskId);
+  // Write file response for subagent requests
+  if (entry.source === "subagent" && entry.taskId && entry.requestId) {
+    const response: PermissionResponse = {
+      id: entry.requestId,
+      decision,
+      respondedAt: new Date().toISOString(),
+    };
+    writeResponse(response, entry.taskId);
 
-  const task = getTask(req.taskId);
-  if (task && task.pendingPermissions > 0) {
-    task.pendingPermissions--;
+    const task = getTask(entry.taskId);
+    if (task && task.pendingPermissions > 0) {
+      task.pendingPermissions--;
+    }
   }
 }
 
