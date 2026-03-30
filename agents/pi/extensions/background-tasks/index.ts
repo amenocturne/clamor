@@ -268,6 +268,13 @@ function formatTaskResult(task: TaskInfo): string {
   return lines.join("\n");
 }
 
+function sendKilledMessage(pi: ExtensionAPI, content: string): void {
+  pi.sendMessage(
+    { customType: "bg-task-killed", content, display: true },
+    { triggerTurn: true },
+  );
+}
+
 // ── Extension Entry Point ───────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -682,12 +689,13 @@ export default function (pi: ExtensionAPI) {
       if (choice === undefined) return;
 
       if (choice === "Kill all") {
+        const ids = running.map((t) => t.id).join(", ");
         killAllTasks();
-        ctx.ui.notify(`Killed ${running.length} task(s).`, "warning");
+        sendKilledMessage(pi, `User killed all background tasks (${ids}). Do not retry or restart them unless the user asks.`);
       } else {
         const id = choice.split(" — ")[0];
         killTask(id);
-        ctx.ui.notify(`Killed task ${id}.`, "warning");
+        sendKilledMessage(pi, `User killed background task ${id}. Do not retry or restart it unless the user asks.`);
       }
 
       updateWidget();
@@ -701,16 +709,19 @@ export default function (pi: ExtensionAPI) {
       const running = getAllTasks().filter((t) => t.status === "running");
 
       if (running.length > 0) {
+        const ids = running.map((t) => t.id).join(", ");
         killAllTasks();
         updateWidget();
+        sendKilledMessage(pi, `User killed all background tasks (${ids}). Do not retry or restart them unless the user asks.`);
       }
 
       ctx.abort();
-
-      const msg = running.length > 0
-        ? `Aborted. Killed ${running.length} background task(s).`
-        : "Aborted.";
-      ctx.ui.notify(msg, "warning");
+      ctx.ui.notify(
+        running.length > 0
+          ? `Aborted. Killed ${running.length} background task(s).`
+          : "Aborted.",
+        "warning",
+      );
     },
   });
 
@@ -737,19 +748,8 @@ export default function (pi: ExtensionAPI) {
     setOnTaskComplete((task) => {
       updateWidget();
 
-      // Killed tasks: short message so agent knows user cancelled intentionally
-      if (task.status === "killed") {
-        const typeLabel = task.type === "agent" ? "Agent task" : "Command";
-        pi.sendMessage(
-          {
-            customType: "bg-task-killed",
-            content: `${typeLabel} ${task.id} was killed by the user. Do not retry or restart it unless the user asks.`,
-            display: true,
-          },
-          { triggerTurn: true },
-        );
-        return;
-      }
+      // Killed tasks already notified from the kill handler — skip here
+      if (task.status === "killed") return;
 
       const icon = task.status === "done" ? "✓" : "✗";
       const elapsed = formatElapsed(task);
