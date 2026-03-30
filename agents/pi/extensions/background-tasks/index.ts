@@ -694,29 +694,18 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // Double-Escape: abort everything — current operation + all background tasks
-  // Single Escape is Pi's built-in cancel. Double-Escape is the nuclear option.
-  let lastEscapeTime = 0;
-
-  pi.registerShortcut("escape", {
-    description: "Double-tap: abort everything (current operation + all background tasks)",
+  // Ctrl+D: kill all background tasks and abort current operation
+  // (Escape is reserved by Pi for its own cancel — can't override)
+  pi.registerShortcut("ctrl+d", {
+    description: "Kill all background tasks and abort",
     handler: async (ctx) => {
-      const now = Date.now();
-      const gap = now - lastEscapeTime;
-      lastEscapeTime = now;
-
-      // Double-tap: within 500ms
-      if (gap > 500) return;
-
       const running = getAllTasks().filter((t) => t.status === "running");
 
-      // Kill all background tasks
       if (running.length > 0) {
         killAllTasks();
         updateWidget();
       }
 
-      // Abort current agent operation
       ctx.abort();
 
       const msg = running.length > 0
