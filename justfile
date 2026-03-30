@@ -14,8 +14,12 @@ install-interactive:
     uv run install.py
 
 # Install profile + agents to a target directory
-install-to target profile +agents kb="":
-    uv run install.py --profile {{ profile }} --agents {{ agents }} --target {{ target }} {{ if kb != "" { "--knowledge-base " + kb } else { "" } }}
+install-to target profile +agents:
+    uv run install.py --profile {{ profile }} --agents {{ agents }} --target {{ target }}
+
+# Install profile + agents with knowledge base
+install-to-kb target profile kb +agents:
+    uv run install.py --profile {{ profile }} --agents {{ agents }} --target {{ target }} --knowledge-base {{ kb }}
 
 # List available profiles and agents
 list:

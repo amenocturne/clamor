@@ -109,10 +109,14 @@ def sync_templates(ctx: InstallContext):
     templates_src = ctx.profile_dir / "templates"
     if not templates_src.exists():
         templates_src = ctx.agent_dir / "templates"
-    if not templates_src.exists():
-        return
 
     templates_dst = ctx.project_dir / "templates"
+    if not templates_src.exists():
+        # No templates source — clean up any stale symlink
+        if templates_dst.is_symlink():
+            templates_dst.unlink()
+        return
+
     if templates_dst.exists() or templates_dst.is_symlink():
         if templates_dst.is_symlink():
             templates_dst.unlink()

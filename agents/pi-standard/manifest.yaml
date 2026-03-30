@@ -23,9 +23,6 @@ skills:
 extensions:
   - permission-gate
   - background-tasks
-  - context-loader
-  - model-router
-  - behavioral-reminders
 
 hooks:
   - deny-read
