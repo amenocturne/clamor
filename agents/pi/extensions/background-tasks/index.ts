@@ -140,23 +140,24 @@ function formatTaskLine(
     : "error";
 
   const elapsed = formatElapsed(task);
-  const typePrefix = task.type === "agent" ? "Agent: " : "";
-  const commandPreview = truncateToWidth(
-    `${typePrefix}${task.command}`,
-    Math.max(20, width - 30),
+  const typeIcon = task.type === "agent" ? "A" : "$";
+
+  // Fixed-width prefix: "  t1 A [running]  12s  " (~25 chars visible)
+  const prefix = `${task.id} ${typeIcon} [${task.status}] ${elapsed.padStart(4)}`;
+  const prefixLen = prefix.length;
+
+  // Command preview fills the rest
+  const maxCmd = Math.max(10, width - prefixLen - 4);
+  const cmdRaw = task.command.length > maxCmd
+    ? task.command.slice(0, maxCmd - 3) + "..."
+    : task.command;
+  // Strip newlines from command preview
+  const cmdClean = cmdRaw.replace(/\n/g, " ");
+
+  return truncateToWidth(
+    `  ${theme.fg("accent", task.id)} ${theme.fg("dim", typeIcon)} ${theme.fg(statusColor, `[${task.status}]`)} ${theme.fg("dim", elapsed.padStart(4))}  ${theme.fg("muted", cmdClean)}`,
+    width,
   );
-
-  let line =
-    `  ${theme.fg("accent", task.id)} ` +
-    `${theme.fg(statusColor, `[${task.status}]`)} ` +
-    `${theme.fg("dim", elapsed.padStart(4))}  ` +
-    `${theme.fg("muted", commandPreview)}`;
-
-  if (task.pendingPermissions > 0) {
-    line += theme.fg("warning", ` ! ${task.pendingPermissions} pending permission${task.pendingPermissions > 1 ? "s" : ""}`);
-  }
-
-  return line;
 }
 
 function formatElapsed(task: TaskInfo): string {
