@@ -9,15 +9,15 @@ default:
 install: deny-read-install smart-approve-install graph-colors-install generate-workspace-install notification-install
     uv run install.py --all
 
-# Install preset interactively
+# Install interactively (choose profile and agents)
 install-interactive:
     uv run install.py
 
-# Install preset to a target directory
-install-to target preset kb="":
-    uv run install.py --preset {{ preset }} --target {{ target }} {{ if kb != "" { "--knowledge-base " + kb } else { "" } }}
+# Install profile + agents to a target directory
+install-to target profile +agents kb="":
+    uv run install.py --profile {{ profile }} --agents {{ agents }} --target {{ target }} {{ if kb != "" { "--knowledge-base " + kb } else { "" } }}
 
-# List available presets
+# List available profiles and agents
 list:
     uv run install.py --list
 

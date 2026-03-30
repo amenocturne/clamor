@@ -1,0 +1,27 @@
+description: Obsidian vault management
+
+common:
+  - git-personal
+
+skills:
+  - youtube
+  - transcribe
+  - lyrics
+  - graph
+  - reflect
+  - crazy
+
+hooks:
+  - save-conversation
+  - graph-colors
+
+instructions:
+  - kb-mode
+  - quick-rules
+  - saving
+  - vault-structure
+  - context
+  - zettelkasten
+  - linking
+  - sources
+  - projects

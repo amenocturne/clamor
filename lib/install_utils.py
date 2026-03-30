@@ -114,10 +114,64 @@ def merge_dicts(base: dict, override: dict) -> dict:
     return merged
 
 
+def merge_manifests(profile: dict, agent: dict) -> dict:
+    """Merge a profile manifest with an agent manifest using v2 rules.
+
+    Sets are unioned, instructions are concatenated (profile first),
+    settings are deep-merged (agent wins on conflict).
+    """
+    return {
+        "common": sorted(
+            set(
+                normalize_manifest_list(profile.get("common"))
+                + normalize_manifest_list(agent.get("common"))
+            )
+        ),
+        "skills": sorted(
+            set(
+                normalize_manifest_list(profile.get("skills"))
+                + normalize_manifest_list(agent.get("skills"))
+            )
+        ),
+        "hooks": sorted(
+            set(
+                normalize_manifest_list(profile.get("hooks"))
+                + normalize_manifest_list(agent.get("hooks"))
+            )
+        ),
+        "extensions": sorted(
+            set(
+                normalize_manifest_list(profile.get("extensions"))
+                + normalize_manifest_list(agent.get("extensions"))
+            )
+        ),
+        "external": sorted(
+            set(
+                normalize_manifest_list(profile.get("external"))
+                + normalize_manifest_list(agent.get("external"))
+            )
+        ),
+        "pipelines": sorted(
+            set(
+                normalize_manifest_list(profile.get("pipelines"))
+                + normalize_manifest_list(agent.get("pipelines"))
+            )
+        ),
+        "instructions": (
+            normalize_manifest_list(profile.get("instructions"))
+            + normalize_manifest_list(agent.get("instructions"))
+        ),
+        "settings": merge_dicts(
+            profile.get("settings") or {},
+            agent.get("settings") or {},
+        ),
+    }
+
+
 def build_managed_install_state(ctx) -> dict:
     """Build conservative install metadata for agent-managed config files."""
     managed = {
-        "preset": ctx.preset_name,
+        "profile": ctx.profile_name,
         "target_dir": str(ctx.target_dir.resolve()),
         "project_dir": str(ctx.project_dir.resolve()),
         "agents": list(ctx.all_agents),

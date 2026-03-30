@@ -1,0 +1,17 @@
+description: Tinkoff work environment
+
+common:
+  - git-work
+
+skills:
+  - dp-jira
+  - dp-gitlab
+
+hooks:
+  - link-proxy
+
+instructions:
+  - sbt
+  - knowledge-base
+  - task-workflow
+  - link-proxy

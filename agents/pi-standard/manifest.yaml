@@ -1,0 +1,43 @@
+description: Pi agent with full context awareness
+runtime: pi
+target: .pi-standard
+
+prompt: prompt.md
+
+common:
+  - dev-workflow
+  - code-conventions
+  - communication-style
+  - commands
+
+skills:
+  - spec
+  - workspace
+  - brainstorm
+  - todo
+  - pinchtab
+  - context7
+  - review
+  - checkpoint
+
+extensions:
+  - permission-gate
+  - background-tasks
+  - context-loader
+  - model-router
+  - behavioral-reminders
+
+hooks:
+  - deny-read
+  - smart-approve
+  - notification
+
+settings:
+  defaultProvider: nestor
+  defaultModel: tgpt/qwen3-next-80b-a3b-instruct
+  allowedProviders:
+    - nestor
+  defaultThinkingLevel: medium
+  modelRouter:
+    orchestrator: tgpt/qwen3-next-80b-a3b-instruct
+    worker: tgpt/qwen35-397b-a17b-fp8

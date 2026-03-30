@@ -4,11 +4,11 @@
 # dependencies = ["pyyaml", "rich"]
 # ///
 """
-Install an agent-kit preset into a target directory.
+Install agentic-kit: profile × agent architecture.
 
 Usage:
-    uv run install.py
-    uv run install.py --preset knowledge-base
+    uv run install.py --profile personal --agents claude-code pi-standard
+    uv run install.py --all
     uv run install.py --list
 """
 
@@ -25,9 +25,8 @@ from lib.install_utils import (
     extract_common_names_from_template,
     get_hook_key,
     load_hook_config as load_hook_config_from_root,
-    load_json,
     load_registry as load_registry_file,
-    merge_hooks,
+    merge_manifests,
     normalize_manifest_list,
     parse_frontmatter,
     process_includes as process_includes_from_root,
@@ -42,13 +41,13 @@ from rich.prompt import Prompt
 console = Console()
 
 REPO_ROOT = Path(__file__).parent
-PRESETS_DIR = REPO_ROOT / "presets"
+PROFILES_DIR = REPO_ROOT / "profiles"
+AGENTS_DIR = REPO_ROOT / "agents"
 SKILLS_DIR = REPO_ROOT / "skills"
 HOOKS_DIR = REPO_ROOT / "hooks"
 PIPELINES_DIR = REPO_ROOT / "pipelines"
 COMMON_DIR = REPO_ROOT / "common"
 REGISTRY_PATH = REPO_ROOT / "installations.yaml"
-LEGACY_AGENTS = ["claude-code"]
 
 _AGENT_INSTALLERS: dict[str, Any] = {}
 
@@ -72,14 +71,6 @@ def validate_common_dependencies(
     )
 
 
-def load_manifest(preset: str) -> dict:
-    manifest_path = PRESETS_DIR / preset / "manifest.yaml"
-    if not manifest_path.exists():
-        console.print(f"[red]Preset '{preset}' not found[/red]")
-        return {}
-    return yaml.safe_load(manifest_path.read_text()) or {}
-
-
 def load_hook_config(hook_name: str, hook_dir: Path) -> dict:
     return load_hook_config_from_root(hook_name, hook_dir, HOOKS_DIR)
 
@@ -88,55 +79,97 @@ def sync_symlinks(source_dir: Path, target_dir: Path, wanted: set[str], label: s
     sync_symlinks_with_console(source_dir, target_dir, wanted, label, console=console)
 
 
-def load_existing_settings(target: Path) -> dict:
-    return load_json(
-        target / ".claude" / "settings.json", {"hooks": {}, "permissions": {}}
+# ---------------------------------------------------------------------------
+# Profile / Agent manifest loading
+# ---------------------------------------------------------------------------
+
+
+def load_profile_manifest(profile: str) -> dict:
+    path = PROFILES_DIR / profile / "manifest.yaml"
+    if not path.exists():
+        raise FileNotFoundError(f"Profile '{profile}' not found at {path}")
+    return yaml.safe_load(path.read_text()) or {}
+
+
+def load_agent_manifest(agent: str) -> dict:
+    path = AGENTS_DIR / agent / "manifest.yaml"
+    if not path.exists():
+        raise FileNotFoundError(f"Agent manifest not found for '{agent}' at {path}")
+    return yaml.safe_load(path.read_text()) or {}
+
+
+def available_profiles() -> list[str]:
+    if not PROFILES_DIR.exists():
+        return []
+    return sorted(
+        p.name
+        for p in PROFILES_DIR.iterdir()
+        if p.is_dir() and (p / "manifest.yaml").exists()
     )
 
 
-def merge_permissions(existing: dict, new: dict):
-    for key in ["allow", "deny"]:
-        if key not in new:
-            continue
-        existing.setdefault(key, [])
-        for perm in new[key]:
-            if perm not in existing[key]:
-                existing[key].append(perm)
+def available_agents() -> list[str]:
+    """List agents that have a manifest.yaml (v2) or install.py (v1 runtime)."""
+    result = set()
+    for path in sorted(AGENTS_DIR.iterdir()):
+        if path.is_dir() and (path / "manifest.yaml").exists():
+            result.add(path.name)
+    return sorted(result)
 
 
-def merge_settings(preset: str, target: Path) -> dict:
-    merged = load_existing_settings(target)
-    merged["hooks"] = {}
-
-    settings_path = PRESETS_DIR / preset / "settings.json"
-    if settings_path.exists():
-        settings = load_json(settings_path)
-        merge_hooks(merged["hooks"], settings.get("hooks", {}))
-        if "permissions" in settings:
-            merged.setdefault("permissions", {})
-            merge_permissions(merged["permissions"], settings["permissions"])
-    return merged
+def available_runtimes() -> list[str]:
+    """List agent runtimes that have an install.py."""
+    result = []
+    for path in sorted(AGENTS_DIR.iterdir()):
+        if path.is_dir() and (path / "install.py").exists():
+            result.append(path.name)
+    return result
 
 
-def collect_components(preset: str) -> dict:
-    manifest = load_manifest(preset)
-    return {
-        "skills": set(normalize_manifest_list(manifest.get("skills"))),
-        "hooks": set(normalize_manifest_list(manifest.get("hooks"))),
-        "pipelines": set(normalize_manifest_list(manifest.get("pipelines"))),
-        "external": set(normalize_manifest_list(manifest.get("external"))),
-        "instructions": normalize_manifest_list(manifest.get("instructions")),
-        "common": normalize_manifest_list(manifest.get("common")),
-        "agents": normalize_manifest_list(manifest.get("agents"))
-        if "agents" in manifest
-        else None,
-    }
+# ---------------------------------------------------------------------------
+# Agent installer loading (by runtime)
+# ---------------------------------------------------------------------------
 
 
-def resolve_dependencies(components: dict) -> dict:
-    if "workspace" in components["pipelines"]:
-        components["hooks"].add("link-proxy")
-    return components
+def load_agent_installer(runtime: str) -> Any:
+    """Load the install.py module for a given runtime (e.g., 'claude-code', 'pi')."""
+    cached = _AGENT_INSTALLERS.get(runtime)
+    if cached is not None:
+        return cached
+
+    install_path = AGENTS_DIR / runtime / "install.py"
+    if not install_path.exists():
+        raise FileNotFoundError(
+            f"Runtime installer not found for '{runtime}' at {install_path}"
+        )
+
+    module_name = f"agent_installer_{runtime.replace('-', '_')}"
+    spec = importlib.util.spec_from_file_location(module_name, install_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load installer for runtime '{runtime}'")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _AGENT_INSTALLERS[runtime] = module
+    return module
+
+
+def resolve_runtime(agent_name: str, agent_manifest: dict) -> str:
+    """Get the runtime for an agent. Falls back to agent_name if not specified."""
+    return agent_manifest.get("runtime", agent_name)
+
+
+def project_dir_for_agent(target: Path, agent_manifest: dict) -> Path:
+    """Get the project directory for an agent from its manifest's target field."""
+    dirname = agent_manifest.get("target")
+    if not dirname:
+        raise ValueError("Agent manifest missing 'target' field")
+    return target / dirname
+
+
+# ---------------------------------------------------------------------------
+# Registry
+# ---------------------------------------------------------------------------
 
 
 def load_registry() -> list[dict]:
@@ -148,7 +181,7 @@ def save_registry(entries: list[dict]):
 
 
 def update_registry(
-    preset: str,
+    profile: str,
     target: Path,
     knowledge_base: Path | None = None,
     agents: list[str] | None = None,
@@ -157,7 +190,7 @@ def update_registry(
     entries = load_registry()
     target_str = str(target.resolve())
 
-    entry: dict[str, Any] = {"preset": preset, "target": target_str}
+    entry: dict[str, Any] = {"profile": profile, "target": target_str}
     if knowledge_base is not None:
         entry["knowledge_base"] = str(knowledge_base.resolve())
     if agents is not None:
@@ -177,212 +210,258 @@ def update_registry(
     save_registry(entries)
 
 
-def available_agents() -> list[str]:
-    result = []
-    agents_dir = REPO_ROOT / "agents"
-    for path in sorted(agents_dir.iterdir()):
-        if path.is_dir() and (path / "install.py").exists():
-            result.append(path.name)
-    return result
+# ---------------------------------------------------------------------------
+# Installation
+# ---------------------------------------------------------------------------
 
 
-def require_agents(preset: str, manifest: dict) -> list[str]:
-    if "agents" not in manifest:
-        supported = ", ".join(available_agents())
-        raise ValueError(
-            f"Preset '{preset}' must declare 'agents:' explicitly. "
-            f"Choose one or more supported agents: {supported}."
+def install(
+    profile: str,
+    agents: list[str],
+    target: Path,
+    knowledge_base: Path | None = None,
+):
+    console.print(
+        f"[bold]Installing:[/bold] profile={profile}, agents={', '.join(agents)}"
+    )
+
+    profile_manifest = load_profile_manifest(profile)
+    project_dirs: dict[str, Path] = {}
+
+    for agent_name in agents:
+        agent_manifest = load_agent_manifest(agent_name)
+        merged = merge_manifests(profile_manifest, agent_manifest)
+
+        runtime = resolve_runtime(agent_name, agent_manifest)
+        installer = load_agent_installer(runtime)
+
+        project_dir = project_dir_for_agent(target, agent_manifest)
+        project_dirs[agent_name] = project_dir
+
+        kb = knowledge_base
+        if kb is None and profile_manifest.get("settings", {}).get("knowledge_base"):
+            kb = Path(profile_manifest["settings"]["knowledge_base"])
+
+        ctx = InstallContext(
+            target_dir=target,
+            project_dir=project_dir,
+            repo_root=REPO_ROOT,
+            profile_name=profile,
+            profile_dir=PROFILES_DIR / profile,
+            agent_name=agent_name,
+            agent_dir=AGENTS_DIR / agent_name,
+            skills=merged["skills"],
+            hooks=merged["hooks"],
+            common=merged["common"],
+            external=merged["external"],
+            pipelines=merged["pipelines"],
+            extensions=merged["extensions"],
+            instructions=merged["instructions"],
+            settings=merged["settings"],
+            all_agents=list(agents),
+            project_dirs=project_dirs,
+            install_state_path=project_dir / "agentic-kit.json",
+            knowledge_base=kb,
         )
+        installer.install(ctx, console=console)
+        console.print(f"  [green]✓[/green] {agent_name} → {project_dir}")
 
-    agents = normalize_manifest_list(manifest.get("agents"))
-    if not agents:
-        supported = ", ".join(available_agents())
-        raise ValueError(
-            f"Preset '{preset}' has an empty 'agents:' list. "
-            f"Choose one or more supported agents: {supported}."
-        )
+    if merged.get("external"):
+        console.print("\n[bold]Recommended external skills:[/bold]")
+        for ext in sorted(merged["external"]):
+            console.print(f"  npx skills add {ext}")
 
-    unknown = [agent for agent in agents if agent not in available_agents()]
-    if unknown:
-        supported = ", ".join(available_agents())
-        raise ValueError(
-            f"Preset '{preset}' requests unsupported agents: {', '.join(unknown)}. "
-            f"Supported agents: {supported}."
-        )
-    return agents
-
-
-def load_agent_installer(agent_name: str) -> Any:
-    cached = _AGENT_INSTALLERS.get(agent_name)
-    if cached is not None:
-        return cached
-
-    install_path = REPO_ROOT / "agents" / agent_name / "install.py"
-    if not install_path.exists():
-        raise FileNotFoundError(f"Agent installer not found for '{agent_name}'")
-
-    module_name = f"agent_installer_{agent_name.replace('-', '_')}"
-    spec = importlib.util.spec_from_file_location(module_name, install_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Unable to load installer for '{agent_name}'")
-
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    _AGENT_INSTALLERS[agent_name] = module
-    return module
+    update_registry(
+        profile,
+        target,
+        knowledge_base,
+        agents=agents,
+        project_dirs=project_dirs,
+    )
+    console.print("\n[bold green]Done![/bold green]")
 
 
-def project_dirs_for_agents(target: Path, agents: list[str]) -> dict[str, Path]:
-    project_dirs = {}
-    for agent in agents:
-        installer = load_agent_installer(agent)
-        dirname = getattr(installer, "AGENT_DIRNAME", None)
-        if not dirname:
-            raise ValueError(f"Agent installer '{agent}' is missing AGENT_DIRNAME")
-        project_dirs[agent] = target / dirname
-    return project_dirs
+# ---------------------------------------------------------------------------
+# Reinstall all registered installations
+# ---------------------------------------------------------------------------
 
 
-def registry_agents_for_reinstall(entry: dict) -> list[str] | None:
-    if "agents" in entry:
-        return normalize_manifest_list(entry.get("agents"))
-    return list(LEGACY_AGENTS)
+def migrate_registry_entry(entry: dict) -> dict:
+    """Migrate a v1 registry entry (preset-based) to v2 (profile-based)."""
+    if "profile" in entry:
+        return entry
 
+    preset = entry.get("preset", "")
+    profile_map = {
+        "dev-workspace": "personal",
+        "knowledge-base": "knowledge-base",
+        "work": "work",
+    }
+    profile = profile_map.get(preset, preset)
 
-def choose_preset_interactively() -> str | None:
-    available = sorted([p.name for p in PRESETS_DIR.iterdir() if p.is_dir()])
-    console.print("[bold]Available presets:[/bold]")
-    for i, p in enumerate(available, 1):
-        manifest = load_manifest(p)
-        desc = manifest.get("description", "")
-        console.print(f"  {i}. [cyan]{p}[/cyan]: {desc}")
-
-    selection = Prompt.ask("\nSelect preset (number)")
-    try:
-        idx = int(selection.strip()) - 1
-    except ValueError:
-        console.print("[red]Invalid selection[/red]")
-        return None
-    if 0 <= idx < len(available):
-        return available[idx]
-
-    console.print("[red]Invalid selection[/red]")
-    return None
-
-
-def install_interactive(
-    target: Path | None = None, knowledge_base: Path | None = None
-) -> bool:
-    preset = choose_preset_interactively()
-    if preset is None:
-        return False
-
-    install(preset, target or Path.cwd(), knowledge_base)
-    return True
+    migrated = dict(entry)
+    migrated["profile"] = profile
+    del migrated["preset"]
+    return migrated
 
 
 def install_all() -> int:
     entries = load_registry()
     if not entries:
         console.print(
-            "[yellow]No installations registered yet. Starting interactive install...[/yellow]"
+            "[yellow]No installations registered. Use --profile and --agents to install.[/yellow]"
         )
-        return 1 if install_interactive() else 0
+        return 0
 
     success = 0
     for entry in entries:
-        preset = entry["preset"]
+        entry = migrate_registry_entry(entry)
+        profile = entry["profile"]
         target = Path(entry["target"])
         kb = Path(entry["knowledge_base"]) if entry.get("knowledge_base") else None
-        agents = registry_agents_for_reinstall(entry)
-        console.print(f"\n[bold]━━━ {preset} → {target} ━━━[/bold]")
+        agents = normalize_manifest_list(entry.get("agents"))
+        if not agents:
+            console.print(f"[yellow]Skipping {target}: no agents listed[/yellow]")
+            continue
+        console.print(f"\n[bold]━━━ {profile} → {target} ━━━[/bold]")
         try:
-            install(preset, target, kb, agents=agents)
+            install(profile, agents, target, kb)
             success += 1
         except Exception as e:
             console.print(f"[red]Failed: {e}[/red]")
     return success
 
 
-def install(
-    preset: str,
-    target: Path,
-    knowledge_base: Path | None = None,
-    *,
-    agents: list[str] | None = None,
-):
-    console.print(f"[bold]Installing preset:[/bold] {preset}")
-
-    manifest = load_manifest(preset)
-    manifest_agents = require_agents(preset, manifest)
-    selected_agents = list(agents) if agents is not None else manifest_agents
-    unknown = [agent for agent in selected_agents if agent not in available_agents()]
-    if unknown:
-        raise ValueError(
-            f"Unsupported agents selected for install: {', '.join(unknown)}"
-        )
-
-    components = resolve_dependencies(collect_components(preset))
-    project_dirs = project_dirs_for_agents(target, selected_agents)
-
-    console.print(f"  [green]✓[/green] Agents: {', '.join(selected_agents)}")
-
-    for agent in selected_agents:
-        installer = load_agent_installer(agent)
-        ctx = InstallContext(
-            target_dir=target,
-            project_dir=project_dirs[agent],
-            repo_root=REPO_ROOT,
-            preset_name=preset,
-            preset_dir=PRESETS_DIR / preset,
-            skills=sorted(components["skills"]),
-            hooks=sorted(components["hooks"]),
-            common=list(components["common"]),
-            external=sorted(components["external"]),
-            pipelines=sorted(components["pipelines"]),
-            instructions=list(components["instructions"]),
-            all_agents=list(selected_agents),
-            project_dirs=project_dirs,
-            install_state_path=project_dirs[agent] / "agentic-kit.json",
-            knowledge_base=knowledge_base,
-        )
-        installer.install(ctx, console=console)
-
-    if components["external"]:
-        console.print("\n[bold]Recommended external skills:[/bold]")
-        for ext in sorted(components["external"]):
-            console.print(f"  npx skills add {ext}")
-
-    update_registry(
-        preset,
-        target,
-        knowledge_base,
-        agents=selected_agents,
-        project_dirs=project_dirs,
-    )
-    console.print("\n[bold green]Done![/bold green]")
+# ---------------------------------------------------------------------------
+# Interactive
+# ---------------------------------------------------------------------------
 
 
-def list_presets():
-    console.print("[bold]Available presets:[/bold]")
-    for preset in sorted(PRESETS_DIR.iterdir()):
-        if preset.is_dir():
-            manifest = load_manifest(preset.name)
+def choose_profile_interactively() -> str | None:
+    profiles = available_profiles()
+    if not profiles:
+        console.print("[red]No profiles found in profiles/[/red]")
+        return None
+    console.print("[bold]Available profiles:[/bold]")
+    for i, p in enumerate(profiles, 1):
+        try:
+            manifest = load_profile_manifest(p)
             desc = manifest.get("description", "")
-            console.print(f"  [cyan]{preset.name}[/cyan]: {desc}")
+        except FileNotFoundError:
+            desc = ""
+        console.print(f"  {i}. [cyan]{p}[/cyan]: {desc}")
+
+    selection = Prompt.ask("\nSelect profile (number)")
+    try:
+        idx = int(selection.strip()) - 1
+    except ValueError:
+        console.print("[red]Invalid selection[/red]")
+        return None
+    if 0 <= idx < len(profiles):
+        return profiles[idx]
+
+    console.print("[red]Invalid selection[/red]")
+    return None
+
+
+def choose_agents_interactively() -> list[str] | None:
+    agents = available_agents()
+    if not agents:
+        console.print("[red]No agents found in agents/[/red]")
+        return None
+    console.print("[bold]Available agents:[/bold]")
+    for i, a in enumerate(agents, 1):
+        try:
+            manifest = load_agent_manifest(a)
+            desc = manifest.get("description", "")
+        except FileNotFoundError:
+            desc = ""
+        console.print(f"  {i}. [cyan]{a}[/cyan]: {desc}")
+
+    selection = Prompt.ask("\nSelect agents (comma-separated numbers, e.g. 1,3,4)")
+    try:
+        indices = [int(s.strip()) - 1 for s in selection.split(",")]
+    except ValueError:
+        console.print("[red]Invalid selection[/red]")
+        return None
+
+    selected = []
+    for idx in indices:
+        if 0 <= idx < len(agents):
+            selected.append(agents[idx])
+        else:
+            console.print(f"[red]Invalid index: {idx + 1}[/red]")
+            return None
+    return selected if selected else None
+
+
+def install_interactive(
+    target: Path | None = None, knowledge_base: Path | None = None
+) -> bool:
+    profile = choose_profile_interactively()
+    if profile is None:
+        return False
+
+    agents = choose_agents_interactively()
+    if agents is None:
+        return False
+
+    install(profile, agents, target or Path.cwd(), knowledge_base)
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Listing
+# ---------------------------------------------------------------------------
+
+
+def list_available():
+    console.print("[bold]Available profiles:[/bold]")
+    for profile in available_profiles():
+        try:
+            manifest = load_profile_manifest(profile)
+            desc = manifest.get("description", "")
+        except FileNotFoundError:
+            desc = ""
+        console.print(f"  [cyan]{profile}[/cyan]: {desc}")
+
+    console.print("\n[bold]Available agents:[/bold]")
+    for agent in available_agents():
+        try:
+            manifest = load_agent_manifest(agent)
+            desc = manifest.get("description", "")
+            runtime = manifest.get("runtime", agent)
+        except FileNotFoundError:
+            desc = ""
+            runtime = agent
+        console.print(f"  [cyan]{agent}[/cyan] (runtime: {runtime}): {desc}")
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Install an agent-kit preset")
-    parser.add_argument("--preset", help="Preset to install")
+    parser = argparse.ArgumentParser(
+        description="Install agentic-kit (profile × agent)"
+    )
+    parser.add_argument("--profile", help="Profile to install (e.g., personal, work)")
+    parser.add_argument(
+        "--agents",
+        nargs="+",
+        help="Agents to install (e.g., claude-code pi-standard)",
+    )
     parser.add_argument(
         "--target", type=Path, default=Path.cwd(), help="Target directory"
     )
-    parser.add_argument("--list", action="store_true", help="List available presets")
+    parser.add_argument(
+        "--list", action="store_true", help="List available profiles and agents"
+    )
     parser.add_argument(
         "--knowledge-base",
         type=Path,
-        help="Path to knowledge base (Obsidian vault) for integration",
+        help="Path to knowledge base (Obsidian vault)",
     )
     parser.add_argument(
         "--all",
@@ -393,28 +472,34 @@ def main():
     args = parser.parse_args()
 
     if args.list:
-        list_presets()
+        list_available()
         return
 
     if args.install_all:
         install_all()
         return
 
-    if args.preset:
-        preset = args.preset
-    else:
-        preset = choose_preset_interactively()
-        if preset is None:
+    if args.profile and args.agents:
+        try:
+            install(args.profile, args.agents, args.target, args.knowledge_base)
+        except KeyboardInterrupt:
+            console.print(
+                "\n[bold yellow]Installation interrupted.[/bold yellow] "
+                "Target may be in a partial state. Re-run install to fix."
+            )
+            raise SystemExit(1)
+        return
+
+    if args.profile or args.agents:
+        if not args.profile:
+            console.print("[red]--profile is required when --agents is specified[/red]")
+            return
+        if not args.agents:
+            console.print("[red]--agents is required when --profile is specified[/red]")
             return
 
-    try:
-        install(preset, args.target, args.knowledge_base)
-    except KeyboardInterrupt:
-        console.print(
-            "\n[bold yellow]Installation interrupted.[/bold yellow] "
-            "Target may be in a partial state. Re-run install to fix."
-        )
-        raise SystemExit(1)
+    if not install_interactive(args.target, args.knowledge_base):
+        return
 
 
 if __name__ == "__main__":

@@ -10,43 +10,25 @@ from lib.install_utils import (
 
 AGENT_DIRNAME = ".pi"
 
-# Core extensions installed for all presets
-CORE_EXTENSIONS = {"permission-gate", "background-tasks"}
-
-# Preset-specific extensions and settings
-PRESET_CONFIG = {
-    "work": {
-        "extensions": {"nestor-provider"},
-        "settings": {
-            "defaultProvider": "nestor",
-            "defaultModel": "tgpt/qwen35-397b-a17b-fp8",
-            "defaultThinkingLevel": "medium",
-        },
-    },
-}
-
-# Fallback settings when no preset-specific config exists
-DEFAULT_SETTINGS = {
-    "defaultThinkingLevel": "medium",
-}
-
 
 def get_extensions(ctx: InstallContext) -> set[str]:
-    preset = PRESET_CONFIG.get(ctx.preset_name, {})
-    return CORE_EXTENSIONS | preset.get("extensions", set())
+    return set(ctx.extensions)
 
 
 def get_settings(ctx: InstallContext) -> dict:
-    preset = PRESET_CONFIG.get(ctx.preset_name, {})
-    return preset.get("settings", DEFAULT_SETTINGS)
+    # Settings come pre-merged from profile × agent manifests
+    settings = dict(ctx.settings)
+    # Remove permissions — Pi doesn't use them
+    settings.pop("permissions", None)
+    # Ensure a default thinking level
+    settings.setdefault("defaultThinkingLevel", "medium")
+    return settings
 
 
 def validate_required_extensions(ctx: InstallContext) -> None:
     extensions_root = ctx.repo_root / "agents" / "pi" / "extensions"
     wanted = get_extensions(ctx)
-    missing = sorted(
-        name for name in wanted if not (extensions_root / name).exists()
-    )
+    missing = sorted(name for name in wanted if not (extensions_root / name).exists())
     if missing:
         raise FileNotFoundError(
             "Missing required Pi bundled extensions: " + ", ".join(missing)
@@ -54,12 +36,7 @@ def validate_required_extensions(ctx: InstallContext) -> None:
 
 
 def install_hooks(ctx: InstallContext, console=None) -> None:
-    """Generate .pi/hooks.json with absolute paths to hook scripts.
-
-    Unlike Claude Code, we don't symlink hooks into .pi/hooks/ because Pi
-    uses that directory for its own purposes. Instead, we resolve each hook
-    command to the absolute path of its script in the agentic-kit repo.
-    """
+    """Generate hooks.json with absolute paths to hook scripts."""
     if not ctx.hooks:
         return
 
@@ -71,7 +48,6 @@ def install_hooks(ctx: InstallContext, console=None) -> None:
         if not hooks_json_path.exists():
             continue
 
-        # Find the hook script (hook.py or hook.sh)
         hook_dir = hooks_root / hook_name
         hook_script = None
         for candidate in ["hook.py", "hook.sh"]:
@@ -82,13 +58,11 @@ def install_hooks(ctx: InstallContext, console=None) -> None:
         if not hook_script:
             continue
 
-        # Build command: uv run for Python, direct for shell
         if hook_script.endswith(".py"):
             command = f"uv run {hook_script}"
         else:
             command = hook_script
 
-        # Load hooks.json and replace the bare command name with the full path
         raw = hooks_json_path.read_text()
         config = json.loads(raw)
 
@@ -114,23 +88,24 @@ def install(ctx: InstallContext, console=None) -> None:
         "Skill",
         console=console,
     )
-    sync_symlinks(
-        ctx.repo_root / "agents" / "pi" / "extensions",
-        ctx.project_dir / "extensions",
-        wanted,
-        "Extension",
-        console=console,
-    )
-    missing_links = sorted(
-        name
-        for name in wanted
-        if not (ctx.project_dir / "extensions" / name).is_symlink()
-    )
-    if missing_links:
-        raise FileNotFoundError(
-            "Failed to install required Pi bundled extensions: "
-            + ", ".join(missing_links)
+    if wanted:
+        sync_symlinks(
+            ctx.repo_root / "agents" / "pi" / "extensions",
+            ctx.project_dir / "extensions",
+            wanted,
+            "Extension",
+            console=console,
         )
+        missing_links = sorted(
+            name
+            for name in wanted
+            if not (ctx.project_dir / "extensions" / name).is_symlink()
+        )
+        if missing_links:
+            raise FileNotFoundError(
+                "Failed to install required Pi bundled extensions: "
+                + ", ".join(missing_links)
+            )
     install_hooks(ctx, console=console)
     write_json(ctx.project_dir / "settings.json", get_settings(ctx))
     update_managed_config(ctx.project_dir / "agentic-kit.json", ctx)

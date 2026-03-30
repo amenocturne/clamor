@@ -35,24 +35,9 @@ def merge_permissions(existing: dict, new: dict):
                 existing[key].append(perm)
 
 
-def merge_settings(ctx: InstallContext) -> dict:
-    merged = load_existing_settings(ctx.project_dir)
-    merged["hooks"] = {}
-
-    settings_path = ctx.preset_dir / "settings.json"
-    if settings_path.exists():
-        settings = load_json(settings_path)
-        merge_hooks(merged["hooks"], settings.get("hooks", {}))
-        if "permissions" in settings:
-            merged.setdefault("permissions", {})
-            merge_permissions(merged["permissions"], settings["permissions"])
-
-    return merged
-
-
 def update_config(ctx: InstallContext) -> dict:
     config_path = ctx.project_dir / "agentic-kit.json"
-    template_path = ctx.preset_dir / "agentic-kit.template.json"
+    template_path = ctx.profile_dir / "agentic-kit.template.json"
     return update_managed_config(config_path, ctx, bootstrap_path=template_path)
 
 
@@ -67,7 +52,8 @@ def validate_common_dependencies(
 
 
 def write_claude_md(ctx: InstallContext):
-    src = ctx.preset_dir / "claude.md"
+    # v2: prompt template lives in agent dir
+    src = ctx.agent_dir / "prompt.md"
     if not src.exists():
         return
 
@@ -82,19 +68,24 @@ def write_claude_md(ctx: InstallContext):
 
     processed = process_includes(content, ctx.repo_root)
 
+    # Inject profile instructions
     if ctx.instructions:
-        instructions_dir = ctx.preset_dir / "instructions"
         sections = []
         for name in ctx.instructions:
-            path = instructions_dir / f"{name}.md"
+            # Look in profile's instructions/ first, then agent's
+            path = ctx.profile_dir / "instructions" / f"{name}.md"
+            if not path.exists():
+                path = ctx.agent_dir / "instructions" / f"{name}.md"
             if not path.exists():
                 raise FileNotFoundError(
-                    f"Instruction not found: {ctx.preset_name}/instructions/{name}.md"
+                    f"Instruction not found: {name}.md "
+                    f"(checked {ctx.profile_dir / 'instructions'} and {ctx.agent_dir / 'instructions'})"
                 )
             sections.append(strip_frontmatter(path.read_text()).strip())
         if sections:
             processed = processed.rstrip() + "\n\n" + "\n\n".join(sections) + "\n"
 
+    # Append common fragments
     if ctx.common:
         common_dir = ctx.repo_root / "common"
         sections = []
@@ -114,7 +105,10 @@ def write_claude_md(ctx: InstallContext):
 
 
 def sync_templates(ctx: InstallContext):
-    templates_src = ctx.preset_dir / "templates"
+    # Check profile for templates first, then agent
+    templates_src = ctx.profile_dir / "templates"
+    if not templates_src.exists():
+        templates_src = ctx.agent_dir / "templates"
     if not templates_src.exists():
         return
 
@@ -128,14 +122,23 @@ def sync_templates(ctx: InstallContext):
 
 
 def sync_workspace_template(ctx: InstallContext):
-    workspace_template = ctx.preset_dir / "workspace_template.yaml"
+    # Check profile for workspace template
+    workspace_template = ctx.profile_dir / "workspace_template.yaml"
     workspace_target = ctx.target_dir / "WORKSPACE.yaml"
     if workspace_template.exists() and not workspace_target.exists():
         shutil.copy(workspace_template, workspace_target)
 
 
 def build_hook_settings(ctx: InstallContext) -> dict:
-    settings = merge_settings(ctx)
+    settings = load_existing_settings(ctx.project_dir)
+    settings["hooks"] = {}
+
+    # Merge permissions from ctx.settings (pre-merged profile + agent)
+    if ctx.settings.get("permissions"):
+        settings.setdefault("permissions", {})
+        merge_permissions(settings["permissions"], ctx.settings["permissions"])
+
+    # Merge hook configs from hook directories
     hooks_root = ctx.repo_root / "hooks"
     for hook in ctx.hooks:
         hook_dir = (ctx.project_dir / "hooks" / hook).resolve()

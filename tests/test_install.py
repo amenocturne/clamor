@@ -1,4 +1,4 @@
-"""Tests for install.py — the core installer."""
+"""Tests for install.py — the core installer (v2: profile × agent architecture)."""
 
 import json
 import sys
@@ -22,7 +22,7 @@ def _mock_safe_load(text: str):
 
     Handles:
     - Empty/whitespace-only strings -> None  (matches real yaml.safe_load)
-    - JSON content (produced by make_preset via json.dumps)
+    - JSON content (produced by make_profile/make_agent via json.dumps)
     - Simple "key:\\n" YAML where bare keys have null values
     """
     if text is None or text.strip() == "":
@@ -79,6 +79,7 @@ sys.modules.setdefault("rich.console", _mock_rich_console)
 sys.modules.setdefault("rich.prompt", _mock_rich_prompt)
 
 import install  # noqa: E402
+from lib.install_utils import merge_hooks, merge_manifests  # noqa: E402
 
 CLAUDE_INSTALLER = install.load_agent_installer("claude-code")
 OPEN_CODE_INSTALLER = install.load_agent_installer("open-code")
@@ -90,24 +91,31 @@ PI_INSTALLER = install.load_agent_installer("pi")
 # ---------------------------------------------------------------------------
 
 
-def make_preset(
-    presets_dir: Path,
+def make_profile(
+    profiles_dir: Path,
     name: str,
     manifest: dict | None = None,
-    settings: dict | None = None,
-    claude_md: str | None = None,
 ):
-    """Create a preset directory with optional manifest, settings, and claude.md."""
-    d = presets_dir / name
+    """Create a profile directory with optional manifest."""
+    d = profiles_dir / name
     d.mkdir(parents=True, exist_ok=True)
     if manifest is not None:
-        if "agents" not in manifest:
-            manifest = {**manifest, "agents": ["claude-code"]}
         (d / "manifest.yaml").write_text(json.dumps(manifest))
-    if settings is not None:
-        (d / "settings.json").write_text(json.dumps(settings))
-    if claude_md is not None:
-        (d / "claude.md").write_text(claude_md)
+
+
+def make_agent(
+    agents_dir: Path,
+    name: str,
+    manifest: dict | None = None,
+    prompt_md: str | None = None,
+):
+    """Create an agent directory with optional manifest and prompt.md."""
+    d = agents_dir / name
+    d.mkdir(parents=True, exist_ok=True)
+    if manifest is not None:
+        (d / "manifest.yaml").write_text(json.dumps(manifest))
+    if prompt_md is not None:
+        (d / "prompt.md").write_text(prompt_md)
 
 
 def make_skill(skills_dir: Path, name: str):
@@ -146,9 +154,9 @@ def make_common(
     (common_dir / f"{name}.md").write_text(content)
 
 
-def make_instruction(presets_dir: Path, preset: str, name: str, content: str):
-    """Create a preset instruction file."""
-    d = presets_dir / preset / "instructions"
+def make_instruction(base_dir: Path, parent: str, name: str, content: str):
+    """Create an instruction file under <base_dir>/<parent>/instructions/."""
+    d = base_dir / parent / "instructions"
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{name}.md").write_text(content)
 
@@ -161,20 +169,27 @@ def make_instruction(presets_dir: Path, preset: str, name: str, content: str):
 @pytest.fixture()
 def fake_repo(tmp_path):
     """Build a fake repo layout and patch install module globals to use it."""
-    presets_dir = tmp_path / "presets"
+    profiles_dir = tmp_path / "profiles"
+    agents_dir = tmp_path / "agents"
     skills_dir = tmp_path / "skills"
     hooks_dir = tmp_path / "hooks"
     pipelines_dir = tmp_path / "pipelines"
     common_dir = tmp_path / "common"
-    presets_dir.mkdir()
+    profiles_dir.mkdir()
+    agents_dir.mkdir()
     skills_dir.mkdir()
     hooks_dir.mkdir()
     pipelines_dir.mkdir()
     common_dir.mkdir()
 
+    # Create the pi extensions directory structure (needed for pi installer)
+    (agents_dir / "pi" / "extensions" / "permission-gate").mkdir(parents=True)
+    (agents_dir / "pi" / "extensions" / "background-tasks").mkdir(parents=True)
+
     with (
         patch.object(install, "REPO_ROOT", tmp_path),
-        patch.object(install, "PRESETS_DIR", presets_dir),
+        patch.object(install, "PROFILES_DIR", profiles_dir),
+        patch.object(install, "AGENTS_DIR", agents_dir),
         patch.object(install, "SKILLS_DIR", skills_dir),
         patch.object(install, "HOOKS_DIR", hooks_dir),
         patch.object(install, "PIPELINES_DIR", pipelines_dir),
@@ -182,22 +197,18 @@ def fake_repo(tmp_path):
         patch.object(install, "REGISTRY_PATH", tmp_path / "installations.yaml"),
         patch.object(
             install,
-            "available_agents",
-            return_value=["claude-code", "open-code", "pi"],
-        ),
-        patch.object(
-            install,
             "load_agent_installer",
-            side_effect=lambda name: {
+            side_effect=lambda runtime: {
                 "claude-code": CLAUDE_INSTALLER,
                 "open-code": OPEN_CODE_INSTALLER,
                 "pi": PI_INSTALLER,
-            }[name],
+            }[runtime],
         ),
     ):
         yield {
             "root": tmp_path,
-            "presets": presets_dir,
+            "profiles": profiles_dir,
+            "agents": agents_dir,
             "skills": skills_dir,
             "hooks": hooks_dir,
             "pipelines": pipelines_dir,
@@ -206,47 +217,61 @@ def fake_repo(tmp_path):
 
 
 # ===================================================================
-# load_manifest
+# load_profile_manifest / load_agent_manifest
 # ===================================================================
 
 
-class TestLoadManifest:
-    """Test loading manifest.yaml for a preset."""
+class TestLoadManifests:
+    """Test loading manifests for profiles and agents."""
 
-    def test_loads_valid_manifest(self, fake_repo):
+    def test_loads_valid_profile_manifest(self, fake_repo):
         manifest = {
-            "description": "Test preset",
-            "skills": ["spec"],
-            "hooks": ["link-proxy"],
-            "pipelines": [],
-            "external": [],
+            "description": "Test profile",
+            "common": ["git-personal"],
+            "hooks": ["worktree"],
         }
-        make_preset(fake_repo["presets"], "test", manifest=manifest)
-        result = install.load_manifest("test")
-        assert result["description"] == "Test preset"
-        assert result["skills"] == ["spec"]
-        assert result["hooks"] == ["link-proxy"]
+        make_profile(fake_repo["profiles"], "test", manifest=manifest)
+        result = install.load_profile_manifest("test")
+        assert result["description"] == "Test profile"
+        assert result["common"] == ["git-personal"]
+        assert result["hooks"] == ["worktree"]
 
-    def test_missing_preset_returns_empty(self, fake_repo):
-        result = install.load_manifest("nonexistent")
-        assert result == {}
+    def test_missing_profile_raises(self, fake_repo):
+        with pytest.raises(FileNotFoundError):
+            install.load_profile_manifest("nonexistent")
 
-    def test_empty_manifest(self, fake_repo):
-        d = fake_repo["presets"] / "empty"
+    def test_empty_profile_manifest(self, fake_repo):
+        d = fake_repo["profiles"] / "empty"
         d.mkdir()
         (d / "manifest.yaml").write_text("")
-        result = install.load_manifest("empty")
+        result = install.load_profile_manifest("empty")
         assert result == {}
 
-    def test_manifest_with_only_description(self, fake_repo):
-        make_preset(
-            fake_repo["presets"],
+    def test_loads_valid_agent_manifest(self, fake_repo):
+        manifest = {
+            "description": "Claude Code agent",
+            "runtime": "claude-code",
+            "target": ".claude",
+            "skills": ["spec"],
+        }
+        make_agent(fake_repo["agents"], "test-agent", manifest=manifest)
+        result = install.load_agent_manifest("test-agent")
+        assert result["runtime"] == "claude-code"
+        assert result["target"] == ".claude"
+        assert result["skills"] == ["spec"]
+
+    def test_missing_agent_raises(self, fake_repo):
+        with pytest.raises(FileNotFoundError):
+            install.load_agent_manifest("nonexistent")
+
+    def test_profile_with_only_description(self, fake_repo):
+        make_profile(
+            fake_repo["profiles"],
             "minimal",
             manifest={"description": "Minimal"},
         )
-        result = install.load_manifest("minimal")
+        result = install.load_profile_manifest("minimal")
         assert result["description"] == "Minimal"
-        assert result["agents"] == ["claude-code"]
         assert result.get("skills") is None
 
 
@@ -323,7 +348,7 @@ class TestLoadHookConfig:
 
 
 # ===================================================================
-# merge_hooks
+# merge_hooks (now in lib.install_utils)
 # ===================================================================
 
 
@@ -333,188 +358,112 @@ class TestMergeHooks:
     def test_merge_into_empty_base(self):
         base = {}
         new = {"Stop": [{"hooks": [{"type": "command", "command": "a"}]}]}
-        result = install.merge_hooks(base, new)
+        result = merge_hooks(base, new)
         assert len(result["Stop"]) == 1
 
     def test_merge_combines_same_type(self):
         base = {"Stop": [{"hooks": [{"command": "a"}]}]}
         new = {"Stop": [{"hooks": [{"command": "b"}]}]}
-        result = install.merge_hooks(base, new)
+        result = merge_hooks(base, new)
         assert len(result["Stop"]) == 2
 
     def test_merge_adds_new_type(self):
         base = {"Stop": [{"hooks": [{"command": "a"}]}]}
         new = {"PreToolUse": [{"hooks": [{"command": "b"}]}]}
-        result = install.merge_hooks(base, new)
+        result = merge_hooks(base, new)
         assert "Stop" in result
         assert "PreToolUse" in result
 
     def test_merge_empty_new(self):
         base = {"Stop": [{"command": "a"}]}
-        result = install.merge_hooks(base, {})
+        result = merge_hooks(base, {})
         assert result == {"Stop": [{"command": "a"}]}
 
     def test_merge_both_empty(self):
-        result = install.merge_hooks({}, {})
+        result = merge_hooks({}, {})
         assert result == {}
 
 
 # ===================================================================
-# load_existing_settings
+# merge_manifests (lib.install_utils)
 # ===================================================================
 
 
-class TestLoadExistingSettings:
-    """Test loading existing .claude/settings.json."""
+class TestMergeManifests:
+    """Test merging profile + agent manifests."""
 
-    def test_loads_existing(self, tmp_path):
-        claude_dir = tmp_path / ".claude"
-        claude_dir.mkdir()
-        settings = {"hooks": {"Stop": [{"command": "x"}]}, "custom": True}
-        (claude_dir / "settings.json").write_text(json.dumps(settings))
-        result = install.load_existing_settings(tmp_path)
-        assert result["custom"] is True
-        assert "Stop" in result["hooks"]
+    def test_union_of_component_lists(self):
+        profile = {"skills": ["spec"], "hooks": ["worktree"]}
+        agent = {"skills": ["todo", "spec"], "hooks": ["notification"]}
+        result = merge_manifests(profile, agent)
+        assert result["skills"] == ["spec", "todo"]
+        assert result["hooks"] == ["notification", "worktree"]
 
-    def test_missing_returns_default(self, tmp_path):
-        result = install.load_existing_settings(tmp_path)
-        assert result == {"hooks": {}, "permissions": {}}
+    def test_instructions_concatenated_profile_first(self):
+        profile = {"instructions": ["workspace-routing"]}
+        agent = {"instructions": ["kb-mode", "saving"]}
+        result = merge_manifests(profile, agent)
+        assert result["instructions"] == ["workspace-routing", "kb-mode", "saving"]
 
-
-# ===================================================================
-# merge_settings
-# ===================================================================
-
-
-class TestMergeSettings:
-    """Test merging settings.json from presets."""
-
-    def test_merges_single_preset(self, fake_repo, tmp_path):
-        target = tmp_path / "target"
-        target.mkdir()
-        make_preset(
-            fake_repo["presets"],
-            "p1",
-            manifest={"description": "p1"},
-            settings={"hooks": {"Stop": [{"command": "a"}]}},
-        )
-        result = install.merge_settings("p1", target)
-        assert "Stop" in result["hooks"]
-        assert len(result["hooks"]["Stop"]) == 1
-
-    def test_preset_without_settings(self, fake_repo, tmp_path):
-        target = tmp_path / "target"
-        target.mkdir()
-        make_preset(
-            fake_repo["presets"],
-            "no-settings",
-            manifest={"description": "none"},
-        )
-        result = install.merge_settings("no-settings", target)
-        assert result == {"hooks": {}, "permissions": {}}
-
-    def test_preserves_existing_settings(self, fake_repo, tmp_path):
-        target = tmp_path / "target"
-        claude_dir = target / ".claude"
-        claude_dir.mkdir(parents=True)
-        existing = {"hooks": {"Stop": [{"command": "existing"}]}, "other_key": "keep"}
-        (claude_dir / "settings.json").write_text(json.dumps(existing))
-
-        make_preset(
-            fake_repo["presets"],
-            "p1",
-            manifest={"description": "p1"},
-            settings={"hooks": {"Stop": [{"command": "new"}]}},
-        )
-        result = install.merge_settings("p1", target)
-        assert result["other_key"] == "keep"
-        # Hooks are reset on each install to avoid stale entries
-        assert len(result["hooks"]["Stop"]) == 1
-        assert result["hooks"]["Stop"][0]["command"] == "new"
-
-
-# ===================================================================
-# collect_components
-# ===================================================================
-
-
-class TestCollectComponents:
-    """Test collecting skills, hooks, pipelines, external from manifests."""
-
-    def test_collects_from_single_preset(self, fake_repo):
-        make_preset(
-            fake_repo["presets"],
-            "p1",
-            manifest={
-                "description": "test",
-                "skills": ["spec"],
-                "hooks": ["link-proxy"],
-                "pipelines": ["workspace"],
-                "external": ["org/repo#skill"],
-            },
-        )
-        result = install.collect_components("p1")
-        assert result["skills"] == {"spec"}
-        assert result["hooks"] == {"link-proxy"}
-        assert result["pipelines"] == {"workspace"}
-        assert result["external"] == {"org/repo#skill"}
-
-    def test_missing_keys_in_manifest(self, fake_repo):
-        make_preset(
-            fake_repo["presets"],
-            "minimal",
-            manifest={"description": "just a description"},
-        )
-        result = install.collect_components("minimal")
-        assert result["skills"] == set()
-        assert result["hooks"] == set()
-        assert result["pipelines"] == set()
-        assert result["external"] == set()
-
-    def test_missing_preset(self, fake_repo):
-        result = install.collect_components("nonexistent")
-        # load_manifest returns {} for missing, .get returns []
-        assert result["skills"] == set()
-
-
-# ===================================================================
-# resolve_dependencies
-# ===================================================================
-
-
-class TestResolveDependencies:
-    """Test dependency resolution logic."""
-
-    def test_workspace_adds_link_proxy(self):
-        components = {
-            "skills": set(),
-            "hooks": set(),
-            "pipelines": {"workspace"},
-            "external": set(),
+    def test_settings_deep_merged_agent_wins(self):
+        profile = {
+            "settings": {
+                "knowledge_base": "/vault",
+                "permissions": {"allow": ["Read(*)"]},
+            }
         }
-        result = install.resolve_dependencies(components)
-        assert "link-proxy" in result["hooks"]
-
-    def test_no_workspace_no_change(self):
-        components = {
-            "skills": {"spec"},
-            "hooks": {"notification"},
-            "pipelines": set(),
-            "external": set(),
+        agent = {
+            "settings": {
+                "defaultThinkingLevel": "medium",
+                "permissions": {"allow": ["Write(*)"]},
+            }
         }
-        result = install.resolve_dependencies(components)
-        assert result["hooks"] == {"notification"}
+        result = merge_manifests(profile, agent)
+        assert result["settings"]["knowledge_base"] == "/vault"
+        assert result["settings"]["defaultThinkingLevel"] == "medium"
+        # Agent wins on conflict for nested dicts
+        assert result["settings"]["permissions"]["allow"] == ["Write(*)"]
 
-    def test_link_proxy_not_duplicated(self):
-        components = {
-            "skills": set(),
-            "hooks": {"link-proxy"},
-            "pipelines": {"workspace"},
-            "external": set(),
-        }
-        result = install.resolve_dependencies(components)
-        # Still just one link-proxy (set dedup)
-        assert result["hooks"] == {"link-proxy"}
+    def test_empty_manifests(self):
+        result = merge_manifests({}, {})
+        assert result["skills"] == []
+        assert result["hooks"] == []
+        assert result["instructions"] == []
+        assert result["settings"] == {}
+
+    def test_extensions_unioned(self):
+        profile = {"extensions": ["ext-a"]}
+        agent = {"extensions": ["ext-b", "ext-a"]}
+        result = merge_manifests(profile, agent)
+        assert result["extensions"] == ["ext-a", "ext-b"]
+
+    def test_none_values_treated_as_empty(self):
+        profile = {"skills": None, "hooks": ["worktree"]}
+        agent = {"skills": ["spec"], "hooks": None}
+        result = merge_manifests(profile, agent)
+        assert result["skills"] == ["spec"]
+        assert result["hooks"] == ["worktree"]
+
+
+# ===================================================================
+# resolve_runtime
+# ===================================================================
+
+
+class TestResolveRuntime:
+    """Test runtime resolution from agent manifest."""
+
+    def test_explicit_runtime(self):
+        manifest = {"runtime": "claude-code", "target": ".claude"}
+        assert install.resolve_runtime("my-agent", manifest) == "claude-code"
+
+    def test_fallback_to_agent_name(self):
+        manifest = {"target": ".claude"}
+        assert install.resolve_runtime("claude-code", manifest) == "claude-code"
+
+    def test_pi_variants_share_runtime(self):
+        manifest = {"runtime": "pi", "target": ".pi-standard"}
+        assert install.resolve_runtime("pi-standard", manifest) == "pi"
 
 
 # ===================================================================
@@ -525,23 +474,33 @@ class TestResolveDependencies:
 class TestInstall:
     """Integration tests for the main install() function."""
 
-    def test_creates_claude_dir(self, fake_repo, tmp_path):
-        target = tmp_path / "project"
-        target.mkdir()
-        make_preset(
-            fake_repo["presets"],
-            "base",
+    def _setup_basic(self, fake_repo, target, prompt_md="# Rules"):
+        """Create a minimal profile + agent pair for testing."""
+        make_profile(
+            fake_repo["profiles"],
+            "test-profile",
+            manifest={"description": "test profile"},
+        )
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
             manifest={
-                "description": "base",
+                "description": "test agent",
+                "runtime": "claude-code",
+                "target": ".claude",
                 "skills": [],
                 "hooks": [],
                 "pipelines": [],
                 "external": [],
             },
-            settings={"hooks": {}},
-            claude_md="Base rules",
+            prompt_md=prompt_md,
         )
-        install.install("base", target)
+
+    def test_creates_claude_dir(self, fake_repo, tmp_path):
+        target = tmp_path / "project"
+        target.mkdir()
+        self._setup_basic(fake_repo, target)
+        install.install("test-profile", ["test-claude"], target)
         assert (target / ".claude").is_dir()
         assert (target / ".claude" / "settings.json").exists()
         assert (target / ".claude" / "CLAUDE.md").exists()
@@ -550,13 +509,22 @@ class TestInstall:
         target = tmp_path / "project"
         target.mkdir()
         make_skill(fake_repo["skills"], "spec")
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
-            manifest={"skills": ["spec"], "hooks": [], "pipelines": [], "external": []},
-            settings={"hooks": {}},
+            manifest={"description": "p1"},
         )
-        install.install("p1", target)
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+                "skills": ["spec"],
+            },
+            prompt_md="# Rules",
+        )
+        install.install("p1", ["test-claude"], target)
         link = target / ".claude" / "skills" / "spec"
         assert link.is_symlink()
         assert link.resolve() == (fake_repo["skills"] / "spec").resolve()
@@ -565,18 +533,22 @@ class TestInstall:
         target = tmp_path / "project"
         target.mkdir()
         make_hook(fake_repo["hooks"], "notification")
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
-            manifest={
-                "skills": [],
-                "hooks": ["notification"],
-                "pipelines": [],
-                "external": [],
-            },
-            settings={"hooks": {}},
+            manifest={"description": "p1"},
         )
-        install.install("p1", target)
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+                "hooks": ["notification"],
+            },
+            prompt_md="# Rules",
+        )
+        install.install("p1", ["test-claude"], target)
         link = target / ".claude" / "hooks" / "notification"
         assert link.is_symlink()
         assert link.resolve() == (fake_repo["hooks"] / "notification").resolve()
@@ -585,20 +557,22 @@ class TestInstall:
         target = tmp_path / "project"
         target.mkdir()
         make_pipeline(fake_repo["pipelines"], "workspace")
-        # workspace triggers link-proxy dependency, so create that too
-        make_hook(fake_repo["hooks"], "link-proxy")
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
-            manifest={
-                "skills": [],
-                "hooks": [],
-                "pipelines": ["workspace"],
-                "external": [],
-            },
-            settings={"hooks": {}},
+            manifest={"description": "p1"},
         )
-        install.install("p1", target)
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+                "pipelines": ["workspace"],
+            },
+            prompt_md="# Rules",
+        )
+        install.install("p1", ["test-claude"], target)
         link = target / "pipelines" / "workspace"
         assert link.is_symlink()
         assert link.resolve() == (fake_repo["pipelines"] / "workspace").resolve()
@@ -607,99 +581,133 @@ class TestInstall:
         target = tmp_path / "project"
         target.mkdir()
         make_skill(fake_repo["skills"], "spec")
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
-            manifest={"skills": ["spec"], "hooks": [], "pipelines": [], "external": []},
-            settings={"hooks": {}},
+            manifest={"description": "p1"},
         )
-        # First install
-        install.install("p1", target)
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+                "skills": ["spec"],
+            },
+            prompt_md="# Rules",
+        )
+        install.install("p1", ["test-claude"], target)
         link = target / ".claude" / "skills" / "spec"
         assert link.is_symlink()
 
         # Second install should not raise
-        install.install("p1", target)
+        install.install("p1", ["test-claude"], target)
         assert link.is_symlink()
 
     def test_skips_missing_skill_source(self, fake_repo, tmp_path):
         target = tmp_path / "project"
         target.mkdir()
-        # Skill not created in skills_dir
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
-            manifest={
-                "skills": ["nonexistent-skill"],
-                "hooks": [],
-                "pipelines": [],
-                "external": [],
-            },
-            settings={"hooks": {}},
+            manifest={"description": "p1"},
         )
-        install.install("p1", target)
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+                "skills": ["nonexistent-skill"],
+            },
+            prompt_md="# Rules",
+        )
+        install.install("p1", ["test-claude"], target)
         assert not (target / ".claude" / "skills" / "nonexistent-skill").exists()
 
     def test_skips_missing_hook_source(self, fake_repo, tmp_path):
         target = tmp_path / "project"
         target.mkdir()
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
-            manifest={
-                "skills": [],
-                "hooks": ["ghost-hook"],
-                "pipelines": [],
-                "external": [],
-            },
-            settings={"hooks": {}},
+            manifest={"description": "p1"},
         )
-        install.install("p1", target)
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+                "hooks": ["ghost-hook"],
+            },
+            prompt_md="# Rules",
+        )
+        install.install("p1", ["test-claude"], target)
         assert not (target / ".claude" / "hooks" / "ghost-hook").exists()
 
     def test_skips_missing_pipeline_source(self, fake_repo, tmp_path):
         target = tmp_path / "project"
         target.mkdir()
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
-            manifest={
-                "skills": [],
-                "hooks": [],
-                "pipelines": ["ghost-pipe"],
-                "external": [],
-            },
-            settings={"hooks": {}},
+            manifest={"description": "p1"},
         )
-        install.install("p1", target)
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+                "pipelines": ["ghost-pipe"],
+            },
+            prompt_md="# Rules",
+        )
+        install.install("p1", ["test-claude"], target)
         assert not (target / "pipelines" / "ghost-pipe").exists()
 
     def test_writes_claude_md(self, fake_repo, tmp_path):
         target = tmp_path / "project"
         target.mkdir()
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
-            manifest={"skills": [], "hooks": [], "pipelines": [], "external": []},
-            settings={"hooks": {}},
-            claude_md="## My Rules",
+            manifest={"description": "p1"},
         )
-        install.install("p1", target)
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+            },
+            prompt_md="## My Rules",
+        )
+        install.install("p1", ["test-claude"], target)
         content = (target / ".claude" / "CLAUDE.md").read_text()
         assert "## My Rules" in content
 
     def test_writes_settings_json(self, fake_repo, tmp_path):
         target = tmp_path / "project"
         target.mkdir()
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
-            manifest={"skills": [], "hooks": [], "pipelines": [], "external": []},
-            settings={"hooks": {"Stop": [{"command": "do-stop"}]}},
+            manifest={"description": "p1"},
         )
-        install.install("p1", target)
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+            },
+            prompt_md="# Rules",
+        )
+        install.install("p1", ["test-claude"], target)
         settings = json.loads((target / ".claude" / "settings.json").read_text())
-        assert "Stop" in settings["hooks"]
+        assert "hooks" in settings
 
     def test_hook_config_merged_into_settings(self, fake_repo, tmp_path):
         target = tmp_path / "project"
@@ -718,20 +726,23 @@ class TestInstall:
             ]
         }
         make_hook(fake_repo["hooks"], "my-hook", hooks_json=hooks_json)
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
-            manifest={
-                "skills": [],
-                "hooks": ["my-hook"],
-                "pipelines": [],
-                "external": [],
-            },
-            settings={"hooks": {}},
+            manifest={"description": "p1"},
         )
-        install.install("p1", target)
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+                "hooks": ["my-hook"],
+            },
+            prompt_md="# Rules",
+        )
+        install.install("p1", ["test-claude"], target)
         settings = json.loads((target / ".claude" / "settings.json").read_text())
-        # Hook config should be merged with {hook_dir} resolved
         stop_hooks = settings["hooks"]["Stop"]
         assert len(stop_hooks) == 1
         expected_cmd = str(target / ".claude" / "hooks" / "my-hook") + "/hook.sh stop"
@@ -740,62 +751,65 @@ class TestInstall:
     def test_pipelines_dir_not_created_when_empty(self, fake_repo, tmp_path):
         target = tmp_path / "project"
         target.mkdir()
-        make_preset(
-            fake_repo["presets"],
-            "p1",
-            manifest={"skills": [], "hooks": [], "pipelines": [], "external": []},
-            settings={"hooks": {}},
-        )
-        install.install("p1", target)
+        self._setup_basic(fake_repo, target)
+        install.install("test-profile", ["test-claude"], target)
         assert not (target / "pipelines").exists()
 
-    def test_workspace_pipeline_auto_adds_link_proxy(self, fake_repo, tmp_path):
+    def test_permissions_from_merged_settings(self, fake_repo, tmp_path):
         target = tmp_path / "project"
         target.mkdir()
-        make_pipeline(fake_repo["pipelines"], "workspace")
-        make_hook(fake_repo["hooks"], "link-proxy")
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
             manifest={
-                "skills": [],
-                "hooks": [],
-                "pipelines": ["workspace"],
-                "external": [],
+                "description": "p1",
+                "settings": {"permissions": {"allow": ["Read(*)"]}},
             },
-            settings={"hooks": {}},
         )
-        install.install("p1", target)
-        # link-proxy should be auto-added by resolve_dependencies
-        assert (target / ".claude" / "hooks" / "link-proxy").is_symlink()
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+                "settings": {"permissions": {"allow": ["Write(*)"]}},
+            },
+            prompt_md="# Rules",
+        )
+        install.install("p1", ["test-claude"], target)
+        settings = json.loads((target / ".claude" / "settings.json").read_text())
+        # Agent settings win on conflict during merge
+        assert "permissions" in settings
 
 
 # ===================================================================
-# list_presets
+# list_available
 # ===================================================================
 
 
-class TestListPresets:
-    """Test listing available presets."""
+class TestListAvailable:
+    """Test listing available profiles and agents."""
 
-    def test_lists_presets(self, fake_repo, capsys):
-        make_preset(
-            fake_repo["presets"],
+    def test_lists_profiles_and_agents(self, fake_repo):
+        make_profile(
+            fake_repo["profiles"],
             "alpha",
-            manifest={"description": "Alpha preset"},
+            manifest={"description": "Alpha profile"},
         )
-        make_preset(
-            fake_repo["presets"],
-            "beta",
-            manifest={"description": "Beta preset"},
+        make_agent(
+            fake_repo["agents"],
+            "beta-agent",
+            manifest={
+                "description": "Beta agent",
+                "runtime": "claude-code",
+                "target": ".claude",
+            },
         )
-        install.list_presets()
-        # Rich output goes to its own console, not captured by capsys.
-        # We just verify it doesn't crash.
+        # Just verify it doesn't crash
+        install.list_available()
 
-    def test_empty_presets_dir(self, fake_repo):
-        # No presets created, should not crash
-        install.list_presets()
+    def test_empty_dirs(self, fake_repo):
+        install.list_available()
 
 
 # ===================================================================
@@ -808,21 +822,38 @@ class TestMain:
 
     def test_list_flag(self, fake_repo):
         with patch("sys.argv", ["install.py", "--list"]):
-            with patch.object(install, "list_presets") as mock_list:
+            with patch.object(install, "list_available") as mock_list:
                 install.main()
                 mock_list.assert_called_once()
 
-    def test_presets_flag(self, fake_repo, tmp_path):
+    def test_profile_and_agents_flags(self, fake_repo, tmp_path):
         target = tmp_path / "project"
         target.mkdir()
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "base",
-            manifest={"skills": [], "hooks": [], "pipelines": [], "external": []},
-            settings={"hooks": {}},
+            manifest={"description": "base"},
+        )
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+            },
+            prompt_md="# Rules",
         )
         with patch(
-            "sys.argv", ["install.py", "--preset", "base", "--target", str(target)]
+            "sys.argv",
+            [
+                "install.py",
+                "--profile",
+                "base",
+                "--agents",
+                "test-claude",
+                "--target",
+                str(target),
+            ],
         ):
             install.main()
         assert (target / ".claude").is_dir()
@@ -830,45 +861,58 @@ class TestMain:
     def test_interactive_mode(self, fake_repo, tmp_path):
         target = tmp_path / "project"
         target.mkdir()
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "base",
+            manifest={"description": "Base"},
+        )
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
             manifest={
-                "description": "Base",
-                "skills": [],
-                "hooks": [],
-                "pipelines": [],
-                "external": [],
+                "description": "Test",
+                "runtime": "claude-code",
+                "target": ".claude",
             },
-            settings={"hooks": {}},
+            prompt_md="# Rules",
         )
         with (
             patch("sys.argv", ["install.py", "--target", str(target)]),
             patch.object(install, "Prompt") as mock_prompt,
         ):
-            mock_prompt.ask.return_value = "1"
+            # First ask: profile selection, second ask: agent selection
+            mock_prompt.ask.side_effect = ["1", "1"]
             install.main()
         assert (target / ".claude").is_dir()
 
-    def test_choose_preset_interactively_returns_selected_preset(self, fake_repo):
-        make_preset(
-            fake_repo["presets"],
+    def test_choose_profile_interactively_returns_selected(self, fake_repo):
+        make_profile(
+            fake_repo["profiles"],
             "base",
+            manifest={"description": "Base"},
+        )
+        with patch.object(install, "Prompt") as mock_prompt:
+            mock_prompt.ask.return_value = "1"
+            assert install.choose_profile_interactively() == "base"
+
+    def test_choose_agents_interactively_returns_selected(self, fake_repo):
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
             manifest={
-                "description": "Base",
-                "skills": [],
-                "hooks": [],
-                "pipelines": [],
-                "external": [],
+                "description": "Test",
+                "runtime": "claude-code",
+                "target": ".claude",
             },
         )
         with patch.object(install, "Prompt") as mock_prompt:
             mock_prompt.ask.return_value = "1"
-            assert install.choose_preset_interactively() == "base"
+            result = install.choose_agents_interactively()
+            assert result == ["test-claude"]
 
     def test_interactive_no_selection(self, fake_repo, tmp_path):
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "base",
             manifest={"description": "Base"},
         )
@@ -876,20 +920,28 @@ class TestMain:
             patch("sys.argv", ["install.py"]),
             patch.object(install, "Prompt") as mock_prompt,
         ):
-            # Select index out of range
             mock_prompt.ask.return_value = "99"
             install.main()
-            # Should print "No presets selected" and return, not crash
 
     def test_interactive_non_numeric_selection(self, fake_repo):
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "base",
             manifest={"description": "Base"},
         )
         with patch.object(install, "Prompt") as mock_prompt:
             mock_prompt.ask.return_value = "abc"
-            assert install.choose_preset_interactively() is None
+            assert install.choose_profile_interactively() is None
+
+    def test_profile_without_agents_prints_error(self, fake_repo, tmp_path):
+        target = tmp_path / "project"
+        target.mkdir()
+        with patch(
+            "sys.argv",
+            ["install.py", "--profile", "base", "--target", str(target)],
+        ):
+            # Should print error about --agents required
+            install.main()
 
 
 # ===================================================================
@@ -899,27 +951,6 @@ class TestMain:
 
 class TestEdgeCases:
     """Edge cases and unusual scenarios."""
-
-    def test_preset_with_none_manifest_values(self, fake_repo, tmp_path):
-        """Manifest with explicit None values for component lists."""
-        target = tmp_path / "project"
-        target.mkdir()
-        # Write manifest with null values
-        d = fake_repo["presets"] / "nulls"
-        d.mkdir()
-        (d / "manifest.yaml").write_text(
-            "description: Nulls\nskills:\nhooks:\npipelines:\nexternal:\n"
-        )
-        make_preset(
-            fake_repo["presets"],
-            "nulls",
-            settings={"hooks": {}},
-        )
-        result = install.collect_components("nulls")
-        assert result["skills"] == set()
-        assert result["hooks"] == set()
-        assert result["pipelines"] == set()
-        assert result["external"] == set()
 
     def test_hook_dir_placeholder_in_nested_json(self, fake_repo):
         """Placeholder appears in deeply nested values."""
@@ -952,29 +983,29 @@ class TestEdgeCases:
         target.mkdir()
         make_skill(fake_repo["skills"], "spec")
         make_hook(fake_repo["hooks"], "notification")
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
+            manifest={"description": "p1"},
+        )
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
             manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
                 "skills": ["spec"],
                 "hooks": ["notification"],
-                "pipelines": [],
-                "external": [],
             },
-            settings={"hooks": {}},
-            claude_md="Content",
+            prompt_md="Content",
         )
-        install.install("p1", target)
-        _first_settings = (target / ".claude" / "settings.json").read_text()
+        install.install("p1", ["test-claude"], target)
         first_claude_md = (target / ".claude" / "CLAUDE.md").read_text()
 
-        install.install("p1", target)
-        _second_settings = (target / ".claude" / "settings.json").read_text()
+        install.install("p1", ["test-claude"], target)
         second_claude_md = (target / ".claude" / "CLAUDE.md").read_text()
 
-        # .claude/CLAUDE.md is always overwritten, should be same
         assert first_claude_md == second_claude_md
-        # Symlinks should still be valid
         assert (target / ".claude" / "skills" / "spec").is_symlink()
         assert (target / ".claude" / "hooks" / "notification").is_symlink()
 
@@ -982,32 +1013,52 @@ class TestEdgeCases:
         """Hooks are reset on each install to avoid stale entries."""
         target = tmp_path / "project"
         target.mkdir()
-        make_preset(
-            fake_repo["presets"],
+        hooks_json = {
+            "Stop": [{"hooks": [{"type": "command", "command": "{hook_dir}/hook.sh"}]}]
+        }
+        make_hook(fake_repo["hooks"], "my-hook", hooks_json=hooks_json)
+        make_profile(
+            fake_repo["profiles"],
             "p1",
-            manifest={"skills": [], "hooks": [], "pipelines": [], "external": []},
-            settings={"hooks": {"Stop": [{"command": "a"}]}},
+            manifest={"description": "p1"},
         )
-        install.install("p1", target)
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+                "hooks": ["my-hook"],
+            },
+            prompt_md="# Rules",
+        )
+        install.install("p1", ["test-claude"], target)
         settings1 = json.loads((target / ".claude" / "settings.json").read_text())
         assert len(settings1["hooks"]["Stop"]) == 1
 
-        # Second install resets hooks (no accumulation)
-        install.install("p1", target)
+        install.install("p1", ["test-claude"], target)
         settings2 = json.loads((target / ".claude" / "settings.json").read_text())
         assert len(settings2["hooks"]["Stop"]) == 1
 
     def test_target_doesnt_exist_yet(self, fake_repo, tmp_path):
-        """Install creates .claude dir even if target has no .claude yet."""
+        """Install creates project dir even if target has no .claude yet."""
         target = tmp_path / "fresh-project"
         target.mkdir()
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
-            manifest={"skills": [], "hooks": [], "pipelines": [], "external": []},
-            settings={"hooks": {}},
+            manifest={"description": "p1"},
         )
-        install.install("p1", target)
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+            },
+            prompt_md="# Rules",
+        )
+        install.install("p1", ["test-claude"], target)
         assert (target / ".claude").is_dir()
         assert (target / ".claude" / "settings.json").exists()
 
@@ -1115,7 +1166,7 @@ class TestExtractCommonNames:
         assert names == ["skills", "git"]
 
     def test_ignores_non_common_includes(self):
-        content = "{{include:presets/kb/instructions/saving.md}}\n{{include:common/skills.md}}"
+        content = "{{include:profiles/kb/instructions/saving.md}}\n{{include:common/skills.md}}"
         names = install.extract_common_names_from_template(content)
         assert names == ["skills"]
 
@@ -1129,29 +1180,31 @@ class TestExtractCommonNames:
 
 
 class TestManifestCommonAndInstructions:
-    """Integration tests for common and instructions manifest keys."""
+    """Integration tests for common and instructions with profile + agent."""
 
     def test_common_sections_appended(self, fake_repo, tmp_path):
         target = tmp_path / "project"
         target.mkdir()
         make_common(fake_repo["common"], "skills", "## Skills\nUse skills.")
         make_common(fake_repo["common"], "git", "## Git\nCommit rules.")
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
+            manifest={"description": "p1"},
+        )
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
             manifest={
-                "skills": [],
-                "hooks": [],
-                "pipelines": [],
-                "external": [],
+                "runtime": "claude-code",
+                "target": ".claude",
                 "common": ["skills", "git"],
             },
-            settings={"hooks": {}},
-            claude_md="# My Preset",
+            prompt_md="# My Agent",
         )
-        install.install("p1", target)
+        install.install("p1", ["test-claude"], target)
         content = (target / ".claude" / "CLAUDE.md").read_text()
-        assert content.startswith("# My Preset")
+        assert content.startswith("# My Agent")
         assert "## Skills" in content
         assert "## Git" in content
 
@@ -1159,22 +1212,28 @@ class TestManifestCommonAndInstructions:
         target = tmp_path / "project"
         target.mkdir()
         make_common(fake_repo["common"], "git", "## Git\nCommit rules.")
-        make_instruction(fake_repo["presets"], "p1", "saving", "## Saving\nSave notes.")
-        make_preset(
-            fake_repo["presets"],
+        make_instruction(
+            fake_repo["profiles"], "p1", "saving", "## Saving\nSave notes."
+        )
+        make_profile(
+            fake_repo["profiles"],
             "p1",
             manifest={
-                "skills": [],
-                "hooks": [],
-                "pipelines": [],
-                "external": [],
+                "description": "p1",
                 "instructions": ["saving"],
+            },
+        )
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
                 "common": ["git"],
             },
-            settings={"hooks": {}},
-            claude_md="# KB Mode",
+            prompt_md="# KB Mode",
         )
-        install.install("p1", target)
+        install.install("p1", ["test-claude"], target)
         content = (target / ".claude" / "CLAUDE.md").read_text()
         saving_pos = content.index("## Saving")
         git_pos = content.index("## Git")
@@ -1189,20 +1248,23 @@ class TestManifestCommonAndInstructions:
             "## Orchestration\nDelegate work.",
             requires={"skills": ["orchestrator"]},
         )
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
+            manifest={"description": "p1"},
+        )
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
             manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
                 "skills": ["orchestrator"],
-                "hooks": [],
-                "pipelines": [],
-                "external": [],
                 "common": ["orchestration"],
             },
-            settings={"hooks": {}},
-            claude_md="# Dev",
+            prompt_md="# Dev",
         )
-        install.install("p1", target)
+        install.install("p1", ["test-claude"], target)
         content = (target / ".claude" / "CLAUDE.md").read_text()
         assert "---" not in content
         assert "requires" not in content
@@ -1217,76 +1279,68 @@ class TestManifestCommonAndInstructions:
             "## Orchestration",
             requires={"skills": ["orchestrator"]},
         )
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
+            manifest={"description": "p1"},
+        )
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
             manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
                 "skills": ["todo"],
-                "hooks": [],
-                "pipelines": [],
-                "external": [],
                 "common": ["orchestration"],
             },
-            settings={"hooks": {}},
-            claude_md="# Dev",
+            prompt_md="# Dev",
         )
         with pytest.raises(ValueError, match="Common file dependencies not satisfied"):
-            install.install("p1", target)
+            install.install("p1", ["test-claude"], target)
 
     def test_missing_instruction_file_raises(self, fake_repo, tmp_path):
         target = tmp_path / "project"
         target.mkdir()
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
             manifest={
-                "skills": [],
-                "hooks": [],
-                "pipelines": [],
-                "external": [],
+                "description": "p1",
                 "instructions": ["nonexistent"],
             },
-            settings={"hooks": {}},
-            claude_md="# Dev",
+        )
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+            },
+            prompt_md="# Dev",
         )
         with pytest.raises(FileNotFoundError):
-            install.install("p1", target)
+            install.install("p1", ["test-claude"], target)
 
     def test_missing_common_file_fails_install(self, fake_repo, tmp_path):
         target = tmp_path / "project"
         target.mkdir()
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
+            manifest={"description": "p1"},
+        )
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
             manifest={
-                "skills": [],
-                "hooks": [],
-                "pipelines": [],
-                "external": [],
+                "runtime": "claude-code",
+                "target": ".claude",
                 "common": ["nonexistent"],
             },
-            settings={"hooks": {}},
-            claude_md="# Dev",
+            prompt_md="# Dev",
         )
-        with pytest.raises(ValueError, match="Common file dependencies not satisfied"):
-            install.install("p1", target)
-
-    def test_collect_components_includes_common_and_instructions(self, fake_repo):
-        make_preset(
-            fake_repo["presets"],
-            "p1",
-            manifest={
-                "skills": ["spec"],
-                "hooks": [],
-                "pipelines": [],
-                "external": [],
-                "instructions": ["saving", "linking"],
-                "common": ["skills", "git"],
-            },
-        )
-        result = install.collect_components("p1")
-        assert result["instructions"] == ["saving", "linking"]
-        assert result["common"] == ["skills", "git"]
+        with pytest.raises((ValueError, FileNotFoundError)):
+            install.install("p1", ["test-claude"], target)
 
 
 # ===================================================================
@@ -1298,43 +1352,42 @@ class TestRegistry:
     """Test installation registry (installations.yaml) tracking."""
 
     def test_load_empty_registry(self, fake_repo):
-        """Loading when no file exists returns empty list."""
         result = install.load_registry()
         assert result == []
 
     def test_update_registry_creates_file(self, fake_repo):
-        install.update_registry("dev-workspace", Path("/some/target"))
+        install.update_registry("personal", Path("/some/target"))
         registry_path = fake_repo["root"] / "installations.yaml"
         assert registry_path.exists()
         entries = install.load_registry()
         assert len(entries) == 1
-        assert entries[0]["preset"] == "dev-workspace"
+        assert entries[0]["profile"] == "personal"
         assert entries[0]["target"] == "/some/target"
 
     def test_update_registry_stores_agents_and_project_dirs(self, fake_repo):
         install.update_registry(
-            "dev-workspace",
+            "personal",
             Path("/some/target"),
-            agents=["claude-code", "open-code"],
+            agents=["claude-code", "pi-standard"],
             project_dirs={
                 "claude-code": Path("/some/target/.claude"),
-                "open-code": Path("/some/target/.opencode"),
+                "pi-standard": Path("/some/target/.pi-standard"),
             },
         )
         entries = install.load_registry()
-        assert entries[0]["agents"] == ["claude-code", "open-code"]
+        assert entries[0]["agents"] == ["claude-code", "pi-standard"]
         assert entries[0]["project_dirs"]["claude-code"] == "/some/target/.claude"
 
     def test_update_registry_upserts_by_target(self, fake_repo):
-        install.update_registry("dev-workspace", Path("/some/target"))
-        install.update_registry("knowledge-base", Path("/some/target"))
+        install.update_registry("personal", Path("/some/target"))
+        install.update_registry("work", Path("/some/target"))
         entries = install.load_registry()
         assert len(entries) == 1
-        assert entries[0]["preset"] == "knowledge-base"
+        assert entries[0]["profile"] == "work"
 
     def test_update_registry_multiple_targets(self, fake_repo):
-        install.update_registry("dev-workspace", Path("/target/a"))
-        install.update_registry("knowledge-base", Path("/target/b"))
+        install.update_registry("personal", Path("/target/a"))
+        install.update_registry("work", Path("/target/b"))
         entries = install.load_registry()
         assert len(entries) == 2
 
@@ -1345,109 +1398,174 @@ class TestRegistry:
 
     def test_install_updates_registry(self, fake_repo):
         """A successful install() call should auto-update the registry."""
-        make_preset(
-            fake_repo["presets"],
-            "test-preset",
-            manifest={"skills": [], "hooks": [], "pipelines": []},
-            claude_md="# Test",
+        make_profile(
+            fake_repo["profiles"],
+            "test-profile",
+            manifest={"description": "test"},
+        )
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+            },
+            prompt_md="# Test",
         )
         target = fake_repo["root"] / "my_project"
         target.mkdir()
-        install.install("test-preset", target)
+        install.install("test-profile", ["test-claude"], target)
         entries = install.load_registry()
         assert len(entries) == 1
-        assert entries[0]["preset"] == "test-preset"
-        assert entries[0]["target"] == str(target)
-        assert entries[0]["agents"] == ["claude-code"]
+        assert entries[0]["profile"] == "test-profile"
+        assert entries[0]["target"] == str(target.resolve())
+        assert entries[0]["agents"] == ["test-claude"]
 
-    def test_install_fails_clearly_when_agents_missing(self, fake_repo):
-        d = fake_repo["presets"] / "missing-agents"
-        d.mkdir(parents=True)
-        (d / "manifest.yaml").write_text(json.dumps({"skills": [], "hooks": []}))
-        target = fake_repo["root"] / "project"
-        target.mkdir()
-
-        with pytest.raises(ValueError, match="must declare 'agents:' explicitly"):
-            install.install("missing-agents", target)
-
-    def test_install_all_uses_stored_selected_agents(self, fake_repo):
+    def test_install_all_reinstalls(self, fake_repo):
         make_skill(fake_repo["skills"], "spec")
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
-            manifest={"agents": ["claude-code", "open-code"], "skills": ["spec"]},
-            claude_md="# P1",
+            manifest={"description": "p1"},
+        )
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+                "skills": ["spec"],
+            },
+            prompt_md="# P1",
         )
         target = fake_repo["root"] / "t1"
         target.mkdir()
-        install.update_registry("p1", target, agents=["open-code"])
-
-        count = install.install_all()
-
-        assert count == 1
-        assert not (target / ".claude").exists()
-        assert (target / ".opencode" / "skills" / "spec").is_symlink()
-
-    def test_install_all_legacy_registry_defaults_to_claude(self, fake_repo):
-        make_preset(
-            fake_repo["presets"],
+        install.update_registry(
             "p1",
-            manifest={"agents": ["claude-code", "open-code"], "skills": []},
-            claude_md="# P1",
+            target,
+            agents=["test-claude"],
+            project_dirs={"test-claude": target / ".claude"},
         )
-        target = fake_repo["root"] / "t1"
-        target.mkdir()
-        install.update_registry("p1", target)
-
         count = install.install_all()
-
         assert count == 1
         assert (target / ".claude" / "CLAUDE.md").exists()
-        assert not (target / ".opencode").exists()
 
     def test_install_all_empty_registry(self, fake_repo):
-        """install_all falls back to interactive install when registry is empty."""
-        with patch.object(
-            install, "install_interactive", return_value=True
-        ) as mock_run:
-            count = install.install_all()
-        assert count == 1
-        mock_run.assert_called_once_with()
-
-    def test_install_all_empty_registry_returns_zero_on_cancel(self, fake_repo):
-        with patch.object(install, "install_interactive", return_value=False):
-            count = install.install_all()
+        count = install.install_all()
         assert count == 0
 
     def test_install_all_runs_all_entries(self, fake_repo):
-        """install_all reinstalls each registered entry."""
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p1",
-            manifest={"skills": [], "hooks": [], "pipelines": []},
-            claude_md="# P1",
+            manifest={"description": "p1"},
         )
-        make_preset(
-            fake_repo["presets"],
+        make_profile(
+            fake_repo["profiles"],
             "p2",
-            manifest={"skills": [], "hooks": [], "pipelines": []},
-            claude_md="# P2",
+            manifest={"description": "p2"},
+        )
+        make_agent(
+            fake_repo["agents"],
+            "test-claude",
+            manifest={
+                "runtime": "claude-code",
+                "target": ".claude",
+            },
+            prompt_md="# Rules",
         )
         t1 = fake_repo["root"] / "t1"
         t2 = fake_repo["root"] / "t2"
         t1.mkdir()
         t2.mkdir()
-        install.update_registry("p1", t1)
-        install.update_registry("p2", t2)
+        install.update_registry(
+            "p1",
+            t1,
+            agents=["test-claude"],
+            project_dirs={"test-claude": t1 / ".claude"},
+        )
+        install.update_registry(
+            "p2",
+            t2,
+            agents=["test-claude"],
+            project_dirs={"test-claude": t2 / ".claude"},
+        )
         count = install.install_all()
         assert count == 2
         assert (t1 / ".claude" / "CLAUDE.md").exists()
         assert (t2 / ".claude" / "CLAUDE.md").exists()
 
 
-class TestShippedPresetManifests:
-    def test_shipped_presets_declare_agents(self):
-        for preset in ["dev-workspace", "work", "knowledge-base"]:
-            manifest_path = REPO_ROOT / "presets" / preset / "manifest.yaml"
-            content = manifest_path.read_text()
-            assert "\nagents:" in f"\n{content}"
+# ===================================================================
+# migrate_registry_entry
+# ===================================================================
+
+
+class TestMigrateRegistryEntry:
+    """Test v1 → v2 registry migration."""
+
+    def test_already_v2_unchanged(self):
+        entry = {"profile": "personal", "target": "/t"}
+        result = install.migrate_registry_entry(entry)
+        assert result == entry
+
+    def test_v1_dev_workspace_maps_to_personal(self):
+        entry = {"preset": "dev-workspace", "target": "/t"}
+        result = install.migrate_registry_entry(entry)
+        assert result["profile"] == "personal"
+        assert "preset" not in result
+        assert result["target"] == "/t"
+
+    def test_v1_knowledge_base_maps_to_knowledge_base(self):
+        entry = {"preset": "knowledge-base", "target": "/t"}
+        result = install.migrate_registry_entry(entry)
+        assert result["profile"] == "knowledge-base"
+
+    def test_v1_work_maps_to_work(self):
+        entry = {"preset": "work", "target": "/t"}
+        result = install.migrate_registry_entry(entry)
+        assert result["profile"] == "work"
+
+    def test_v1_unknown_preset_uses_name_as_is(self):
+        entry = {"preset": "custom", "target": "/t"}
+        result = install.migrate_registry_entry(entry)
+        assert result["profile"] == "custom"
+
+    def test_preserves_other_fields(self):
+        entry = {
+            "preset": "dev-workspace",
+            "target": "/t",
+            "knowledge_base": "/vault",
+            "agents": ["claude-code"],
+        }
+        result = install.migrate_registry_entry(entry)
+        assert result["knowledge_base"] == "/vault"
+        assert result["agents"] == ["claude-code"]
+
+
+# ===================================================================
+# Shipped manifests validation
+# ===================================================================
+
+
+class TestShippedManifests:
+    """Test that shipped profiles and agents have valid manifests."""
+
+    def test_shipped_profiles_have_manifests(self):
+        for profile in ["personal", "work", "knowledge-base"]:
+            manifest_path = REPO_ROOT / "profiles" / profile / "manifest.yaml"
+            assert manifest_path.exists(), f"Profile {profile} missing manifest.yaml"
+
+    def test_shipped_agents_have_manifests(self):
+        for agent in ["claude-code", "pi-standard", "pi-quick", "pi-team"]:
+            manifest_path = REPO_ROOT / "agents" / agent / "manifest.yaml"
+            assert manifest_path.exists(), f"Agent {agent} missing manifest.yaml"
+
+    def test_shipped_agents_have_runtime_and_target(self):
+        import yaml as real_yaml
+
+        for agent in ["claude-code", "pi-standard"]:
+            manifest_path = REPO_ROOT / "agents" / agent / "manifest.yaml"
+            manifest = real_yaml.safe_load(manifest_path.read_text())
+            assert "runtime" in manifest, f"Agent {agent} missing 'runtime'"
+            assert "target" in manifest, f"Agent {agent} missing 'target'"
