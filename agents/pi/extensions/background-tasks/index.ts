@@ -345,11 +345,15 @@ export default function (pi: ExtensionAPI) {
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       widgetCtx = ctx;
+      if (!ctx.model) {
+        return {
+          content: [{ type: "text" as const, text: "No model configured. Select a model first (/model or settings.json)." }],
+        };
+      }
+
       const id = generateTaskId();
       const cwd = process.cwd();
-      const model = ctx.model
-        ? `${ctx.model.provider}/${ctx.model.id}`
-        : "openrouter/google/gemini-3-flash-preview";
+      const model = `${ctx.model.provider}/${ctx.model.id}`;
 
       const extensionPaths = getExtensionsForSubagent(cwd);
       const info = await spawnAgent(id, params.task, model, cwd, extensionPaths);
