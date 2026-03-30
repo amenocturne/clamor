@@ -17,8 +17,7 @@ import { resolve } from "path";
 import { loadHookConfig, findMatchingHooks } from "./config.ts";
 import type { HookConfig } from "./config.ts";
 import { runHook } from "./hook-runner.ts";
-import { writeRequest, waitForResponse } from "../permission-queue/index.ts";
-import type { PermissionRequest } from "../permission-queue/types.ts";
+import { writeRequest, waitForResponse, type PermissionRequest } from "../../lib/permission-queue.ts";
 
 /** Tools that only read — safe to auto-allow within project dir */
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
@@ -39,7 +38,7 @@ const PASSTHROUGH_TOOLS = new Set([
 let enqueuePermission: ((toolName: string, toolInput: Record<string, unknown>) => Promise<"allow" | "deny">) | null = null;
 
 try {
-  const qw = await import("../background-tasks/queue-watcher.ts");
+  const qw = await import("../../lib/queue-watcher.ts");
   enqueuePermission = qw.enqueuePermission;
 } catch {
   // background-tasks not available — will fall back to direct prompting

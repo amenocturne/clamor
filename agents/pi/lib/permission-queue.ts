@@ -4,7 +4,7 @@
  * Atomic read/write logic for permission request/response files.
  * Used by:
  *   - permission-gate (write side, in subagents) — writes .request.json, polls for .response.json
- *   - background-tasks (read side, in main session) — watches for .request.json, writes .response.json
+ *   - queue-watcher (read side, in main session) — watches for .request.json, writes .response.json
  *
  * All writes are atomic: write to .tmp, then rename. This prevents partial reads.
  */
@@ -21,8 +21,25 @@ import {
 } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import type { PermissionRequest, PermissionResponse } from "./types.ts";
-import { QUEUE_BASE_DIR } from "./types.ts";
+
+// ── Types ───────────────────────────────────────────────────────────────
+
+export interface PermissionRequest {
+  id: string;
+  taskId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface PermissionResponse {
+  id: string;
+  decision: "allow" | "deny";
+  reason?: string;
+  respondedAt: string;
+}
+
+export const QUEUE_BASE_DIR = ".pi/agent/permission-queue";
 
 // ── Paths ────────────────────────────────────────────────────────────
 
@@ -52,7 +69,6 @@ function atomicWrite(filePath: string, data: unknown): void {
 
 // ── Write Side (subagent permission-gate) ────────────────────────────
 
-/** Write a permission request file. Returns the request file path. */
 export function writeRequest(request: PermissionRequest): string {
   const dir = taskDir(request.taskId);
   mkdirSync(dir, { recursive: true });
@@ -61,10 +77,6 @@ export function writeRequest(request: PermissionRequest): string {
   return path;
 }
 
-/**
- * Poll for a permission response. Returns the response when found, or null.
- * Caller should poll this in a loop with a short interval (100-200ms).
- */
 export function readResponse(
   taskId: string,
   requestId: string,
@@ -79,10 +91,6 @@ export function readResponse(
   }
 }
 
-/**
- * Block until a response file appears. Polls every `intervalMs` milliseconds.
- * Returns the response, or null if `timeoutMs` is exceeded.
- */
 export async function waitForResponse(
   taskId: string,
   requestId: string,
@@ -98,12 +106,9 @@ export async function waitForResponse(
   return null;
 }
 
-// ── Read Side (main session background-tasks) ────────────────────────
+// ── Read Side (main session) ────────────────────────────────────────
 
-/** Scan for pending permission requests across all tasks or a specific task. */
-export function scanRequests(
-  filterTaskId?: string,
-): PermissionRequest[] {
+export function scanRequests(filterTaskId?: string): PermissionRequest[] {
   const root = queueRoot();
   if (!existsSync(root)) return [];
 
@@ -111,11 +116,7 @@ export function scanRequests(
   const taskDirs = filterTaskId
     ? [filterTaskId]
     : readdirSync(root).filter((f) => {
-        try {
-          return existsSync(join(root, f));
-        } catch {
-          return false;
-        }
+        try { return existsSync(join(root, f)); } catch { return false; }
       });
 
   for (const tid of taskDirs) {
@@ -123,32 +124,23 @@ export function scanRequests(
     if (!existsSync(dir)) continue;
 
     let files: string[];
-    try {
-      files = readdirSync(dir);
-    } catch {
-      continue;
-    }
+    try { files = readdirSync(dir); } catch { continue; }
 
     for (const file of files) {
       if (!file.endsWith(".request.json")) continue;
-
-      // Skip if already responded
       const reqId = file.replace(".request.json", "");
       if (files.includes(`${reqId}.response.json`)) continue;
 
       try {
         const raw = readFileSync(join(dir, file), "utf-8");
         requests.push(JSON.parse(raw) as PermissionRequest);
-      } catch {
-        // Skip malformed files
-      }
+      } catch {}
     }
   }
 
   return requests;
 }
 
-/** Write a permission response file (main session answering a subagent). */
 export function writeResponse(response: PermissionResponse, taskId: string): void {
   const dir = taskDir(taskId);
   mkdirSync(dir, { recursive: true });
@@ -158,28 +150,19 @@ export function writeResponse(response: PermissionResponse, taskId: string): voi
 
 // ── Cleanup ──────────────────────────────────────────────────────────
 
-/** Remove all request/response files for a task. */
 export function cleanupTask(taskId: string): void {
   const dir = taskDir(taskId);
   if (!existsSync(dir)) return;
-
   try {
     for (const file of readdirSync(dir)) {
-      try {
-        unlinkSync(join(dir, file));
-      } catch {}
+      try { unlinkSync(join(dir, file)); } catch {}
     }
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {}
+    try { rmSync(dir, { recursive: true, force: true }); } catch {}
   } catch {}
 }
 
-/** Remove the entire queue root. Call on session end if desired. */
 export function cleanupAll(): void {
   const root = queueRoot();
   if (!existsSync(root)) return;
-  try {
-    rmSync(root, { recursive: true, force: true });
-  } catch {}
+  try { rmSync(root, { recursive: true, force: true }); } catch {}
 }

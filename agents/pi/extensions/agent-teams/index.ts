@@ -20,7 +20,7 @@ import { Type } from "@sinclair/typebox";
 import { existsSync, readFileSync, readdirSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { parse } from "yaml";
-import { spawnAgent, generateTaskId, type TaskInfo } from "../background-tasks/task-manager.ts";
+import { spawnAgent, generateTaskId, type TaskInfo } from "../../lib/task-manager.ts";
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -85,7 +85,7 @@ function resolvePrompt(prompt: string): string {
 
 async function resolveModel(role: string, ctx: ExtensionContext): Promise<string> {
   try {
-    const { getModelForRole } = await import("../model-router/index.ts");
+    const { getModelForRole } = await import("../../lib/model-router.ts");
     const model = getModelForRole(role);
     if (model) return model;
   } catch {}

@@ -15,8 +15,8 @@ import {
   cleanupAll,
   scanRequests,
   writeResponse,
-} from "../permission-queue/index.ts";
-import type { PermissionResponse } from "../permission-queue/types.ts";
+  type PermissionResponse,
+} from "./permission-queue.ts";
 import { getTask } from "./task-manager.ts";
 
 // ── Types ───────────────────────────────────────────────────────────────

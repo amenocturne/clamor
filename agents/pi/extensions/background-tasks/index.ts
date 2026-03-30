@@ -20,7 +20,7 @@ import { Type } from "@sinclair/typebox";
 import { existsSync, readdirSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
-import { cleanupQueue, startWatching, stopWatching } from "./queue-watcher.ts";
+import { cleanupQueue, startWatching, stopWatching } from "../../lib/queue-watcher.ts";
 import {
   generateTaskId,
   getAllTasks,
@@ -32,7 +32,7 @@ import {
   spawnCommand,
   type NotifyMode,
   type TaskInfo,
-} from "./task-manager.ts";
+} from "../../lib/task-manager.ts";
 
 // ── Extension Root ──────────────────────────────────────────────────────
 
@@ -370,7 +370,7 @@ export default function (pi: ExtensionAPI) {
       // Use model-router's worker role if available, otherwise fall back to session model
       let model: string;
       try {
-        const { getModelForRole } = await import("../model-router/index.ts");
+        const { getModelForRole } = await import("../../lib/model-router.ts");
         const workerModel = getModelForRole("worker");
         model = workerModel || `${ctx.model.provider}/${ctx.model.id}`;
       } catch {
