@@ -9,18 +9,43 @@ from lib.install_utils import (
 )
 
 AGENT_DIRNAME = ".pi"
+
+# Core extensions installed for all presets
+CORE_EXTENSIONS = {"permission-gate", "background-tasks"}
+
+# Preset-specific extensions and settings
+PRESET_CONFIG = {
+    "work": {
+        "extensions": {"nestor-provider"},
+        "settings": {
+            "defaultProvider": "nestor",
+            "defaultModel": "tgpt/qwen35-397b-a17b-fp8",
+            "defaultThinkingLevel": "medium",
+        },
+    },
+}
+
+# Fallback settings when no preset-specific config exists
 DEFAULT_SETTINGS = {
-    "defaultProvider": "nestor",
-    "defaultModel": "tgpt/qwen35-397b-a17b-fp8",
     "defaultThinkingLevel": "medium",
 }
-DEFAULT_EXTENSIONS = {"nestor-provider", "permission-gate", "background-tasks"}
+
+
+def get_extensions(ctx: InstallContext) -> set[str]:
+    preset = PRESET_CONFIG.get(ctx.preset_name, {})
+    return CORE_EXTENSIONS | preset.get("extensions", set())
+
+
+def get_settings(ctx: InstallContext) -> dict:
+    preset = PRESET_CONFIG.get(ctx.preset_name, {})
+    return preset.get("settings", DEFAULT_SETTINGS)
 
 
 def validate_required_extensions(ctx: InstallContext) -> None:
     extensions_root = ctx.repo_root / "agents" / "pi" / "extensions"
+    wanted = get_extensions(ctx)
     missing = sorted(
-        name for name in DEFAULT_EXTENSIONS if not (extensions_root / name).exists()
+        name for name in wanted if not (extensions_root / name).exists()
     )
     if missing:
         raise FileNotFoundError(
@@ -81,6 +106,7 @@ def install_hooks(ctx: InstallContext, console=None) -> None:
 def install(ctx: InstallContext, console=None) -> None:
     ctx.project_dir.mkdir(parents=True, exist_ok=True)
     validate_required_extensions(ctx)
+    wanted = get_extensions(ctx)
     sync_symlinks(
         ctx.repo_root / "skills",
         ctx.project_dir / "skills",
@@ -91,13 +117,13 @@ def install(ctx: InstallContext, console=None) -> None:
     sync_symlinks(
         ctx.repo_root / "agents" / "pi" / "extensions",
         ctx.project_dir / "extensions",
-        DEFAULT_EXTENSIONS,
+        wanted,
         "Extension",
         console=console,
     )
     missing_links = sorted(
         name
-        for name in DEFAULT_EXTENSIONS
+        for name in wanted
         if not (ctx.project_dir / "extensions" / name).is_symlink()
     )
     if missing_links:
@@ -106,5 +132,5 @@ def install(ctx: InstallContext, console=None) -> None:
             + ", ".join(missing_links)
         )
     install_hooks(ctx, console=console)
-    write_json(ctx.project_dir / "settings.json", DEFAULT_SETTINGS)
+    write_json(ctx.project_dir / "settings.json", get_settings(ctx))
     update_managed_config(ctx.project_dir / "agentic-kit.json", ctx)
