@@ -14,7 +14,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -561,26 +561,44 @@ function streamNestor(
 // Extension Entry Point
 // =============================================================================
 
+function readDefaultModel(): string {
+	// Read .pi/settings.json to find the configured default model
+	// so we can register a placeholder with the correct ID
+	try {
+		const settingsPath = join(process.cwd(), ".pi", "settings.json");
+		if (existsSync(settingsPath)) {
+			const raw = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			if (raw.defaultModel) return raw.defaultModel;
+		}
+	} catch {}
+	return "default";
+}
+
 export default function (pi: ExtensionAPI) {
 	piRef = pi;
 
-	// Register with a placeholder model — real models loaded after /login or auto-login
+	const defaultModelId = readDefaultModel();
+
+	// Register placeholder with the actual model ID from settings
+	// so Pi can resolve defaultModel immediately at startup.
+	// Real model list replaces this after auto-login in session_start.
 	pi.registerProvider("nestor", {
 		baseUrl: API_BASE,
 		apiKey: "NESTOR_JWT",
 		api: "openai-completions",
 		models: [
 			{
-				id: "default",
-				name: "Nestor Default (login to discover models)",
-				reasoning: false,
+				id: defaultModelId,
+				name: `${defaultModelId} (authenticating...)`,
+				reasoning: defaultModelId.includes("qwen"),
 				input: ["text"],
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 128_000,
-				maxTokens: 4096,
+				contextWindow: inferContextWindow(defaultModelId),
+				maxTokens: inferMaxTokens(defaultModelId),
 				compat: {
 					maxTokensField: "max_tokens",
 					supportsDeveloperRole: false,
+					...(defaultModelId.includes("qwen") && { thinkingFormat: "qwen" as const }),
 				},
 			},
 		],
