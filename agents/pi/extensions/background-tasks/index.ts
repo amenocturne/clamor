@@ -694,20 +694,10 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // Double-Escape: abort everything — current operation + all background tasks
-  let lastEscapeTime = 0;
-
-  pi.registerShortcut("escape", {
-    description: "Double-tap Escape: kill all background tasks and abort",
+  // Ctrl+K: kill all background tasks and abort current operation
+  pi.registerShortcut("ctrl+k", {
+    description: "Kill all background tasks and abort",
     handler: async (ctx) => {
-      const now = Date.now();
-      const gap = now - lastEscapeTime;
-      lastEscapeTime = now;
-
-      // Single tap: let Pi handle it (cancel current operation)
-      if (gap > 500) return;
-
-      // Double tap: kill everything
       const running = getAllTasks().filter((t) => t.status === "running");
 
       if (running.length > 0) {
