@@ -35,7 +35,18 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const permissionGatePath = resolve(__dirname, "../permission-gate");
-const nestorProviderPath = resolve(__dirname, "../nestor-provider");
+
+/** Read all -e/--extension paths from process.argv so subagents inherit them. */
+function getLoadedExtensions(): string[] {
+  const paths: string[] = [];
+  const argv = process.argv;
+  for (let i = 0; i < argv.length - 1; i++) {
+    if (argv[i] === "-e" || argv[i] === "--extension") {
+      paths.push(resolve(argv[i + 1]));
+    }
+  }
+  return paths;
+}
 
 // ── Widget State ────────────────────────────────────────────────────────
 
@@ -307,7 +318,10 @@ export default function (pi: ExtensionAPI) {
         ? `${ctx.model.provider}/${ctx.model.id}`
         : "openrouter/google/gemini-3-flash-preview";
 
-      const extensionPaths = [permissionGatePath, nestorProviderPath];
+      // Inherit all extensions from main session + ensure permission-gate is included
+      const inherited = getLoadedExtensions();
+      const hasPermissionGate = inherited.some((p) => p.includes("permission-gate"));
+      const extensionPaths = hasPermissionGate ? inherited : [permissionGatePath, ...inherited];
       const info = spawnAgent(id, params.task, model, cwd, extensionPaths);
 
       updateWidget();
