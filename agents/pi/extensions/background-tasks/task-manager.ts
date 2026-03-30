@@ -110,13 +110,17 @@ export function spawnCommand(id: string, command: string, cwd: string): TaskInfo
 
 // ── Agent Spawning ──────────────────────────────────────────────────────
 
-export function spawnAgent(
+// Stagger parallel agent spawns to avoid lock contention on Pi's config/auth files
+let lastAgentSpawnTime = 0;
+const SPAWN_STAGGER_MS = 500;
+
+export async function spawnAgent(
   id: string,
   task: string,
   model: string,
   cwd: string,
   extensionPaths: string[],
-): TaskInfo {
+): Promise<TaskInfo> {
   const info: TaskInfo = {
     id,
     type: "agent",
@@ -130,6 +134,14 @@ export function spawnAgent(
   };
 
   taskRegistry.set(id, info);
+
+  // Stagger: wait if another agent was spawned recently
+  const now = Date.now();
+  const elapsed = now - lastAgentSpawnTime;
+  if (elapsed < SPAWN_STAGGER_MS) {
+    await new Promise((r) => setTimeout(r, SPAWN_STAGGER_MS - elapsed));
+  }
+  lastAgentSpawnTime = Date.now();
 
   const extensionArgs = extensionPaths.flatMap((p) => ["-e", p]);
 

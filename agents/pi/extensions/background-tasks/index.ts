@@ -352,7 +352,7 @@ export default function (pi: ExtensionAPI) {
         : "openrouter/google/gemini-3-flash-preview";
 
       const extensionPaths = getExtensionsForSubagent(cwd);
-      const info = spawnAgent(id, params.task, model, cwd, extensionPaths);
+      const info = await spawnAgent(id, params.task, model, cwd, extensionPaths);
 
       updateWidget();
 
