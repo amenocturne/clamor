@@ -35,6 +35,7 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const permissionGatePath = resolve(__dirname, "../permission-gate");
+const nestorProviderPath = resolve(__dirname, "../nestor-provider");
 
 // ── Widget State ────────────────────────────────────────────────────────
 
@@ -306,7 +307,7 @@ export default function (pi: ExtensionAPI) {
         ? `${ctx.model.provider}/${ctx.model.id}`
         : "openrouter/google/gemini-3-flash-preview";
 
-      const extensionPaths = [permissionGatePath];
+      const extensionPaths = [permissionGatePath, nestorProviderPath];
       const info = spawnAgent(id, params.task, model, cwd, extensionPaths);
 
       updateWidget();
