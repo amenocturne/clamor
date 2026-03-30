@@ -737,6 +737,9 @@ export default function (pi: ExtensionAPI) {
     setOnTaskComplete((task) => {
       updateWidget();
 
+      // Don't notify for killed tasks — user already knows
+      if (task.status === "killed") return;
+
       const icon = task.status === "done" ? "✓" : "✗";
       const elapsed = formatElapsed(task);
       const typeLabel = task.type === "agent" ? "Agent task" : "Command";
@@ -751,7 +754,7 @@ export default function (pi: ExtensionAPI) {
         : "\n✓ All background tasks have completed.";
 
       const message = [
-        `${icon} ${typeLabel} ${task.id} finished (${task.status}, ${elapsed})`,
+        `${icon} ${typeLabel} ${task.id} ${task.status === "done" ? "completed" : "failed"} (${elapsed})`,
         `Task: ${task.command}`,
         task.exitCode !== undefined ? `Exit code: ${task.exitCode}` : "",
         remainingNote,
