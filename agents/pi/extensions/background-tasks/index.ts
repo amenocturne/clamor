@@ -756,9 +756,15 @@ export default function (pi: ExtensionAPI) {
       const typeLabel = task.type === "agent" ? "Agent task" : "Command";
       const allTasks = getAllTasks();
       const stillRunning = allTasks.filter((t) => t.status === "running").length;
-      const truncatedOutput = task.output.length > 6000
-        ? task.output.slice(-6000) + "\n... [truncated]"
+
+      // For agents: use final report (last assistant message), not full tool history
+      // For commands: use raw stdout
+      const resultText = task.type === "agent" && task.finalReport
+        ? task.finalReport
         : task.output;
+      const truncatedResult = resultText.length > 6000
+        ? resultText.slice(-6000) + "\n... [truncated]"
+        : resultText;
 
       const remainingNote = stillRunning > 0
         ? `\n⏳ ${stillRunning} task(s) still running — wait for their completion messages before summarizing.`
@@ -770,7 +776,7 @@ export default function (pi: ExtensionAPI) {
         task.exitCode !== undefined ? `Exit code: ${task.exitCode}` : "",
         remainingNote,
         "",
-        truncatedOutput,
+        truncatedResult,
         task.errors ? `\n--- stderr ---\n${task.errors.slice(-2000)}` : "",
       ].filter(Boolean).join("\n");
 

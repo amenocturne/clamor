@@ -26,6 +26,8 @@ export interface TaskInfo {
   errors: string;
   pid?: number;
   pendingPermissions: number;
+  /** For agents: only the final assistant text (not tool history) */
+  finalReport: string;
 }
 
 // ── Registry ────────────────────────────────────────────────────────────
@@ -59,6 +61,7 @@ export function spawnCommand(id: string, command: string, cwd: string): TaskInfo
     output: "",
     errors: "",
     pendingPermissions: 0,
+    finalReport: "",
   };
 
   taskRegistry.set(id, info);
@@ -123,6 +126,7 @@ export function spawnAgent(
     output: "",
     errors: "",
     pendingPermissions: 0,
+    finalReport: "",
   };
 
   taskRegistry.set(id, info);
@@ -197,6 +201,9 @@ export function spawnAgent(
 
 // ── JSON Event Parsing ──────────────────────────────────────────────────
 
+/** Track current message text — reset on each new assistant message */
+const agentCurrentMessage = new Map<string, string>();
+
 function processJsonLine(info: TaskInfo, line: string): void {
   if (!line.trim()) return;
   try {
@@ -207,12 +214,20 @@ function processJsonLine(info: TaskInfo, line: string): void {
       const delta = event.assistantMessageEvent;
       if (delta?.type === "text_delta" && typeof delta.delta === "string") {
         info.output += delta.delta;
+        // Accumulate current message text
+        const current = agentCurrentMessage.get(info.id) ?? "";
+        agentCurrentMessage.set(info.id, current + delta.delta);
       }
-    } else if (type === "tool_execution_start") {
-      // Track tool activity
-      info.output += `\n[tool: ${event.toolName || "unknown"}]\n`;
     } else if (type === "message_end") {
-      // Could extract token usage from event.usage if needed
+      // Save the completed message as the latest report
+      const msg = agentCurrentMessage.get(info.id);
+      if (msg) {
+        info.finalReport = msg;
+      }
+      agentCurrentMessage.delete(info.id);
+    } else if (type === "tool_execution_start") {
+      // New tool call means a new turn is starting — reset current message
+      agentCurrentMessage.delete(info.id);
     }
   } catch {
     // Not JSON — treat as raw output
