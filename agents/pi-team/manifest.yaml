@@ -29,6 +29,7 @@ extensions:
   - model-router
   - behavioral-reminders
   - context-loader
+  - agent-teams
 
 hooks:
   - deny-read
