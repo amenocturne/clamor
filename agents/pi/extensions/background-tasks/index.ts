@@ -17,7 +17,8 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { DynamicBorder } from "@mariozechner/pi-coding-agent";
 import { Container, Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { dirname, resolve } from "path";
+import { existsSync, readdirSync } from "fs";
+import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { cleanupQueue, startWatching, stopWatching } from "./queue-watcher.ts";
 import {
@@ -36,16 +37,41 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const permissionGatePath = resolve(__dirname, "../permission-gate");
 
-/** Read all -e/--extension paths from process.argv so subagents inherit them. */
-function getLoadedExtensions(): string[] {
-  const paths: string[] = [];
+/**
+ * Discover extensions to pass to subagents.
+ * First tries -e flags from process.argv (explicit launch).
+ * Falls back to scanning .pi/extensions/ directory (auto-discovery).
+ * Excludes background-tasks itself to prevent recursive spawning.
+ */
+function getExtensionsForSubagent(cwd: string): string[] {
+  const selfName = "background-tasks";
+
+  // Try explicit -e flags first
   const argv = process.argv;
+  const explicit: string[] = [];
   for (let i = 0; i < argv.length - 1; i++) {
     if (argv[i] === "-e" || argv[i] === "--extension") {
-      paths.push(resolve(argv[i + 1]));
+      const p = resolve(argv[i + 1]);
+      if (!p.includes(selfName)) explicit.push(p);
     }
   }
-  return paths;
+  if (explicit.length > 0) return explicit;
+
+  // Fall back: scan .pi/extensions/ directory
+  const extDir = join(cwd, ".pi", "extensions");
+  if (!existsSync(extDir)) return [permissionGatePath];
+
+  const paths: string[] = [];
+  for (const entry of readdirSync(extDir)) {
+    if (entry === selfName) continue;
+    const full = resolve(extDir, entry);
+    // Only include directories that look like extensions (have index.ts or package.json)
+    if (existsSync(join(full, "index.ts")) || existsSync(join(full, "package.json"))) {
+      paths.push(full);
+    }
+  }
+
+  return paths.length > 0 ? paths : [permissionGatePath];
 }
 
 // ── Widget State ────────────────────────────────────────────────────────
@@ -318,10 +344,7 @@ export default function (pi: ExtensionAPI) {
         ? `${ctx.model.provider}/${ctx.model.id}`
         : "openrouter/google/gemini-3-flash-preview";
 
-      // Inherit all extensions from main session + ensure permission-gate is included
-      const inherited = getLoadedExtensions();
-      const hasPermissionGate = inherited.some((p) => p.includes("permission-gate"));
-      const extensionPaths = hasPermissionGate ? inherited : [permissionGatePath, ...inherited];
+      const extensionPaths = getExtensionsForSubagent(cwd);
       const info = spawnAgent(id, params.task, model, cwd, extensionPaths);
 
       updateWidget();
