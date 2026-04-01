@@ -1,6 +1,6 @@
 # System Prompts
 
-Each agent variant has a `prompt.md` file in its manifest directory. These are Qwen-specific: longer, more repetitive, and more explicit than prompts designed for Claude-class models.
+Each agent manifest has a `prompt.md` file in its directory. These are Qwen-specific: longer, more repetitive, and more explicit than prompts designed for Claude-class models. Prompt complexity scales with team depth -- a solo agent needs fewer rules than a team orchestrator.
 
 ## Prompt Structure
 
@@ -102,19 +102,23 @@ Each variant opens with a clear role statement:
 
 This sets the model's behavioral frame before any rules. "Senior engineer" produces more concise, decisive output than no persona.
 
-## Variant Differences
+## Prompt Scaling by Team Depth
 
-### pi-quick
+The three prompt files differ in role-specific sections. The shared skeleton (workflow, one-tool-per-message, confirmation gate, DO NOT list, tool output framing, output format, context continuation, REMEMBER) is identical across all three. What changes is the delegation and coordination content.
 
-Minimal prompt (~120 lines). No orchestration, no delegation, no git rules. Adds:
+### pi-quick (~120 lines) -- Solo Agent
+
+Minimal prompt. No orchestration, no delegation, no git rules. Adds:
 
 - **SCOPE** section: explicitly lists what it handles (quick questions, single-file edits, config tweaks) and what it doesn't (multi-file refactors, architecture decisions)
 - "Suggest the user use pi-standard instead" for out-of-scope tasks
 - No bg-agent/bg-team references -- "Do NOT delegate" is in the DO NOT list
 
-### pi-standard
+Best paired with solo teams in teams.yaml. The prompt assumes the agent does everything itself.
 
-Full development prompt (~200 lines). Adds these sections beyond the base:
+### pi-standard (~200 lines) -- Orchestrator + Workers
+
+Full development prompt. Adds these sections beyond the base:
 
 - **ROLE: DEVELOPMENT COORDINATOR** -- implement directly for small tasks, delegate via bg-agent for multi-step work
 - **DELEGATION RULES** -- what to include when delegating (task description, file paths, constraints, definition of done)
@@ -122,14 +126,18 @@ Full development prompt (~200 lines). Adds these sections beyond the base:
 - **LOOP PREVENTION** -- hard limits (5+ consecutive reads, 3x repeated calls, 10+ lines of prose, deliberation loops)
 - **GIT RULES** -- commit style, no co-authored-by, run tests first
 
-### pi-team
+Best paired with orchestrator+worker teams in teams.yaml. The prompt assumes the agent plans and delegates to subagents.
 
-Extends pi-standard (~220 lines). Adds/replaces:
+### pi-team (~240 lines) -- Deep Teams
+
+Extends pi-standard. Adds/replaces:
 
 - **ROLE: TEAM ORCHESTRATOR** -- "You coordinate. You do NOT implement." with a strict list of allowed direct actions (trivial edits, config, git)
 - **TEAM STRATEGIES** -- when to use best-of-n, debate, ensemble (with WRONG/RIGHT examples)
 - **DISPATCH PATTERNS** -- parallel independent work with `notify: "when_idle"`, sequential dependent work with `notify: "immediate"`
 - **MODEL ROUTING** -- awareness of orchestrator/worker/reviewer roles
+
+Best paired with deep team configurations in teams.yaml. The prompt assumes the agent never implements directly and always delegates.
 
 ## How Instructions Supplement the Prompt
 
