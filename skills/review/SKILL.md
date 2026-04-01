@@ -20,10 +20,11 @@ just -f <skill-path>/justfile launch --repo "$(pwd)" --range HEAD~N..HEAD --mess
 
 ### Text Annotation Mode
 
-For annotating any text file (lyrics, notes, prose) with line-level comments.
+For annotating text files (lyrics, notes, prose) with line-level comments. Accepts multiple files and directories.
 
 ```bash
 just -f <skill-path>/justfile launch --mode text --file "/path/to/file.txt" --message "Optional description"
+just -f <skill-path>/justfile launch --mode text --file "/path/to/dir/" --file "/other/file.txt"
 ```
 
 **CRITICAL: Use `run_in_background` parameter** when launching the server. This lets you receive a task notification when the user finishes.
@@ -35,7 +36,7 @@ just -f <skill-path>/justfile launch --mode text --file "/path/to/file.txt" --me
 | `--mode`     | no                | `review`                    | `review` or `text`       |
 | `--repo`     | yes (review mode) | —                           | Repository path          |
 | `--range`    | yes (review mode) | —                           | Git revision range       |
-| `--file`     | yes (text mode)   | —                           | Path to text file        |
+| `--file`     | yes (text mode)   | —                           | File or directory path (repeatable) |
 | `--message`  | no                | —                           | Descriptive summary of changes for the reviewer. Must explain what changed and why — never just "Fix" or a one-word label. Include affected areas and what to check. |
 | `--project`  | no                | filename (text) / — (review)| Project name (shown in header) |
 | `--save-dir` | no                | `~/.claude/reviews/<repo>/` (review) or `~/.claude/annotations/` (text) | Where to save output |

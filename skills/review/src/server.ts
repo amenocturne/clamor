@@ -1,6 +1,6 @@
-import { mkdir, readdir, unlink } from "node:fs/promises";
+import { mkdir, readdir, stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { formatAnnotation, formatReview } from "./formatter.ts";
 import { parseDiff, textToFileDiff } from "./parser.ts";
 import type { ApiData, Commit, DiffData } from "./types.ts";
@@ -11,7 +11,7 @@ type CliArgs = {
 	readonly mode: "review" | "text";
 	readonly repo: string | null;
 	readonly range: string | null;
-	readonly file: string | null;
+	readonly files: readonly string[];
 	readonly message: string | null;
 	readonly project: string | null;
 	readonly saveDir: string;
@@ -20,7 +20,7 @@ type CliArgs = {
 
 const USAGE = `Usage:
   Review mode: bun run src/server.ts --repo <path> --range <range> [options]
-  Text mode:   bun run src/server.ts --mode text --file <path> [options]
+  Text mode:   bun run src/server.ts --mode text --file <path> [--file <path>...] [options]
 
 Options: [--message <text>] [--project <name>] [--save-dir <path>] [--port <number>]`;
 
@@ -29,7 +29,7 @@ const parseArgs = (argv: readonly string[]): CliArgs => {
 	let mode: "review" | "text" = "review";
 	let repo: string | null = null;
 	let range: string | null = null;
-	let file: string | null = null;
+	const files: string[] = [];
 	let message: string | null = null;
 	let project: string | null = null;
 	let saveDir: string | null = null;
@@ -52,7 +52,7 @@ const parseArgs = (argv: readonly string[]): CliArgs => {
 				i++;
 				break;
 			case "--file":
-				file = next ?? null;
+				if (next) files.push(next);
 				i++;
 				break;
 			case "--message":
@@ -79,14 +79,16 @@ const parseArgs = (argv: readonly string[]): CliArgs => {
 		process.exit(1);
 	}
 
-	if (mode === "text" && !file) {
+	if (mode === "text" && files.length === 0) {
 		console.error(USAGE);
 		process.exit(1);
 	}
 
-	const resolvedFile = file ? resolve(file) : null;
+	const resolvedFiles = files.map((f) => resolve(f));
 	const defaultProject =
-		mode === "text" && resolvedFile ? basename(resolvedFile, extname(resolvedFile)) : null;
+		mode === "text" && resolvedFiles.length === 1
+			? basename(resolvedFiles[0]!, extname(resolvedFiles[0]!))
+			: null;
 
 	const defaultSaveDir =
 		mode === "text"
@@ -97,7 +99,7 @@ const parseArgs = (argv: readonly string[]): CliArgs => {
 		mode,
 		repo: repo ? resolve(repo) : null,
 		range,
-		file: resolvedFile,
+		files: resolvedFiles,
 		message,
 		project: project ?? defaultProject,
 		saveDir: saveDir ? resolve(saveDir) : defaultSaveDir,
@@ -212,7 +214,7 @@ const startServer = (apiData: ApiData, args: CliArgs, bundledJs: string) => {
 				const submission = await req.json();
 				const formatted =
 					apiData.mode === "annotate"
-						? formatAnnotation(submission, args.file ?? "unknown")
+						? formatAnnotation(submission, args.files)
 						: (() => {
 								const commits = [...apiData.commits];
 								const resolvedRange =
@@ -309,11 +311,75 @@ const buildReviewData = async (args: CliArgs): Promise<ApiData> => {
 	};
 };
 
+const isBinaryFile = async (path: string): Promise<boolean> => {
+	const chunk = await Bun.file(path).slice(0, 8192).arrayBuffer();
+	return new Uint8Array(chunk).includes(0);
+};
+
+const commonParent = (paths: readonly string[]): string => {
+	if (paths.length <= 1) return dirname(paths[0] ?? ".");
+	const parts = paths.map((p) => p.split("/"));
+	const minLen = Math.min(...parts.map((p) => p.length));
+	let common = 0;
+	for (let i = 0; i < minLen; i++) {
+		if (parts.every((p) => p[i] === parts[0]![i])) common = i + 1;
+		else break;
+	}
+	return parts[0]!.slice(0, common).join("/") || "/";
+};
+
+const expandPaths = async (paths: readonly string[]): Promise<readonly string[]> => {
+	const result: string[] = [];
+	for (const p of paths) {
+		let info: Awaited<ReturnType<typeof stat>>;
+		try {
+			info = await stat(p);
+		} catch {
+			console.error(`Error: '${p}' does not exist`);
+			process.exit(1);
+		}
+		if (info.isFile()) {
+			result.push(p);
+		} else if (info.isDirectory()) {
+			const entries = await readdir(p, { recursive: true });
+			for (const relPath of entries) {
+				if (relPath.split("/").some((s) => s.startsWith("."))) continue;
+				const fullPath = join(p, relPath);
+				try {
+					const entryInfo = await stat(fullPath);
+					if (entryInfo.isFile()) result.push(fullPath);
+				} catch {
+					// Skip unreadable entries (broken symlinks, etc.)
+				}
+			}
+		}
+	}
+	return result.sort();
+};
+
 const buildAnnotateData = async (args: CliArgs): Promise<ApiData> => {
-	const content = await Bun.file(args.file!).text();
-	const fileDiff = textToFileDiff(content, basename(args.file!));
+	const expanded = await expandPaths(args.files);
+	const textFiles: string[] = [];
+	for (const filePath of expanded) {
+		if (!(await isBinaryFile(filePath))) textFiles.push(filePath);
+	}
+
+	if (textFiles.length === 0) {
+		console.error("No text files found in the specified paths");
+		process.exit(1);
+	}
+
+	const base = commonParent(textFiles);
+	const fileDiffs = await Promise.all(
+		textFiles.map(async (filePath) => {
+			const content = await Bun.file(filePath).text();
+			const displayPath = textFiles.length === 1 ? basename(filePath) : relative(base, filePath);
+			return textToFileDiff(content, displayPath);
+		}),
+	);
+
 	const diffs: Record<string, DiffData> = {
-		combined: { files: [fileDiff] },
+		combined: { files: fileDiffs },
 	};
 
 	return {
@@ -321,7 +387,7 @@ const buildAnnotateData = async (args: CliArgs): Promise<ApiData> => {
 		commits: [],
 		diffs,
 		message: args.message,
-		repo: args.file!,
+		repo: args.files.length === 1 ? args.files[0]! : base,
 		project: args.project,
 	};
 };

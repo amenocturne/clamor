@@ -81,12 +81,15 @@ export const formatReview = (
 	return `${lines.join("\n")}\n`;
 };
 
-export const formatAnnotation = (submission: ReviewSubmission, filePath: string): string => {
+export const formatAnnotation = (
+	submission: ReviewSubmission,
+	files: readonly string[],
+): string => {
 	const lines: string[] = [];
 	const timestamp = formatTimestamp();
-	const filename = basename(filePath);
+	const label = files.length === 1 ? basename(files[0]!) : `${files.length} files`;
 
-	lines.push(`# Annotations: ${filename}`);
+	lines.push(`# Annotations: ${label}`);
 	lines.push(`**Annotated:** ${timestamp}`);
 
 	if (submission.summary.length > 0) {
@@ -97,20 +100,19 @@ export const formatAnnotation = (submission: ReviewSubmission, filePath: string)
 	}
 
 	if (submission.comments.length > 0) {
-		lines.push("");
-		lines.push("## Annotations");
-
-		for (const comment of submission.comments) {
-			lines.push("");
-			lines.push(`### ${formatLineRange(comment)}`);
-			lines.push("");
-			lines.push(formatCodeBlock(comment.code));
-			if (comment.selectedText) {
+		if (files.length > 1) {
+			const grouped = groupByFile(submission.comments);
+			for (const [file, fileComments] of grouped) {
 				lines.push("");
-				lines.push(`> ${comment.selectedText}`);
+				lines.push(`## ${file}`);
+				lines.push("");
+				lines.push(fileComments.map(formatComment).join("\n\n"));
 			}
+		} else {
 			lines.push("");
-			lines.push(comment.text);
+			lines.push("## Annotations");
+			lines.push("");
+			lines.push(submission.comments.map(formatComment).join("\n\n"));
 		}
 	}
 
