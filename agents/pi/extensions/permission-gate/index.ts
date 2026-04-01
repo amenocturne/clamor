@@ -13,6 +13,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { randomUUID } from "crypto";
+import { existsSync } from "fs";
 import { resolve } from "path";
 import { loadHookConfig, findMatchingHooks } from "./config.ts";
 import type { HookConfig } from "./config.ts";
@@ -29,6 +30,25 @@ const FILE_TOOLS = new Set(["read", "write", "edit", "grep", "find", "ls"]);
 const PASSTHROUGH_TOOLS = new Set([
   "bg-run", "bg-agent", "bg-status", "bg-result", "bg-kill",
 ]);
+
+// ── Harness Enforcement State ────────────────────────────────────────────
+
+/** Paths the model has read this session — required before editing */
+const readPaths = new Set<string>();
+
+/** Hashes of tool calls that returned errors — cleared each turn */
+const failedCallHashes = new Set<string>();
+
+/** Whether plan mode is active — blocks write/edit/bash/bg-run */
+let planModeActive = false;
+
+/** Tool names blocked during plan mode */
+const PLAN_MODE_BLOCKED = new Set(["write", "edit", "bash", "bg-run"]);
+
+/** Compute a stable hash key for a tool call */
+function callHashKey(toolName: string, input: Record<string, unknown>): string {
+  return toolName + ":" + JSON.stringify(input, Object.keys(input).sort());
+}
 
 // ── Tool Call Repair ─────────────────────────────────────────────────────
 
@@ -225,19 +245,81 @@ export default function (pi: ExtensionAPI) {
     const repairResult = repairToolCall(pi, event, ctx);
     if (repairResult) return repairResult;
 
+    const input = event.input as Record<string, unknown>;
+
+    // ── Harness Enforcement (after repair, before hooks) ──────────────
+
+    // 1. Read-before-edit: block write/edit on files the model hasn't read
+    if (event.toolName === "edit" || event.toolName === "write") {
+      const filePath = (input.path ?? input.file_path ?? "") as string;
+      if (filePath) {
+        const resolved = resolve(cwd, filePath);
+        const fileExists = existsSync(resolved);
+        if (fileExists && !readPaths.has(resolved)) {
+          logInterception(pi, event.toolName, input, "enforce", "read-before-edit");
+          ctx.abort();
+          return {
+            block: true,
+            reason:
+              `You must read a file before editing it. Call the read tool on '${filePath}' first.`,
+          };
+        }
+      }
+    }
+
+    // Track reads — add paths to the read set
+    if (event.toolName === "read") {
+      const filePath = (input.path ?? input.file_path ?? "") as string;
+      if (filePath) {
+        readPaths.add(resolve(cwd, filePath));
+      }
+    }
+    if (event.toolName === "grep") {
+      const grepPath = (input.path ?? input.file_path ?? "") as string;
+      if (grepPath) {
+        readPaths.add(resolve(cwd, grepPath));
+      }
+    }
+
+    // 2. No-retry-same-failed-call: block identical retries
+    const hash = callHashKey(event.toolName, input);
+    if (failedCallHashes.has(hash)) {
+      logInterception(pi, event.toolName, input, "enforce", "retry-same-failed-call");
+      ctx.abort();
+      return {
+        block: true,
+        reason:
+          "This exact tool call already failed. Read the error message and try a different approach.",
+      };
+    }
+
+    // 3. Plan mode tool gating: block write tools when plan mode is active
+    if (planModeActive && PLAN_MODE_BLOCKED.has(event.toolName)) {
+      logInterception(pi, event.toolName, input, "enforce", "plan-mode-blocked");
+      ctx.abort();
+      return {
+        block: true,
+        reason:
+          "Plan mode is active — write tools are disabled. Propose changes in text instead. " +
+          'Say "go ahead" or "implement it" to exit plan mode.',
+      };
+    }
+
+    // ── End Harness Enforcement ───────────────────────────────────────
+
     // Extension tools that manage their own permissions — don't gate them
     if (PASSTHROUGH_TOOLS.has(event.toolName)) {
       return { block: false };
     }
 
     const hooks = findMatchingHooks(config, event.toolName);
-    const input = event.input as Record<string, unknown>;
 
     // Run matching hooks sequentially — deny takes priority
     for (const hook of hooks) {
       const result = await runHook(hook, event.toolName, input, cwd);
 
       if (result.decision === "deny") {
+        failedCallHashes.add(hash);
         logInterception(pi, event.toolName, input, "deny", result.reason);
         ctx.abort();
         return {
@@ -267,27 +349,95 @@ export default function (pi: ExtensionAPI) {
         const decision = await enqueuePermission(event.toolName, input);
         logInterception(pi, event.toolName, input, decision, "via permission queue");
         if (decision === "deny") {
+          failedCallHashes.add(hash);
           ctx.abort();
           const summary = formatToolSummary(event.toolName, input);
           return { block: true, reason: `The user denied permission for: ${summary}\n\nDo not retry this operation unless the user explicitly asks.` };
         }
         return { block: false };
       }
-      return promptUser(pi, ctx, event.toolName, input);
+      const promptResult = await promptUser(pi, ctx, event.toolName, input);
+      if (promptResult.block) failedCallHashes.add(hash);
+      return promptResult;
     }
 
     // Non-interactive (subagent): delegate to file-based permission queue
     if (taskId) {
-      return requestPermission(pi, ctx, taskId, event.toolName, input);
+      const reqResult = await requestPermission(pi, ctx, taskId, event.toolName, input);
+      if (reqResult.block) failedCallHashes.add(hash);
+      return reqResult;
     }
 
     // No hooks, not interactive, no task ID — block by default
+    failedCallHashes.add(hash);
     logInterception(pi, event.toolName, input, "deny", "No permission source available");
     ctx.abort();
     return {
       block: true,
       reason: "Permission denied: no hooks matched and no interactive session or task ID available",
     };
+  });
+
+  // ── Plan Mode Detection ─────────────────────────────────────────────
+
+  /** All tools before plan mode was activated — used to restore */
+  let preplanTools: string[] | null = null;
+
+  pi.on("input", async (event) => {
+    const text = typeof event === "string" ? event : (event as any).text ?? "";
+    const lower = text.toLowerCase();
+
+    const wantsPlan =
+      lower.includes("just plan") ||
+      lower.includes("plan only") ||
+      lower.includes("don't implement") ||
+      lower.includes("do not implement") ||
+      lower.includes("only plan");
+
+    const wantsImplement =
+      lower.includes("go ahead") ||
+      lower.includes("proceed") ||
+      lower.includes("implement it") ||
+      lower.includes("implement this") ||
+      lower.includes("do it");
+
+    if (wantsPlan && !planModeActive) {
+      planModeActive = true;
+      preplanTools = pi.getActiveTools();
+      const readOnly = preplanTools.filter((t) => !PLAN_MODE_BLOCKED.has(t));
+      pi.setActiveTools(readOnly);
+      pi.sendMessage({
+        customType: "enforcement",
+        content: "Plan mode active. Write tools disabled. Propose changes in text.",
+        display: true,
+      });
+      pi.appendEntry("permission-gate-log", {
+        event: "plan-mode-on",
+        removedTools: [...PLAN_MODE_BLOCKED].filter((t) => preplanTools!.includes(t)),
+      });
+    }
+
+    if (wantsImplement && planModeActive) {
+      planModeActive = false;
+      if (preplanTools) {
+        pi.setActiveTools(preplanTools);
+        preplanTools = null;
+      }
+      pi.sendMessage({
+        customType: "enforcement",
+        content: "Plan mode deactivated. You may now write code.",
+        display: true,
+      });
+      pi.appendEntry("permission-gate-log", { event: "plan-mode-off" });
+    }
+
+    return { action: "continue" as const };
+  });
+
+  // ── Turn End: reset per-turn enforcement state ──────────────────────
+
+  pi.on("turn_end", async () => {
+    failedCallHashes.clear();
   });
 }
 
