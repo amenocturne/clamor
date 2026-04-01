@@ -8,7 +8,7 @@ The core problem: open-source models (Qwen 3.5, GPT-OSS) ignore explicit instruc
 
 ```bash
 # Install with a profile
-uv run install.py --profile work --agents pi-standard --target /path/to/workspace
+uv run install.py --profile work --agents pi --target /path/to/workspace
 
 # Or install all registered targets
 just install
@@ -61,17 +61,13 @@ engineering:
 
 Switch teams at runtime with `/team`. See [docs/teams.md](docs/teams.md) for the full configuration reference.
 
-## Agent Manifests
+## Installation
 
-Three manifests exist for install-time extension selection. They control which extensions are installed, but the runtime behavior (solo vs. orchestrator vs. deep team) is controlled by `teams.yaml`:
+A single manifest (`agents/pi/manifest.yaml`) includes all extensions. The runtime behavior is controlled by `teams.yaml`, not by choosing different manifests.
 
-| Manifest | Extensions | Use When |
-|----------|-----------|----------|
-| **pi-quick** | permission-gate, background-tasks, nestor-provider, provider-filter, workspace-context | You want minimal overhead, no context tracking |
-| **pi-standard** | + context-loader, model-router, behavioral-reminders | Full development with context awareness and model routing |
-| **pi-team** | + agent-teams | You need bg-team strategies and bg-dispatch for named teams |
-
-Each manifest is in `agents/pi-<name>/manifest.yaml`. They share the same installer, library, and extension code.
+```bash
+uv run install.py --profile work --agents pi --target /path/to/workspace
+```
 
 ## Extensions
 
@@ -126,18 +122,12 @@ All settings live in `.pi/settings.json`, written by the installer from merged p
 
 ```
 agents/pi/
+  manifest.yaml               # Single manifest with all extensions
+  prompt.md                   # Unified system prompt (Qwen-optimized)
+  install.py                  # Runtime installer (called by main install.py)
   lib/                        # Shared primitives (imported by extensions)
-    model-router.ts           # Role -> model resolution
-    task-manager.ts           # Process spawning and lifecycle
-    permission-queue.ts       # File-based IPC for subagent permissions
-    queue-watcher.ts          # Unified sequential permission queue
   extensions/                 # 9 feature extensions
   instructions/               # 6 instruction files (injected by context-loader)
   teams.template.yaml         # Default teams.yaml copied to workspace root
-  install.py                  # Runtime installer (called by main install.py)
   docs/                       # This documentation
-
-agents/pi-quick/              # Minimal manifest + lightweight prompt
-agents/pi-standard/           # Full development manifest + standard prompt
-agents/pi-team/               # Team orchestration manifest + team prompt
 ```

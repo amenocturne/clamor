@@ -1,6 +1,6 @@
-description: Pi agent with multi-agent teams
+description: Pi coding agent with full extension suite
 runtime: pi
-target: .pi-team
+target: .pi
 
 prompt: prompt.md
 

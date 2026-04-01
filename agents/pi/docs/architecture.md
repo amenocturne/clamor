@@ -6,41 +6,33 @@
 agents/pi/
   lib/              LAYER 1: Shared primitives
   extensions/       LAYER 2: Features (import only from lib/)
-  (manifests)       LAYER 3: Composition (agents/pi-quick/, pi-standard/, pi-team/)
+  manifest.yaml     LAYER 3: Composition (single manifest, all extensions)
 ```
 
 **Layer 1 -- Library** (`lib/`): Pure utility modules with no Pi extension API dependency. Handles process spawning (`task-manager.ts`), model resolution (`model-router.ts`), file-based IPC (`permission-queue.ts`), and unified prompt queuing (`queue-watcher.ts`).
 
 **Layer 2 -- Extensions** (`extensions/`): Each extension is a self-contained feature that registers tools, hooks, widgets, and commands via Pi's `ExtensionAPI`. Extensions import only from `lib/`, never from each other. This prevents coupling -- you can add or remove any extension without breaking others.
 
-**Layer 3 -- Manifests** (`agents/pi-*/manifest.yaml`): Declare which extensions, skills, common fragments, and hooks to compose. The three manifests are additive in terms of installed extensions:
+**Layer 3 -- Manifest** (`agents/pi/manifest.yaml`): A single manifest declares all extensions, skills, common fragments, and hooks. All extensions are always installed -- runtime behavior is controlled by `teams.yaml`, not by choosing different manifests.
 
-- **pi-quick** = base extensions (permission-gate, background-tasks, nestor-provider, provider-filter, workspace-context)
-- **pi-standard** = pi-quick + context-loader, model-router, behavioral-reminders
-- **pi-team** = pi-standard + agent-teams
+## teams.yaml Controls Behavior
 
-## teams.yaml Replaces the Variant Concept
+The agent's runtime behavior -- whether it acts as a solo agent, an orchestrator with workers, or a deep team coordinator -- is determined by `teams.yaml` at the workspace root. The tree depth determines the mode:
 
-The three manifests (pi-quick, pi-standard, pi-team) control which extensions are **installed**. But the agent's runtime behavior -- whether it acts as a solo agent, an orchestrator with workers, or a deep team coordinator -- is determined by `teams.yaml` at the workspace root.
+| Tree Shape | Behavior |
+|------------|----------|
+| Root node, no subagents | Solo agent: direct answers, no delegation |
+| Root + one level of subagents | Orchestrator: plan, delegate to bg-agent, verify |
+| Root + nested subagents | Deep team: multi-level coordination, domain restrictions |
 
-The tree depth in teams.yaml determines the behavior mode:
-
-| Tree Shape | Behavior | Extensions Needed |
-|------------|----------|-------------------|
-| Root node, no subagents | Solo agent: direct answers, no delegation | pi-quick or pi-standard |
-| Root + one level of subagents | Orchestrator: plan, delegate to bg-agent, verify | pi-standard |
-| Root + nested subagents | Deep team: multi-level coordination, domain restrictions | pi-team |
-
-This means a single Pi installation with the pi-team manifest can operate in any mode -- just switch teams with `/team` or edit teams.yaml.
-
-The prompt complexity scales with team depth. The pi-quick prompt (~120 lines) focuses on fast answers and direct edits. The pi-standard prompt (~200 lines) adds delegation rules, git workflow, and loop prevention. The pi-team prompt (~240 lines) adds team strategies, dispatch patterns, and model routing awareness. All three share the same Qwen-specific structure (worked examples, negative lists, repetition of critical rules).
+Switch teams at runtime with `/team` or edit teams.yaml. One installation, any mode.
 
 ## Profile x Agent Composition
 
 The main installer (`install.py`) merges a **profile** manifest with an **agent** manifest to produce the final configuration.
 
 ```
-profiles/work/manifest.yaml    +    agents/pi-standard/manifest.yaml
+profiles/work/manifest.yaml    +    agents/pi/manifest.yaml
        (org-specific)                     (runtime-specific)
              |                                    |
              v                                    v
@@ -78,7 +70,7 @@ When you run `just install` (or `uv run install.py --all`):
    g. Write `settings.json` from merged settings
    h. Write `agentic-kit.json` with install metadata
 
-The prompt (`prompt.md`) lives in the agent manifest directory (e.g., `agents/pi-standard/prompt.md`), not in the installed config. Pi reads it directly from there -- the path is set during the manifest assembly process.
+The prompt (`prompt.md`) lives in `agents/pi/prompt.md`, not in the installed config. Pi reads it directly from there -- the path is set during the manifest assembly process.
 
 ## Data Flow
 

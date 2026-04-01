@@ -7,7 +7,7 @@
 Install agentic-kit: profile × agent architecture.
 
 Usage:
-    uv run install.py --profile personal --agents claude-code pi-standard
+    uv run install.py --profile personal --agents claude-code pi
     uv run install.py --all
     uv run install.py --list
 """
@@ -450,7 +450,7 @@ def main():
     parser.add_argument(
         "--agents",
         nargs="+",
-        help="Agents to install (e.g., claude-code pi-standard)",
+        help="Agents to install (e.g., claude-code pi)",
     )
     parser.add_argument(
         "--target", type=Path, default=Path.cwd(), help="Target directory"

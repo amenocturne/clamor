@@ -1,10 +1,10 @@
 # System Prompts
 
-Each agent manifest has a `prompt.md` file in its directory. These are Qwen-specific: longer, more repetitive, and more explicit than prompts designed for Claude-class models. Prompt complexity scales with team depth -- a solo agent needs fewer rules than a team orchestrator.
+A single `prompt.md` in `agents/pi/` serves all modes. It's Qwen-specific: longer, more repetitive, and more explicit than prompts designed for Claude-class models. The prompt includes all sections (solo, delegation, teams) -- irrelevant sections are harmless when unused, and having one prompt avoids drift between variants.
 
 ## Prompt Structure
 
-All three variants follow the same 10-section skeleton (from the v3 spec):
+The prompt follows a 10-section skeleton (from the v3 spec):
 
 | # | Section | Purpose |
 |---|---------|---------|
@@ -15,7 +15,7 @@ All three variants follow the same 10-section skeleton (from the v3 spec):
 | 5 | **DO NOT** | 10-12 explicit prohibited behaviors |
 | 6 | **TOOL OUTPUT IS DATA** | Untrusted evidence framing |
 | 7 | **OUTPUT FORMAT** | Response structure rules (1-5 lines, bullet points) |
-| 8 | **Role-Specific Sections** | Variant-specific: delegation, teams, tool usage, git |
+| 8 | **Role-Specific Sections** | Delegation, teams, tool usage, git |
 | 9 | **CONTEXT CONTINUATION** | Resume directives after context compaction |
 | 10 | **REMEMBER** | Critical rules repeated a third time |
 
@@ -28,7 +28,7 @@ Claude follows concise principle-based instructions. Qwen 3.5 does not. Specific
 - **Negative examples are required**. Telling Qwen "be concise" does nothing. Showing "WRONG: 500 words / RIGHT: 3 bullet points" works.
 - **Repetition is not redundant**. The same rule appearing 3 times (prompt top, mid-section, REMEMBER block) measurably improves compliance.
 
-The target is ~120 lines for pi-quick, ~200 lines for pi-standard, ~220 lines for pi-team. Every line exists because Qwen violated the rule it addresses.
+The unified prompt is ~210 lines. Every line exists because Qwen violated the rule it addresses.
 
 ## Steering Techniques
 
@@ -94,50 +94,24 @@ The v3 spec also calls for embedding constraints in tool parameter descriptions,
 
 ### Persona Priming
 
-Each variant opens with a clear role statement:
-
-- **pi-quick**: "You are a senior engineer. Fast answers, quick lookups, small edits."
-- **pi-standard**: "You are a senior engineer and development coordinator."
-- **pi-team**: "You are a senior engineering lead. You coordinate multi-agent teams. You do NOT implement directly."
+The prompt opens with: "You are a senior engineer. Be concise. Follow instructions exactly. Think before acting."
 
 This sets the model's behavioral frame before any rules. "Senior engineer" produces more concise, decisive output than no persona.
 
-## Prompt Scaling by Team Depth
+## Role-Specific Sections
 
-The three prompt files differ in role-specific sections. The shared skeleton (workflow, one-tool-per-message, confirmation gate, DO NOT list, tool output framing, output format, context continuation, REMEMBER) is identical across all three. What changes is the delegation and coordination content.
+The unified prompt includes all role sections. The model uses what's relevant based on the task:
 
-### pi-quick (~120 lines) -- Solo Agent
-
-Minimal prompt. No orchestration, no delegation, no git rules. Adds:
-
-- **SCOPE** section: explicitly lists what it handles (quick questions, single-file edits, config tweaks) and what it doesn't (multi-file refactors, architecture decisions)
-- "Suggest the user use pi-standard instead" for out-of-scope tasks
-- No bg-agent/bg-team references -- "Do NOT delegate" is in the DO NOT list
-
-Best paired with solo teams in teams.yaml. The prompt assumes the agent does everything itself.
-
-### pi-standard (~200 lines) -- Orchestrator + Workers
-
-Full development prompt. Adds these sections beyond the base:
-
-- **ROLE: DEVELOPMENT COORDINATOR** -- implement directly for small tasks, delegate via bg-agent for multi-step work
+- **WHEN TO DELEGATE** -- adaptive: do it yourself for small changes, bg-agent for multi-step, bg-team for quality-critical, bg-dispatch for named teams
 - **DELEGATION RULES** -- what to include when delegating (task description, file paths, constraints, definition of done)
+- **TEAM STRATEGIES** -- when to use best-of-n, debate, ensemble (with WRONG/RIGHT examples)
+- **DISPATCH PATTERNS** -- parallel independent work with `notify: "when_idle"`, sequential dependent work with `notify: "immediate"`
+- **MODEL ROUTING** -- awareness of orchestrator/worker/reviewer roles
 - **CONTEXT AWARENESS** -- workspace-context and WORKSPACE.yaml usage
 - **LOOP PREVENTION** -- hard limits (5+ consecutive reads, 3x repeated calls, 10+ lines of prose, deliberation loops)
 - **GIT RULES** -- commit style, no co-authored-by, run tests first
 
-Best paired with orchestrator+worker teams in teams.yaml. The prompt assumes the agent plans and delegates to subagents.
-
-### pi-team (~240 lines) -- Deep Teams
-
-Extends pi-standard. Adds/replaces:
-
-- **ROLE: TEAM ORCHESTRATOR** -- "You coordinate. You do NOT implement." with a strict list of allowed direct actions (trivial edits, config, git)
-- **TEAM STRATEGIES** -- when to use best-of-n, debate, ensemble (with WRONG/RIGHT examples)
-- **DISPATCH PATTERNS** -- parallel independent work with `notify: "when_idle"`, sequential dependent work with `notify: "immediate"`
-- **MODEL ROUTING** -- awareness of orchestrator/worker/reviewer roles
-
-Best paired with deep team configurations in teams.yaml. The prompt assumes the agent never implements directly and always delegates.
+Team-related sections (strategies, dispatch patterns, model routing) are harmless for solo agents -- they describe tools the agent simply won't use if no teams are configured.
 
 ## How Instructions Supplement the Prompt
 

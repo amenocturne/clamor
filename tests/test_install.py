@@ -461,9 +461,9 @@ class TestResolveRuntime:
         manifest = {"target": ".claude"}
         assert install.resolve_runtime("claude-code", manifest) == "claude-code"
 
-    def test_pi_variants_share_runtime(self):
-        manifest = {"runtime": "pi", "target": ".pi-standard"}
-        assert install.resolve_runtime("pi-standard", manifest) == "pi"
+    def test_pi_runtime(self):
+        manifest = {"runtime": "pi", "target": ".pi"}
+        assert install.resolve_runtime("pi", manifest) == "pi"
 
 
 # ===================================================================
@@ -1368,14 +1368,14 @@ class TestRegistry:
         install.update_registry(
             "personal",
             Path("/some/target"),
-            agents=["claude-code", "pi-standard"],
+            agents=["claude-code", "pi"],
             project_dirs={
                 "claude-code": Path("/some/target/.claude"),
-                "pi-standard": Path("/some/target/.pi-standard"),
+                "pi": Path("/some/target/.pi"),
             },
         )
         entries = install.load_registry()
-        assert entries[0]["agents"] == ["claude-code", "pi-standard"]
+        assert entries[0]["agents"] == ["claude-code", "pi"]
         assert entries[0]["project_dirs"]["claude-code"] == "/some/target/.claude"
 
     def test_update_registry_upserts_by_target(self, fake_repo):
@@ -1557,14 +1557,14 @@ class TestShippedManifests:
             assert manifest_path.exists(), f"Profile {profile} missing manifest.yaml"
 
     def test_shipped_agents_have_manifests(self):
-        for agent in ["claude-code", "pi-standard", "pi-quick", "pi-team"]:
+        for agent in ["claude-code", "pi"]:
             manifest_path = REPO_ROOT / "agents" / agent / "manifest.yaml"
             assert manifest_path.exists(), f"Agent {agent} missing manifest.yaml"
 
     def test_shipped_agents_have_runtime_and_target(self):
         import yaml as real_yaml
 
-        for agent in ["claude-code", "pi-standard"]:
+        for agent in ["claude-code", "pi"]:
             manifest_path = REPO_ROOT / "agents" / agent / "manifest.yaml"
             manifest = real_yaml.safe_load(manifest_path.read_text())
             assert "runtime" in manifest, f"Agent {agent} missing 'runtime'"
