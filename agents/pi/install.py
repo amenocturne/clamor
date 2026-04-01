@@ -1,10 +1,11 @@
 import json
 import shutil
-from pathlib import Path
 
 from lib.install_types import InstallContext
 from lib.install_utils import (
     merge_hooks,
+    parse_frontmatter,
+    strip_frontmatter,
     sync_symlinks,
     update_managed_config,
     write_json,
@@ -20,8 +21,9 @@ def get_extensions(ctx: InstallContext) -> set[str]:
 def get_settings(ctx: InstallContext) -> dict:
     # Settings come pre-merged from profile × agent manifests
     settings = dict(ctx.settings)
-    # Remove permissions — Pi doesn't use them
+    # Remove permissions and modelRouter — Pi doesn't use them
     settings.pop("permissions", None)
+    settings.pop("modelRouter", None)
     # Ensure a default thinking level
     settings.setdefault("defaultThinkingLevel", "medium")
     return settings
@@ -79,25 +81,68 @@ def install_hooks(ctx: InstallContext, console=None) -> None:
         write_json(ctx.project_dir / "hooks.json", merged)
 
 
-def install_teams_template(ctx: InstallContext, console=None) -> None:
-    """Copy teams.template.yaml to the workspace root as teams.yaml if it doesn't exist."""
-    # target_dir is the workspace root (parent of .pi/ project_dir)
+def install_disguise_template(ctx: InstallContext, console=None) -> None:
+    """Copy disguise.template.yaml to the workspace root as disguise.yaml if it doesn't exist."""
     workspace_root = ctx.project_dir.parent
-    teams_dest = workspace_root / "teams.yaml"
-    if teams_dest.exists():
+    disguise_dest = workspace_root / "disguise.yaml"
+    if disguise_dest.exists():
         return
-    template = ctx.repo_root / "agents" / "pi" / "teams.template.yaml"
+    template = ctx.agent_dir / "disguise.template.yaml"
     if not template.exists():
         return
-    shutil.copy2(template, teams_dest)
+    shutil.copy2(template, disguise_dest)
     if console:
-        console.print(f"  Created teams.yaml template at {teams_dest}")
+        console.print(f"  Created disguise.yaml template at {disguise_dest}")
+
+
+def write_system_prompt(ctx: InstallContext, console=None) -> None:
+    """Generate .pi/prompt.md from system_prompt common + local files."""
+    parts: list[str] = []
+
+    # Common fragments first
+    if ctx.common:
+        common_dir = ctx.repo_root / "common"
+        for name in ctx.common:
+            path = common_dir / f"{name}.md"
+            if not path.exists():
+                raise FileNotFoundError(f"Common file not found: {name}.md")
+            _, body = parse_frontmatter(path.read_text())
+            parts.append(body.strip())
+
+    # Then local files from the flavor directory
+    local_files = ctx.system_prompt_local if ctx.system_prompt_local else []
+    for local_file in local_files:
+        local_path = ctx.agent_dir / local_file
+        if not local_path.exists():
+            raise FileNotFoundError(
+                f"Local system_prompt file not found: {local_file} "
+                f"(looked in {ctx.agent_dir})"
+            )
+        content = strip_frontmatter(local_path.read_text()).strip()
+        if content:
+            parts.append(content)
+
+    # Profile instructions
+    if ctx.instructions:
+        for name in ctx.instructions:
+            path = ctx.profile_dir / "instructions" / f"{name}.md"
+            if not path.exists():
+                path = ctx.agent_dir / "instructions" / f"{name}.md"
+            if path.exists():
+                parts.append(strip_frontmatter(path.read_text()).strip())
+
+    if parts:
+        prompt_path = ctx.project_dir / "prompt.md"
+        prompt_path.write_text("\n\n".join(parts) + "\n")
+        if console:
+            console.print(f"  Generated prompt.md ({len(parts)} sections)")
 
 
 def install(ctx: InstallContext, console=None) -> None:
     ctx.project_dir.mkdir(parents=True, exist_ok=True)
     validate_required_extensions(ctx)
-    install_teams_template(ctx, console=console)
+    install_disguise_template(ctx, console=console)
+    write_system_prompt(ctx, console=console)
     wanted = get_extensions(ctx)
     sync_symlinks(
         ctx.repo_root / "skills",

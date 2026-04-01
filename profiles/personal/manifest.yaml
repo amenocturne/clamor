@@ -1,7 +1,8 @@
 description: Personal dev workspace
 
-common:
-  - git-personal
+system_prompt:
+  common:
+    - git-personal
 
 hooks:
   - worktree

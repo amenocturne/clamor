@@ -1,7 +1,8 @@
 description: Tinkoff work environment
 
-common:
-  - git-work
+system_prompt:
+  common:
+    - git-work
 
 skills:
   - confluence

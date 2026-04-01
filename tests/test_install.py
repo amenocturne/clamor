@@ -868,7 +868,7 @@ class TestMain:
         )
         make_agent(
             fake_repo["agents"],
-            "test-claude",
+            "claude-code/test",
             manifest={
                 "description": "Test",
                 "runtime": "claude-code",
@@ -898,7 +898,7 @@ class TestMain:
     def test_choose_agents_interactively_returns_selected(self, fake_repo):
         make_agent(
             fake_repo["agents"],
-            "test-claude",
+            "claude-code/test",
             manifest={
                 "description": "Test",
                 "runtime": "claude-code",
@@ -908,7 +908,7 @@ class TestMain:
         with patch.object(install, "Prompt") as mock_prompt:
             mock_prompt.ask.return_value = "1"
             result = install.choose_agents_interactively()
-            assert result == ["test-claude"]
+            assert result == ["claude-code/test"]
 
     def test_interactive_no_selection(self, fake_repo, tmp_path):
         make_profile(
@@ -1194,15 +1194,15 @@ class TestManifestCommonAndInstructions:
         )
         make_agent(
             fake_repo["agents"],
-            "test-claude",
+            "claude-code/test",
             manifest={
                 "runtime": "claude-code",
                 "target": ".claude",
-                "common": ["skills", "git"],
+                "system_prompt": {"common": ["skills", "git"]},
             },
             prompt_md="# My Agent",
         )
-        install.install("p1", ["test-claude"], target)
+        install.install("p1", ["claude-code/test"], target)
         content = (target / ".claude" / "CLAUDE.md").read_text()
         assert content.startswith("# My Agent")
         assert "## Skills" in content
@@ -1225,15 +1225,15 @@ class TestManifestCommonAndInstructions:
         )
         make_agent(
             fake_repo["agents"],
-            "test-claude",
+            "claude-code/test",
             manifest={
                 "runtime": "claude-code",
                 "target": ".claude",
-                "common": ["git"],
+                "system_prompt": {"common": ["git"]},
             },
             prompt_md="# KB Mode",
         )
-        install.install("p1", ["test-claude"], target)
+        install.install("p1", ["claude-code/test"], target)
         content = (target / ".claude" / "CLAUDE.md").read_text()
         saving_pos = content.index("## Saving")
         git_pos = content.index("## Git")
@@ -1255,16 +1255,16 @@ class TestManifestCommonAndInstructions:
         )
         make_agent(
             fake_repo["agents"],
-            "test-claude",
+            "claude-code/test",
             manifest={
                 "runtime": "claude-code",
                 "target": ".claude",
                 "skills": ["orchestrator"],
-                "common": ["orchestration"],
+                "system_prompt": {"common": ["orchestration"]},
             },
             prompt_md="# Dev",
         )
-        install.install("p1", ["test-claude"], target)
+        install.install("p1", ["claude-code/test"], target)
         content = (target / ".claude" / "CLAUDE.md").read_text()
         assert "---" not in content
         assert "requires" not in content
@@ -1286,17 +1286,17 @@ class TestManifestCommonAndInstructions:
         )
         make_agent(
             fake_repo["agents"],
-            "test-claude",
+            "claude-code/test",
             manifest={
                 "runtime": "claude-code",
                 "target": ".claude",
                 "skills": ["todo"],
-                "common": ["orchestration"],
+                "system_prompt": {"common": ["orchestration"]},
             },
             prompt_md="# Dev",
         )
         with pytest.raises(ValueError, match="Common file dependencies not satisfied"):
-            install.install("p1", ["test-claude"], target)
+            install.install("p1", ["claude-code/test"], target)
 
     def test_missing_instruction_file_raises(self, fake_repo, tmp_path):
         target = tmp_path / "project"
@@ -1311,7 +1311,7 @@ class TestManifestCommonAndInstructions:
         )
         make_agent(
             fake_repo["agents"],
-            "test-claude",
+            "claude-code/test",
             manifest={
                 "runtime": "claude-code",
                 "target": ".claude",
@@ -1319,7 +1319,7 @@ class TestManifestCommonAndInstructions:
             prompt_md="# Dev",
         )
         with pytest.raises(FileNotFoundError):
-            install.install("p1", ["test-claude"], target)
+            install.install("p1", ["claude-code/test"], target)
 
     def test_missing_common_file_fails_install(self, fake_repo, tmp_path):
         target = tmp_path / "project"
@@ -1331,16 +1331,16 @@ class TestManifestCommonAndInstructions:
         )
         make_agent(
             fake_repo["agents"],
-            "test-claude",
+            "claude-code/test",
             manifest={
                 "runtime": "claude-code",
                 "target": ".claude",
-                "common": ["nonexistent"],
+                "system_prompt": {"common": ["nonexistent"]},
             },
             prompt_md="# Dev",
         )
         with pytest.raises((ValueError, FileNotFoundError)):
-            install.install("p1", ["test-claude"], target)
+            install.install("p1", ["claude-code/test"], target)
 
 
 # ===================================================================
@@ -1540,7 +1540,7 @@ class TestMigrateRegistryEntry:
         }
         result = install.migrate_registry_entry(entry)
         assert result["knowledge_base"] == "/vault"
-        assert result["agents"] == ["claude-code"]
+        assert result["agents"] == ["claude-code/default"]
 
 
 # ===================================================================
@@ -1557,14 +1557,14 @@ class TestShippedManifests:
             assert manifest_path.exists(), f"Profile {profile} missing manifest.yaml"
 
     def test_shipped_agents_have_manifests(self):
-        for agent in ["claude-code", "pi"]:
+        for agent in ["claude-code/default", "pi/nefor"]:
             manifest_path = REPO_ROOT / "agents" / agent / "manifest.yaml"
             assert manifest_path.exists(), f"Agent {agent} missing manifest.yaml"
 
     def test_shipped_agents_have_runtime_and_target(self):
         import yaml as real_yaml
 
-        for agent in ["claude-code", "pi"]:
+        for agent in ["claude-code/default", "pi/nefor"]:
             manifest_path = REPO_ROOT / "agents" / agent / "manifest.yaml"
             manifest = real_yaml.safe_load(manifest_path.read_text())
             assert "runtime" in manifest, f"Agent {agent} missing 'runtime'"

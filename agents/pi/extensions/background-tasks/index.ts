@@ -6,7 +6,7 @@
  * later. Permission requests from subagents are monitored and surfaced to the
  * user via the permission queue watcher.
  *
- * Tools: bg-run, bg-agent, bg-status, bg-result, bg-kill
+ * Tools: bg-run, bg-status, bg-result, bg-kill
  * Widget: live task list below the editor
  * Command: /bg — show task summary
  *
@@ -14,12 +14,8 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { DynamicBorder } from "@mariozechner/pi-coding-agent";
-import { Container, Text, truncateToWidth } from "@mariozechner/pi-tui";
+import { Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { existsSync, readdirSync } from "fs";
-import { dirname, join, resolve } from "path";
-import { fileURLToPath } from "url";
 import { cleanupQueue, startWatching, stopWatching } from "../../lib/queue-watcher.ts";
 import {
   generateTaskId,
@@ -28,53 +24,10 @@ import {
   killAllTasks,
   killTask,
   setOnTaskComplete,
-  spawnAgent,
   spawnCommand,
   type NotifyMode,
   type TaskInfo,
 } from "../../lib/task-manager.ts";
-
-// ── Extension Root ──────────────────────────────────────────────────────
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const permissionGatePath = resolve(__dirname, "../permission-gate");
-
-/**
- * Discover extensions to pass to subagents.
- * First tries -e flags from process.argv (explicit launch).
- * Falls back to scanning .pi/extensions/ directory (auto-discovery).
- * Excludes background-tasks itself to prevent recursive spawning.
- */
-function getExtensionsForSubagent(cwd: string): string[] {
-  const selfName = "background-tasks";
-
-  // Try explicit -e flags first
-  const argv = process.argv;
-  const explicit: string[] = [];
-  for (let i = 0; i < argv.length - 1; i++) {
-    if (argv[i] === "-e" || argv[i] === "--extension") {
-      const p = resolve(argv[i + 1]);
-      if (!p.includes(selfName)) explicit.push(p);
-    }
-  }
-  if (explicit.length > 0) return explicit;
-
-  // Fall back: scan .pi/extensions/ directory
-  const extDir = join(cwd, ".pi", "extensions");
-  if (!existsSync(extDir)) return [permissionGatePath];
-
-  const paths: string[] = [];
-  for (const entry of readdirSync(extDir)) {
-    if (entry === selfName) continue;
-    const full = resolve(extDir, entry);
-    // Only include directories that look like extensions (have index.ts or package.json)
-    if (existsSync(join(full, "index.ts")) || existsSync(join(full, "package.json"))) {
-      paths.push(full);
-    }
-  }
-
-  return paths.length > 0 ? paths : [permissionGatePath];
-}
 
 // ── Widget State ────────────────────────────────────────────────────────
 
@@ -333,95 +286,6 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ── bg-agent ────────────────────────────────────────────────────────
-
-  pi.registerTool({
-    name: "bg-agent",
-    label: "Background Agent",
-    description:
-      "Spawn a Pi subagent in the background to perform a task autonomously. " +
-      "The subagent has read, write, edit, bash, grep, find, and ls tools. " +
-      "Permission requests from the subagent will be surfaced for approval. " +
-      "Returns a task ID immediately. Do NOT poll — you will be automatically " +
-      "notified when the agent finishes with its full output. Continue other work or stop.",
-    parameters: Type.Object({
-      task: Type.String({
-        description: "Task description for the subagent to perform",
-      }),
-      notify: Type.Optional(Type.Union([
-        Type.Literal("immediate"),
-        Type.Literal("when_idle"),
-        Type.Literal("silent"),
-      ], { description: "When to notify on completion. immediate (default): trigger immediately. when_idle: trigger only when all tasks done. silent: no trigger.", default: "immediate" })),
-    }),
-
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      widgetCtx = ctx;
-      if (!ctx.model) {
-        return {
-          content: [{ type: "text" as const, text: "No model configured. Select a model first (/model or settings.json)." }],
-        };
-      }
-
-      const id = generateTaskId();
-      const cwd = process.cwd();
-      const notify = (params.notify ?? "immediate") as NotifyMode;
-
-      // Use model-router's worker role if available, otherwise fall back to session model
-      let model: string;
-      try {
-        const { getModelForRole } = await import("../../lib/model-router.ts");
-        const workerModel = getModelForRole("worker");
-        model = workerModel || `${ctx.model.provider}/${ctx.model.id}`;
-      } catch {
-        model = `${ctx.model.provider}/${ctx.model.id}`;
-      }
-
-      const extensionPaths = getExtensionsForSubagent(cwd);
-      const info = await spawnAgent(id, params.task, model, cwd, extensionPaths, notify);
-
-      updateWidget();
-
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Agent task ${id} started: ${params.task}`,
-          },
-        ],
-        details: {
-          taskId: id,
-          task: params.task,
-          status: info.status,
-          pid: info.pid,
-        },
-      };
-    },
-
-    renderCall(args, theme) {
-      const preview =
-        args.task.length > 60 ? args.task.slice(0, 57) + "..." : args.task;
-      return new Text(
-        theme.fg("toolTitle", theme.bold("bg-agent ")) +
-          theme.fg("dim", preview),
-        0,
-        0,
-      );
-    },
-
-    renderResult(result, _options, theme) {
-      const details = result.details as Record<string, unknown> | undefined;
-      const taskId = details?.taskId ?? "?";
-      return new Text(
-        theme.fg("success", "-> ") +
-          theme.fg("accent", `${taskId}`) +
-          theme.fg("dim", " agent running"),
-        0,
-        0,
-      );
-    },
-  });
-
   // ── bg-status ───────────────────────────────────────────────────────
 
   // bg-status and bg-result intentionally NOT registered as tools.
@@ -611,6 +475,16 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     widgetCtx = ctx;
+
+    // Register the permission queue handler with permission-gate
+    try {
+      const { setPermissionQueue } = await import("../permission-gate/index.ts");
+      const { enqueuePermission } = await import("../../lib/queue-watcher.ts");
+      setPermissionQueue(enqueuePermission);
+    } catch {
+      // permission-gate or queue-watcher not available
+    }
+
     startWatching(ctx);
     updateWidget();
     ctx.ui.setStatus("bg: idle", "bg-tasks");

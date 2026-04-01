@@ -109,11 +109,14 @@ def available_profiles() -> list[str]:
 
 
 def available_agents() -> list[str]:
-    """List agents that have a manifest.yaml (v2) or install.py (v1 runtime)."""
+    """List agents in runtime/flavor format."""
     result = set()
-    for path in sorted(AGENTS_DIR.iterdir()):
-        if path.is_dir() and (path / "manifest.yaml").exists():
-            result.add(path.name)
+    for runtime_dir in sorted(AGENTS_DIR.iterdir()):
+        if not runtime_dir.is_dir():
+            continue
+        for flavor_dir in sorted(runtime_dir.iterdir()):
+            if flavor_dir.is_dir() and (flavor_dir / "manifest.yaml").exists():
+                result.add(f"{runtime_dir.name}/{flavor_dir.name}")
     return sorted(result)
 
 
@@ -155,8 +158,8 @@ def load_agent_installer(runtime: str) -> Any:
 
 
 def resolve_runtime(agent_name: str, agent_manifest: dict) -> str:
-    """Get the runtime for an agent. Falls back to agent_name if not specified."""
-    return agent_manifest.get("runtime", agent_name)
+    """Get the runtime for an agent. Falls back to runtime part of agent_name."""
+    return agent_manifest.get("runtime", agent_name.split("/")[0])
 
 
 def project_dir_for_agent(target: Path, agent_manifest: dict) -> Path:
@@ -252,7 +255,8 @@ def install(
             agent_dir=AGENTS_DIR / agent_name,
             skills=merged["skills"],
             hooks=merged["hooks"],
-            common=merged["common"],
+            common=merged["system_prompt"]["common"],
+            system_prompt_local=merged["system_prompt"]["local"],
             external=merged["external"],
             pipelines=merged["pipelines"],
             extensions=merged["extensions"],
@@ -287,22 +291,36 @@ def install(
 
 
 def migrate_registry_entry(entry: dict) -> dict:
-    """Migrate a v1 registry entry (preset-based) to v2 (profile-based)."""
-    if "profile" in entry:
-        return entry
+    """Migrate registry entries to current format."""
+    # v1 preset → v2 profile migration
+    if "profile" not in entry and "preset" in entry:
+        preset = entry.get("preset", "")
+        profile_map = {
+            "dev-workspace": "personal",
+            "knowledge-base": "knowledge-base",
+            "work": "work",
+        }
+        entry = dict(entry)
+        entry["profile"] = profile_map.get(preset, preset)
+        del entry["preset"]
 
-    preset = entry.get("preset", "")
-    profile_map = {
-        "dev-workspace": "personal",
-        "knowledge-base": "knowledge-base",
-        "work": "work",
+    # v2 → v3: bare agent names → runtime/flavor format
+    agent_migration = {
+        "claude-code": "claude-code/default",
+        "pi": "pi/nefor",
+        "open-code": "open-code/default",
     }
-    profile = profile_map.get(preset, preset)
+    if "agents" in entry:
+        entry = dict(entry)
+        entry["agents"] = [agent_migration.get(a, a) for a in entry["agents"]]
+        if "project_dirs" in entry:
+            new_dirs = {}
+            for name, path in entry["project_dirs"].items():
+                new_name = agent_migration.get(name, name)
+                new_dirs[new_name] = path
+            entry["project_dirs"] = new_dirs
 
-    migrated = dict(entry)
-    migrated["profile"] = profile
-    del migrated["preset"]
-    return migrated
+    return entry
 
 
 def install_all() -> int:

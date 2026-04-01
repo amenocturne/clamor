@@ -28,7 +28,7 @@ const FILE_TOOLS = new Set(["read", "write", "edit", "grep", "find", "ls"]);
 
 /** Extension-registered tools that handle their own permissions — skip the gate */
 const PASSTHROUGH_TOOLS = new Set([
-  "bg-run", "bg-agent", "bg-status", "bg-result", "bg-kill",
+  "bg-run", "bg-status", "bg-result", "bg-kill",
 ]);
 
 // ── Harness Enforcement State ────────────────────────────────────────────
@@ -203,18 +203,13 @@ function repairToolCall(
   return null;
 }
 
-/**
- * Try to import enqueuePermission from the sibling background-tasks extension.
- * This is the unified permission queue that processes prompts one at a time.
- * Falls back to direct ctx.ui.confirm() if background-tasks isn't loaded.
- */
 let enqueuePermission: ((toolName: string, toolInput: Record<string, unknown>) => Promise<"allow" | "deny">) | null = null;
 
-try {
-  const qw = await import("../../lib/queue-watcher.ts");
-  enqueuePermission = qw.enqueuePermission;
-} catch {
-  // background-tasks not available — will fall back to direct prompting
+/** Allow other extensions to register a permission queue handler. */
+export function setPermissionQueue(
+  handler: (toolName: string, toolInput: Record<string, unknown>) => Promise<"allow" | "deny">,
+): void {
+  enqueuePermission = handler;
 }
 
 export default function (pi: ExtensionAPI) {

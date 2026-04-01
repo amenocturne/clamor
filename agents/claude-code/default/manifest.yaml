@@ -2,14 +2,15 @@ description: Claude Code with full dev workflow
 runtime: claude-code
 target: .claude
 
-prompt: prompt.md
-
-common:
-  - dev-workflow
-  - code-conventions
-  - communication-style
-  - commands
-  - agentic-kit
+system_prompt:
+  common:
+    - dev-workflow
+    - code-conventions
+    - communication-style
+    - commands
+    - agentic-kit
+  local:
+    - prompt.md
 
 skills:
   - dev-philosophy

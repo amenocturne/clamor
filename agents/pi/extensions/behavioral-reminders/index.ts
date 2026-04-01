@@ -6,14 +6,12 @@
  * configured in reminders.yaml with cooldowns and per-session caps.
  *
  * Detected patterns:
- * - Exploration spiral (5+ consecutive read-only tools)
  * - Write/edit after user asked for plan only
  * - Verbose output (>2000 token response, ~8000 chars)
  * - Repeated identical tool calls (same tool + args 3x)
  * - Premature summary while background tasks still running
  * - Multi-tool attempt (2+ tool calls in one turn)
  * - Content echoing (repeating large chunks of read output)
- * - Self-contradiction loop (overthinking phrases)
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -41,32 +39,19 @@ interface ReminderState {
 
 // ── Tracking State ──────────────────────────────────────────────────────
 
-const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const WRITE_TOOLS = new Set(["write", "edit"]);
 
 let toolCallCounter = 0;
-let consecutiveReads = 0;
 let planModeActive = false;
 let recentCalls: Array<{ tool: string; argsHash: string }> = [];
 const reminderStates = new Map<string, ReminderState>();
 
-// Per-turn text accumulator for verbose output, self-contradiction, and content echoing
+// Per-turn text accumulator for verbose output and content echoing
 let turnTextBuffer = "";
 let turnToolCallCount = 0;
 
 // Last read tool result for content echoing detection
 let lastReadResult = "";
-
-// Self-contradiction trigger phrases
-const CONTRADICTION_PHRASES = [
-  "wait,",
-  "actually,",
-  "no, ",
-  "let me reconsider",
-  "on second thought",
-  "hmm,",
-  "let me think again",
-];
 
 // ── Config Loading ──────────────────────────────────────────────────────
 
@@ -151,23 +136,10 @@ export default function (pi: ExtensionAPI) {
     const toolName = event.toolName;
     const input = event.input as Record<string, unknown>;
 
-    // Track consecutive reads
-    if (READ_ONLY_TOOLS.has(toolName)) {
-      consecutiveReads++;
-    } else {
-      consecutiveReads = 0;
-    }
-
     // Track recent calls for loop detection
     const argsHash = hashArgs(input);
     recentCalls.push({ tool: toolName, argsHash });
     if (recentCalls.length > 10) recentCalls.shift();
-
-    // Check: exploration spiral
-    const spiralConfig = reminders.exploration_spiral;
-    if (spiralConfig && consecutiveReads >= (spiralConfig.trigger.threshold ?? 5)) {
-      fireReminder("exploration_spiral", spiralConfig);
-    }
 
     // Check: write after plan-only
     const planConfig = reminders.write_after_plan_only;
@@ -212,8 +184,7 @@ export default function (pi: ExtensionAPI) {
     return { block: false };
   });
 
-  // Track text output for verbose_output, premature_summary, content_echoing,
-  // and self_contradiction detection
+  // Track text output for verbose_output, premature_summary, and content_echoing
   pi.on("message_update", async (event) => {
     const delta = (event as any).assistantMessageEvent;
     if (!delta || delta.type !== "text_delta") return;
@@ -247,23 +218,10 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    // Check: self-contradiction loop (3+ deliberation phrases in one response)
-    const contradictionConfig = reminders.self_contradiction;
-    if (contradictionConfig) {
-      const lower = turnTextBuffer.toLowerCase();
-      let matchCount = 0;
-      for (const phrase of CONTRADICTION_PHRASES) {
-        if (lower.includes(phrase)) matchCount++;
-      }
-      if (matchCount >= 3) {
-        fireReminder("self_contradiction", contradictionConfig);
-      }
-    }
   });
 
   // Reset per-turn state on turn boundaries
   pi.on("turn_end", async () => {
-    consecutiveReads = 0;
     turnTextBuffer = "";
     turnToolCallCount = 0;
   });

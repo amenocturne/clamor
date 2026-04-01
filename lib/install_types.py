@@ -21,6 +21,7 @@ class InstallContext:
     skills: list[str] = field(default_factory=list)
     hooks: list[str] = field(default_factory=list)
     common: list[str] = field(default_factory=list)
+    system_prompt_local: list[str] = field(default_factory=list)
     external: list[str] = field(default_factory=list)
     pipelines: list[str] = field(default_factory=list)
     extensions: list[str] = field(default_factory=list)

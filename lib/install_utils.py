@@ -114,19 +114,35 @@ def merge_dicts(base: dict, override: dict) -> dict:
     return merged
 
 
-def merge_manifests(profile: dict, agent: dict) -> dict:
-    """Merge a profile manifest with an agent manifest using v2 rules.
+def _merge_system_prompt(profile: dict, agent: dict) -> dict:
+    """Merge system_prompt from profile and agent manifests.
 
+    common: unioned and sorted (from both profile and agent)
+    local: agent-only (file paths relative to flavor directory)
+    """
+    profile_sp = profile.get("system_prompt") or {}
+    agent_sp = agent.get("system_prompt") or {}
+
+    return {
+        "common": sorted(
+            set(
+                normalize_manifest_list(profile_sp.get("common"))
+                + normalize_manifest_list(agent_sp.get("common"))
+            )
+        ),
+        "local": normalize_manifest_list(agent_sp.get("local")),
+    }
+
+
+def merge_manifests(profile: dict, agent: dict) -> dict:
+    """Merge a profile manifest with an agent manifest.
+
+    system_prompt.common is unioned, system_prompt.local is agent-only.
     Sets are unioned, instructions are concatenated (profile first),
     settings are deep-merged (agent wins on conflict).
     """
     return {
-        "common": sorted(
-            set(
-                normalize_manifest_list(profile.get("common"))
-                + normalize_manifest_list(agent.get("common"))
-            )
-        ),
+        "system_prompt": _merge_system_prompt(profile, agent),
         "skills": sorted(
             set(
                 normalize_manifest_list(profile.get("skills"))

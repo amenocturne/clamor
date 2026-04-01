@@ -52,8 +52,11 @@ def validate_common_dependencies(
 
 
 def write_claude_md(ctx: InstallContext):
-    # v2: prompt template lives in agent dir
-    src = ctx.agent_dir / "prompt.md"
+    # Build system prompt from local files
+    local_files = ctx.system_prompt_local if ctx.system_prompt_local else ["prompt.md"]
+
+    # Read first local file as the base template (may contain {{include:}} directives)
+    src = ctx.agent_dir / local_files[0]
     if not src.exists():
         return
 
@@ -67,6 +70,15 @@ def write_claude_md(ctx: InstallContext):
         )
 
     processed = process_includes(content, ctx.repo_root)
+
+    # Append additional local files (beyond the first)
+    for local_file in local_files[1:]:
+        local_path = ctx.agent_dir / local_file
+        if not local_path.exists():
+            raise FileNotFoundError(f"Local system_prompt file not found: {local_file}")
+        local_content = strip_frontmatter(local_path.read_text()).strip()
+        if local_content:
+            processed = processed.rstrip() + "\n\n" + local_content + "\n"
 
     # Inject profile instructions
     if ctx.instructions:
