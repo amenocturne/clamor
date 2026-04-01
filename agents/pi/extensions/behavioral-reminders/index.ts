@@ -8,9 +8,12 @@
  * Detected patterns:
  * - Exploration spiral (5+ consecutive read-only tools)
  * - Write/edit after user asked for plan only
- * - Verbose output (>2000 token response)
+ * - Verbose output (>2000 token response, ~8000 chars)
  * - Repeated identical tool calls (same tool + args 3x)
  * - Premature summary while background tasks still running
+ * - Multi-tool attempt (2+ tool calls in one turn)
+ * - Content echoing (repeating large chunks of read output)
+ * - Self-contradiction loop (overthinking phrases)
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -18,6 +21,7 @@ import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { parse } from "yaml";
+import { getAllTasks } from "../../lib/task-manager.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -45,6 +49,24 @@ let consecutiveReads = 0;
 let planModeActive = false;
 let recentCalls: Array<{ tool: string; argsHash: string }> = [];
 const reminderStates = new Map<string, ReminderState>();
+
+// Per-turn text accumulator for verbose output, self-contradiction, and content echoing
+let turnTextBuffer = "";
+let turnToolCallCount = 0;
+
+// Last read tool result for content echoing detection
+let lastReadResult = "";
+
+// Self-contradiction trigger phrases
+const CONTRADICTION_PHRASES = [
+  "wait,",
+  "actually,",
+  "no, ",
+  "let me reconsider",
+  "on second thought",
+  "hmm,",
+  "let me think again",
+];
 
 // ── Config Loading ──────────────────────────────────────────────────────
 
@@ -76,6 +98,14 @@ function recordFire(name: string): void {
   state.lastFiredAt = toolCallCounter;
   state.totalFired++;
   reminderStates.set(name, state);
+}
+
+function runningBgTaskCount(): number {
+  try {
+    return getAllTasks().filter((t) => t.status === "running").length;
+  } catch {
+    return 0;
+  }
 }
 
 // ── Extension Entry ─────────────────────────────────────────────────────
@@ -117,6 +147,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("tool_call", async (event) => {
     toolCallCounter++;
+    turnToolCallCount++;
     const toolName = event.toolName;
     const input = event.input as Record<string, unknown>;
 
@@ -157,24 +188,104 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    // Check: premature summary (tasks still running)
-    // This is checked on message_update, not tool_call — see below
+    // Check: multi-tool attempt (2+ tool calls in same turn)
+    const multiConfig = reminders.multi_tool_attempt;
+    if (multiConfig && turnToolCallCount >= 2) {
+      fireReminder("multi_tool_attempt", multiConfig);
+    }
+
+    // When a read tool completes, stash its input for content echoing detection.
+    // We capture the file_path from the tool input — the actual content comes via
+    // message_update when the model responds. We store the read args so we know
+    // the next text output should be checked.
+    if (toolName === "read" && input.file_path) {
+      // Read the file ourselves to get the content for comparison.
+      // This is lightweight since the file was just read by the tool.
+      try {
+        const content = readFileSync(String(input.file_path), "utf-8");
+        lastReadResult = content;
+      } catch {
+        lastReadResult = "";
+      }
+    }
 
     return { block: false };
   });
 
-  // Check for verbose output and premature summary on message updates
+  // Track text output for verbose_output, premature_summary, content_echoing,
+  // and self_contradiction detection
   pi.on("message_update", async (event) => {
     const delta = (event as any).assistantMessageEvent;
     if (!delta || delta.type !== "text_delta") return;
 
-    // Verbose output detection is approximate — we track accumulated text length
-    // across the current turn. Full implementation would need turn-level tracking.
-    // For now, this fires on the tool_call pattern side effects.
+    const text = typeof delta.delta === "string" ? delta.delta : "";
+    turnTextBuffer += text;
+
+    // Check: verbose output (~4 chars per token, threshold in tokens from config)
+    const verboseConfig = reminders.verbose_output;
+    if (verboseConfig) {
+      const charThreshold = (verboseConfig.trigger.threshold ?? 2000) * 4;
+      if (turnTextBuffer.length >= charThreshold) {
+        fireReminder("verbose_output", verboseConfig);
+      }
+    }
+
+    // Check: premature summary (model outputs text while bg tasks are running)
+    const summaryConfig = reminders.premature_summary;
+    if (summaryConfig && runningBgTaskCount() > 0 && turnTextBuffer.length > 100) {
+      fireReminder("premature_summary", summaryConfig);
+    }
+
+    // Check: content echoing (model repeats large chunks of last read result)
+    const echoConfig = reminders.content_echoing;
+    if (echoConfig && lastReadResult.length > 0 && turnTextBuffer.length > 500) {
+      const overlap = countOverlap(turnTextBuffer, lastReadResult);
+      if (overlap > 500) {
+        fireReminder("content_echoing", echoConfig);
+        // Clear to avoid re-firing on subsequent deltas in the same turn
+        lastReadResult = "";
+      }
+    }
+
+    // Check: self-contradiction loop (3+ deliberation phrases in one response)
+    const contradictionConfig = reminders.self_contradiction;
+    if (contradictionConfig) {
+      const lower = turnTextBuffer.toLowerCase();
+      let matchCount = 0;
+      for (const phrase of CONTRADICTION_PHRASES) {
+        if (lower.includes(phrase)) matchCount++;
+      }
+      if (matchCount >= 3) {
+        fireReminder("self_contradiction", contradictionConfig);
+      }
+    }
   });
 
   // Reset per-turn state on turn boundaries
   pi.on("turn_end", async () => {
     consecutiveReads = 0;
+    turnTextBuffer = "";
+    turnToolCallCount = 0;
   });
+}
+
+// ── Content Echoing Helpers ─────────────────────────────────────────────
+
+/**
+ * Estimate character overlap between model output and read content.
+ * Uses a sliding window approach: checks if consecutive chunks of the model
+ * output appear verbatim in the read content. Returns total matched chars.
+ */
+function countOverlap(modelText: string, readContent: string): number {
+  const CHUNK_SIZE = 50;
+  if (modelText.length < CHUNK_SIZE || readContent.length < CHUNK_SIZE) return 0;
+
+  let matched = 0;
+  for (let i = 0; i <= modelText.length - CHUNK_SIZE; i += CHUNK_SIZE) {
+    const chunk = modelText.slice(i, i + CHUNK_SIZE);
+    if (readContent.includes(chunk)) {
+      matched += CHUNK_SIZE;
+    }
+  }
+  return matched;
 }

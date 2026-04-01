@@ -59,4 +59,20 @@ export default function (pi: ExtensionAPI) {
       return {};
     }
   });
+
+  // After context compaction, remind the agent to resume without recap.
+  // Pi fires session_compact when older messages are summarized to free tokens.
+  pi.on("session_compact", async () => {
+    pi.sendMessage(
+      {
+        customType: "compaction-resume",
+        content:
+          "Context was compacted. Resume from where you left off. " +
+          "Do not recap, do not re-read files mentioned in the summary, " +
+          "do not ask where we were. If the summary mentions pending work, do that next.",
+        display: false,
+      },
+      { deliverAs: "steer" },
+    );
+  });
 }

@@ -55,3 +55,30 @@ reminders:
       messages before summarizing results.
     cooldown: 3
     max_per_session: 5
+
+  multi_tool_attempt:
+    trigger:
+      type: multi_tool_per_turn
+      threshold: 2
+    message: >
+      ONE tool per message. Pick the most important one. Call it alone.
+    cooldown: 1
+    max_per_session: 10
+
+  content_echoing:
+    trigger:
+      type: echo_read_content
+      threshold: 500
+    message: >
+      Do not echo file contents. Summarize what you found in 1-3 lines.
+    cooldown: 5
+    max_per_session: 3
+
+  self_contradiction:
+    trigger:
+      type: deliberation_loop
+      threshold: 3
+    message: >
+      Stop deliberating. Pick the best option and commit to it.
+    cooldown: 3
+    max_per_session: 3

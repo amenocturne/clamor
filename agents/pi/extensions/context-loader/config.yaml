@@ -7,6 +7,7 @@
 
 # General instructions (always injected at session start via appendSystemPrompt)
 general:
+  - path: agents/pi/instructions/tool-usage.md
   - path: agents/pi/instructions/coding.md
 
 # Context-specific instructions (injected via sendMessage on context switch)

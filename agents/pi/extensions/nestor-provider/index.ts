@@ -492,6 +492,16 @@ function streamNestor(
 						...options?.headers,
 						"Nestor-Token": jwt,
 					},
+					onPayload: (payload: unknown) => {
+						const p = payload as Record<string, unknown>;
+						// Force one tool call per response. Part of the OpenAI chat
+						// completions spec (not a sampling param), so the API should
+						// respect it even if it ignores temperature/top_k/etc.
+						if (p.tools && (p.tools as unknown[]).length > 0) {
+							p.parallel_tool_calls = false;
+						}
+						return p;
+					},
 				},
 			);
 

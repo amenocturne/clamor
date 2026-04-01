@@ -30,6 +30,159 @@ const PASSTHROUGH_TOOLS = new Set([
   "bg-run", "bg-agent", "bg-status", "bg-result", "bg-kill",
 ]);
 
+// ── Tool Call Repair ─────────────────────────────────────────────────────
+
+/**
+ * Maps commonly hallucinated tool names to their correct equivalents.
+ * Applied after case normalization (all keys are lowercase).
+ */
+const TOOL_NAME_ALIASES: Record<string, string> = {
+  // shell/exec → bash (or bg-run if bash is replaced)
+  shell: "bash",
+  terminal: "bash",
+  exec: "bash",
+  execute: "bash",
+  run_command: "bash",
+  run: "bash",
+  command: "bash",
+  // search variants → grep
+  search: "grep",
+  find_files: "grep",
+  ripgrep: "grep",
+  rg: "grep",
+  // glob-like
+  glob: "find",
+  list_files: "find",
+  // read variants
+  file_read: "read",
+  readfile: "read",
+  read_file: "read",
+  cat: "read",
+  view: "read",
+  open: "read",
+  // write variants
+  file_write: "write",
+  writefile: "write",
+  write_file: "write",
+  create_file: "write",
+  save: "write",
+  // edit variants
+  file_edit: "edit",
+  editfile: "edit",
+  edit_file: "edit",
+  patch: "edit",
+  replace: "edit",
+  modify: "edit",
+};
+
+/**
+ * Required parameters per built-in tool, used for malformed input feedback.
+ */
+const TOOL_REQUIRED_PARAMS: Record<string, string[]> = {
+  bash: ["command"],
+  "bg-run": ["command"],
+  read: ["path"],
+  write: ["path", "content"],
+  edit: ["path", "old_string", "new_string"],
+  grep: ["pattern"],
+  find: ["pattern"],
+  ls: [],
+};
+
+/**
+ * Normalize a tool name: lowercase + alias resolution.
+ * When bash has been replaced by bg-run (background-tasks extension),
+ * shell-like aliases resolve to bg-run instead.
+ */
+function normalizeToolName(raw: string, activeTools: Set<string>): string {
+  const lower = raw.toLowerCase().trim();
+  const mapped = TOOL_NAME_ALIASES[lower] ?? lower;
+
+  // If the alias resolved to "bash" but bash isn't available and bg-run is,
+  // redirect to bg-run. This handles the background-tasks replacement.
+  if (mapped === "bash" && !activeTools.has("bash") && activeTools.has("bg-run")) {
+    return "bg-run";
+  }
+
+  return mapped;
+}
+
+/**
+ * Check if tool input is missing required parameters.
+ * Returns a list of missing param names, or empty array if OK.
+ */
+function findMissingParams(toolName: string, input: Record<string, unknown>): string[] {
+  const required = TOOL_REQUIRED_PARAMS[toolName];
+  if (!required) return [];
+  return required.filter((p) => input[p] === undefined || input[p] === null);
+}
+
+/**
+ * Attempt tool call repair. Returns a block result if the call should be
+ * rejected with feedback, or null if the call is valid and should proceed
+ * through normal permission logic.
+ *
+ * Repair strategy — since Pi's event object is read-only, we can't silently
+ * rewrite tool names. Instead we block and return actionable error messages
+ * that tell the model exactly what to call instead.
+ */
+function repairToolCall(
+  pi: ExtensionAPI,
+  event: { toolName: string; input: unknown },
+  ctx: { abort: () => void },
+): { block: true; reason: string } | null {
+  const raw = event.toolName;
+  const activeTools = new Set(pi.getActiveTools());
+  const normalized = normalizeToolName(raw, activeTools);
+  const input = (event.input ?? {}) as Record<string, unknown>;
+  const toolExists = activeTools.has(raw);
+
+  // Tool name is wrong — either hallucinated, wrong case, or alias
+  if (!toolExists) {
+    if (activeTools.has(normalized)) {
+      // We know the correct name — tell the model to retry with it
+      logInterception(pi, raw, input, "repair", `"${raw}" → "${normalized}"`);
+      ctx.abort();
+      return {
+        block: true,
+        reason:
+          `Tool "${raw}" does not exist. You meant "${normalized}". ` +
+          `Call the "${normalized}" tool with the same arguments.`,
+      };
+    }
+
+    // No match even after normalization — list available tools
+    const available = [...activeTools].sort().join(", ");
+    logInterception(pi, raw, input, "repair", `unknown tool "${raw}"`);
+    ctx.abort();
+    return {
+      block: true,
+      reason:
+        `Tool "${raw}" does not exist. ` +
+        `Available tools: ${available}. ` +
+        `Pick the correct tool and try again.`,
+    };
+  }
+
+  // Tool exists — check for malformed input (missing required params)
+  const missing = findMissingParams(raw, input);
+  if (missing.length > 0) {
+    const allRequired = TOOL_REQUIRED_PARAMS[raw] ?? [];
+    logInterception(pi, raw, input, "repair", `missing params: ${missing.join(", ")}`);
+    ctx.abort();
+    return {
+      block: true,
+      reason:
+        `Invalid input for "${raw}". ` +
+        `Missing required parameter${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}. ` +
+        `Expected parameters: ${allRequired.join(", ")}. ` +
+        `Try again with the correct parameters.`,
+    };
+  }
+
+  return null;
+}
+
 /**
  * Try to import enqueuePermission from the sibling background-tasks extension.
  * This is the unified permission queue that processes prompts one at a time.
@@ -66,6 +219,12 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("tool_call", async (event, ctx) => {
+    // Tool call repair — normalize names and catch hallucinations before
+    // anything else runs. Must happen before permission hooks since hooks
+    // match on tool names.
+    const repairResult = repairToolCall(pi, event, ctx);
+    if (repairResult) return repairResult;
+
     // Extension tools that manage their own permissions — don't gate them
     if (PASSTHROUGH_TOOLS.has(event.toolName)) {
       return { block: false };
