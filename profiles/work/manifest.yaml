@@ -4,6 +4,7 @@ common:
   - git-work
 
 skills:
+  - confluence
   - dp-jira
   - dp-gitlab
 
