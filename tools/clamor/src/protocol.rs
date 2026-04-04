@@ -37,6 +37,9 @@ pub enum ClientMessage {
     Subscribe { id: String },
     /// Unsubscribe from PTY output
     Unsubscribe { id: String },
+    /// Rebuild daemon-side parser from ring buffer and send fresh catch-up.
+    /// Fixes accumulated rendering issues without restarting the session.
+    RefreshParser { id: String },
     /// List all managed PTYs and their status
     List,
     /// Shut down the daemon

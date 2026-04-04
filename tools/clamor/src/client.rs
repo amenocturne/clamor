@@ -131,6 +131,40 @@ impl DaemonClient {
         }
     }
 
+    /// Ask daemon to rebuild its parser from the ring buffer and send fresh
+    /// catch-up data. Fixes accumulated rendering issues. Also ensures the
+    /// subscription is active (same as subscribe).
+    pub async fn refresh_parser_buffered(&mut self, id: &str) -> Result<SubscribeResult> {
+        self.send(ClientMessage::RefreshParser { id: id.to_string() })
+            .await?;
+        let mut buffered = Vec::new();
+        loop {
+            let msg: DaemonMessage =
+                tokio::time::timeout(Duration::from_secs(5), recv_message_async(&mut self.stream))
+                    .await
+                    .context("refresh_parser timed out")??;
+
+            match msg {
+                DaemonMessage::CatchUp { data, .. } => {
+                    return Ok(SubscribeResult {
+                        catch_up: data,
+                        buffered,
+                    });
+                }
+                DaemonMessage::Error { message } => {
+                    anyhow::bail!("refresh_parser failed: {message}")
+                }
+                DaemonMessage::Output { .. } | DaemonMessage::Exited { .. } => {
+                    buffered.push(msg);
+                }
+                DaemonMessage::Heartbeat => continue,
+                other => {
+                    anyhow::bail!("unexpected response: {other:?}")
+                }
+            }
+        }
+    }
+
     pub async fn unsubscribe(&mut self, id: &str) -> Result<()> {
         self.send(ClientMessage::Unsubscribe { id: id.to_string() })
             .await?;

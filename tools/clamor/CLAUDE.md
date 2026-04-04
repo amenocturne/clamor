@@ -76,6 +76,7 @@ Current protocol messages include `Hello { version }` for version exchange betwe
 - `Ctrl+F` — detach (back to dashboard)
 - `Ctrl+C` — send SIGINT to agent
 - `Ctrl+J` — snap to bottom (live view)
+- `Ctrl+R` — refresh terminal (rebuild daemon parser from ring buffer)
 - `Ctrl+S` — enter copy mode
 - Scroll up — freeze display (output buffered, shown on return to live)
 
