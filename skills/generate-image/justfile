@@ -1,0 +1,8 @@
+set positional-arguments
+
+default:
+    @just --list
+
+# Generate an image from a text prompt
+generate *FLAGS:
+    uv run scripts/imagine.py "$@"

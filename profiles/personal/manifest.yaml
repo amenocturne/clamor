@@ -4,6 +4,9 @@ system_prompt:
   common:
     - git-personal
 
+skills:
+  - generate-image
+
 hooks:
   - worktree
 

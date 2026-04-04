@@ -11,6 +11,7 @@ skills:
   - graph
   - reflect
   - crazy
+  - generate-image
 
 hooks:
   - save-conversation
