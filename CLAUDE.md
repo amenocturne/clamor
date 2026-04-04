@@ -1,80 +1,93 @@
-# agentic-kit
+# clamor
 
-Personal toolkit for Claude Code: skills, hooks, pipelines, and composable presets.
+Terminal multiplexer TUI for managing multiple coding agents via a daemon/client architecture.
 
 ## Commands
 
-Run `just` to see available commands. Key ones:
-
 ```bash
-just install                       # Reinstall all registered targets (run after any change)
-just install-interactive           # Install preset interactively (first-time setup)
-just install-to <target> <preset>  # Install to specific directory
-just test                          # Run tests
-just fmt && just lint              # Format and lint
+cargo check                  # Type-check
+cargo test                   # Run all tests (unit + integration)
+cargo build --release        # Build optimized binary
+cargo clippy                 # Lint
+cargo fmt                    # Format
 ```
 
-**After modifying skills, presets, hooks, or common files:** run `just install` to propagate changes to all targets.
+## Architecture
 
-## Testing
+- **daemon** (`daemon.rs`) — async tokio event loop, manages PTYs via `portable-pty`, communicates over Unix socket with length-prefixed JSON
+- **client** (`client.rs`) — async `DaemonClient` with 5s timeouts on all operations
+- **dashboard** (`dashboard/mod.rs`) — `tokio::select!` over daemon messages, crossterm `EventStream`, and 16ms frame ticks
+- **protocol** (`protocol.rs`) — wire format (4-byte BE length + JSON), both sync and async variants
+- **pane** (`pane.rs`) — `vt100::Parser` wrapper with scrollback, selection, clipboard
+- **state** (`state.rs`) — file-locked JSON persistence (`~/.clamor/state.json`); three states: Working, Input, Done (Lost was removed — daemon auto-resumes sessions on restart)
+- **config** (`config.rs`) — YAML config at `~/.config/clamor/config.yaml`, backend registry with built-in templates, folder-to-backend mapping, legacy JSON migration
+- **spawn** (`spawn.rs`) — backend-driven spawn/resume resolver with `{{var}}` template rendering
+- **hook** (`hook.rs`) — sync, runs in separate process (no tokio), must stay fast
 
-```bash
-pytest                              # All tests
-pytest tests/test_install.py        # Installer tests
-pytest skills/youtube/              # Skill-specific tests
-```
+## Multi-Backend Support
 
-Scripts use PEP 723 inline metadata. Run with `uv run <script>`.
+Clamor is backend-agnostic. Each folder can list multiple backends; one is selected at a time.
 
-## Skill Authoring
+- **Config**: `~/.config/clamor/config.yaml` defines backends (spawn/resume commands, capabilities) and folders (path + allowed backends)
+- **Built-in backends**: `claude-code`, `open-code`, `pi` — merged with user config at load time
+- **Runtime state**: selected backend per folder persists in `~/.clamor/state.json`
+- **Hooks**: only enabled for backends with `capabilities.hooks: true` (currently Claude Code)
+- **Process exit**: all backends get `Done` state via PTY exit detection, regardless of hook support
 
-Each skill lives in `skills/<name>/` with `SKILL.md` + `metadata.json` (+ optional `scripts/`).
+## Versioning
 
-**SKILL.md structure rule**: The `description` field in frontmatter handles all "when and why to use" logic — it's what triggers skill activation. The markdown body should be purely operational (how to use, commands, flags, caveats). Don't repeat trigger conditions in the body — if the agent is reading the body, it already decided to use the skill.
+**Bump the version in `Cargo.toml` with every release commit.** Follow semver:
+- **patch** (0.1.x): bug fixes, small improvements, shortcut changes
+- **minor** (0.x.0): new features, protocol changes, architectural changes
+- **major** (x.0.0): breaking changes to config/state format
 
-```yaml
----
-name: my-skill
-description: "All trigger/routing info here. When to use, what it does, keyword triggers."
-author: amenocturne
----
+Current protocol messages include `Hello { version }` for version exchange between daemon and client.
 
-# My Skill
+## Key Shortcuts
 
-## Commands        <-- jump straight to usage
-## Important       <-- caveats, limits
-```
+### Dashboard (normal mode)
 
-## Clamor Public Repo
+- Jump keys (`a`/`s`/`d`/`f`/`j`/`k`/`l`/`h` + `1`–`0` overflow) — attach to agent
+- `J`/`K` or arrows — navigate agent list
+- `gg`/`G` — jump to first/last agent
+- `Enter` — attach to selected agent
+- `c` — create agent (inline prompt), `C` — create via `$EDITOR`
+- `x` + key — kill agent (with confirmation)
+- `e` + key — edit agent description
+- `v` — toggle select, `V` — select/deselect all
+- `/` — filter agents by name
+- `R` — adopt existing Claude Code session
+- `?` — help popup
+- `Ctrl+C` — quit hint (press `q` to confirm)
+- `Esc` — clear selection
+- `q` — quit dashboard
 
-Clamor (`tools/clamor/`) is published as a standalone public repo and crate.
+### Spawn prompt
 
-- **GitHub**: https://github.com/amenocturne/clamor
-- **Crate**: https://crates.io/crates/clamor
-- **Hooks**: canonical location is `tools/clamor/hooks/`, symlinked from `hooks/clamor/`
-- **License**: MIT
+- `Tab` / `Shift+Tab` — cycle fields (title → description → backend)
+- `←` / `→` — select backend (when backend field active, skipped for single-backend folders)
+- `Shift+Enter` / `Alt+Enter` — new line in description
+- `Up`/`Down` — prompt history
+- `Ctrl+W` / `Alt+Backspace` — delete word
+- `Ctrl+U` — delete line
 
-**Before pushing Clamor changes to the public repo, always ask the user first.** Don't push automatically — the user decides when and what gets published.
+### Terminal (attached)
 
-### Sync workflow
+- `Ctrl+F` — detach (back to dashboard)
+- `Ctrl+C` — send SIGINT to agent
+- `Ctrl+J` — snap to bottom (live view)
+- `Ctrl+R` — refresh terminal (rebuild daemon parser from ring buffer)
+- `Ctrl+S` — enter copy mode
+- Scroll up — freeze display (output buffered, shown on return to live)
 
-```bash
-git subtree push --prefix=tools/clamor clamor-public main
-```
+### Copy mode
 
-### Publishing a new version
-
-1. Bump version in `tools/clamor/Cargo.toml` (follow semver)
-2. Sync changes to public repo clone, commit, push
-3. Tag the version: `git tag -a v<version> -m "v<version>"` (in the public repo)
-4. Publish crate: `cargo publish` (from `tools/clamor/`)
-
-### CI
-
-GitHub Actions runs `cargo fmt --check`, `cargo clippy`, and `cargo test` on push/PR to main. The workflow lives in the public repo's `.github/workflows/ci.yml` (not in the subtree — added directly to the public repo).
-
-## TODO
-
-**Remind the user about these when starting work here.**
-
-- **Agentic Knowledge Base**: Lighter-weight KB for dev/work presets. Agent reflects on work, saves learnings, avoids repeating mistakes. Session reflection, persistent memory, pattern recognition, self-updating.
+- `h`/`j`/`k`/`l` or arrows — move cursor
+- `v` — toggle selection (character-wise)
+- `V` — toggle selection (line-wise)
+- `y` — yank selection to clipboard + exit
+- `0`/`$` — start/end of line
+- `Ctrl+U`/`Ctrl+D` — half page up/down
+- `gg`/`G` — top/bottom of scrollback
+- `q`/`Esc` — exit copy mode
+- `Ctrl+J` — exit copy mode (snap to bottom)

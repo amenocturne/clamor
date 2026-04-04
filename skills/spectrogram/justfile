@@ -1,8 +1,0 @@
-set positional-arguments
-
-default:
-    @just --list
-
-# Generate spectrogram images from audio
-generate *FLAGS:
-    uv run scripts/spectrogram.py "$@"

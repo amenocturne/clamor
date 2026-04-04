@@ -1,7 +1,0 @@
-{
-  "name": "talk",
-  "description": "Toggle voice conversation mode with text-to-speech. Adapts response style for spoken output — no markdown, natural sentences, concise phrasing.",
-  "author": "amenocturne",
-  "version": "1.0.0",
-  "tags": ["voice", "tts", "accessibility", "conversation"]
-}

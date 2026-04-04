@@ -1,255 +1,241 @@
-# Agentic Kit
+<p align="center">
+  <img src="banner.png" alt="Clamor" width="100%">
+</p>
 
-Dotfiles for agent CLIs like Claude Code, OpenCode, and Pi. Small, composable tools — skills, hooks, and presets — that shape how your agent thinks, works, and responds. Unix philosophy: each piece does one thing well, presets compose them.
+<h3 align="center"><i>ORCHESTRATE THE NOISE</i></h3>
+
+<p align="center"> Tmux for agents. Because one isn't loud enough. </p>
+
+<p align="center">A terminal multiplexer for managing parallel coding agent sessions.</p>
+
+<!-- demo gif placeholder -->
 
 ## Why
 
-Claude Code has skills, hooks, and settings — but no way to compose them. You manually copy SKILL.md files, wire up hooks in settings.json, write CLAUDE.md instructions by hand, and repeat the whole thing for every project.
+You're running five coding agent sessions in parallel. Tab names blur together. You can't tell which agent needs input and which is still working. Switching between them means hunting through tmux windows or terminal tabs. Spawning a new one is a ritual of `cd`, naming, and arranging.
 
-Agentic Kit treats agent configuration like dotfiles: declare what you want in a manifest, run the installer, get a reproducible environment. Change a skill or instruction once, reinstall, and every project picks up the update.
+Clamor fixes this without replacing your workflow. It's *not* a new terminal, *not* a new editor, *not* an IDE that swallows everything. It's a single tool that does one thing well: manage parallel agent sessions. It runs inside your existing terminal, alongside tmux, inside whatever setup you already have. Unix philosophy — small, composable, stays out of the way.
 
-## How It Relates to Supported Agents
+## Features
 
-Agentic Kit doesn't extend an agent runtime. It manages the project-local config files that supported agents already read, such as `.claude/`, `.opencode/`, and `.pi/`.
+**Persistent sessions** — Agents live in a background daemon, not your terminal. Close the dashboard, reopen it — everything's still running. Terminal crash? SSH disconnect? Doesn't matter.
 
-After installation, the agent just sees its normal config directory. Skills are individual primitives. Presets are curated bundles with composition logic on top.
+**Jump keys** — Each agent gets a home-row key (`a`/`s`/`d`/`f`/`j`/`k`/`l`/`h`, overflow to `1`–`0`). One keypress to attach, `Ctrl+F` to detach. Switching between agents is instant.
 
-## Quick Start
+**Live state tracking** — The dashboard shows each agent's actual state (working/waiting/done). Spot stalled agents immediately.
 
-```bash
-# Install a preset to a target directory
-just install-to ~/projects/my-app dev-workspace
+**Color-coded title bar** — When attached, a title bar shows the project name and a distinct color so you always know where you are. No squinting at tab names.
 
-# Reinstall all registered targets (after modifying skills/hooks/instructions)
-just install          # or: just i
+**Auto-resume** — The daemon automatically resumes agent sessions on restart. Terminal crash, SSH disconnect, daemon restart — agents pick up where they left off.
 
-# First-time interactive setup
-just install-interactive
+**Session adoption** — Already have agent sessions from before? Press `R` in the dashboard to adopt an existing session into Clamor.
 
-# List available presets
-just list             # or: just l
-```
+**Batch operations** — Select multiple agents with `v`, select all with `V`, then act on the selection. Filter agents by name with `/`.
 
-Or without just:
+**Non-blocking hooks** — State tracking uses non-blocking file locks. Clamor never slows down your agent sessions.
+
+## Quick start
+
+### Install
 
 ```bash
-uv run install.py --preset dev-workspace --target ~/projects/my-app
-uv run install.py --all              # reinstall all registered targets
-uv run install.py                    # interactive preset selection
-uv run install.py --list
+cargo install clamor
 ```
 
-## What Gets Installed
+Or build from source:
 
-Running `just install-to ~/projects dev-workspace` produces:
-
-```
-~/projects/
-├── .claude/
-│   ├── CLAUDE.md              # Generated from preset template + common files
-│   ├── settings.json          # Merged hook configs and permissions
-│   ├── agentic-kit.json       # Paths to agentic-kit and knowledge base
-│   ├── skills/
-│   │   ├── workspace/  →      # Symlinks to agentic-kit/skills/*
-│   │   ├── checkpoint/ →
-│   │   └── ...
-│   └── hooks/
-│       ├── notification/ →    # Symlinks to agentic-kit/hooks/*
-│       ├── clamor/       →
-│       └── ...
-├── .opencode/
-│   ├── agentic-kit.json       # Shared install state + project paths
-│   └── skills/
-│       ├── workspace/  →
-│       ├── checkpoint/ →
-│       └── ...
-├── .pi/
-│   ├── agentic-kit.json       # Shared install state + project paths
-│   ├── settings.json          # Pi defaults managed by the installer
-│   ├── skills/
-│   │   ├── workspace/  →
-│   │   ├── checkpoint/ →
-│   │   └── ...
-│   └── extensions/
-│       └── nestor-provider/ →
-└── WORKSPACE.yaml             # Only if the preset ships a workspace template and target lacks one
+```bash
+git clone https://github.com/amenocturne/clamor.git
+cd clamor
+cargo build --release
+cp target/release/clamor ~/.local/bin/
 ```
 
-Installed agent directories depend on the preset's `agents:` list. `dev-workspace` currently installs Claude Code, OpenCode, and Pi; other presets can install a different subset.
+### Hook setup
 
-**Symlinked** (live-linked, updates propagate automatically): skills, hooks, pipelines, Pi extensions
-**Generated** (written once per install): agent-specific config files such as `CLAUDE.md`, `settings.json`, and `agentic-kit.json`
+Clamor tracks agent state (working/waiting/done) via hooks. For Claude Code, add these to your `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "type": "command", "command": "clamor hook" }],
+    "Notification": [{ "type": "command", "command": "clamor hook" }],
+    "PreToolUse": [{ "type": "command", "command": "clamor hook" }],
+    "UserPromptSubmit": [{ "type": "command", "command": "clamor hook" }],
+    "Stop": [{ "type": "command", "command": "clamor hook" }]
+  }
+}
+```
+
+That's it — no files to copy. The hook reads events from stdin and updates agent state in `~/.clamor/state.json`.
+
+### Configure folders
+
+```bash
+clamor config init    # Write starter config with built-in backends
+clamor config         # Open config in $EDITOR
+```
+
+Config lives at `~/.config/clamor/config.yaml`. Legacy `~/.clamor/config.json` is auto-detected — run `clamor config migrate` to convert.
+
+#### Folders
+
+Each folder is a project directory where agents can be spawned:
+
+```yaml
+folders:
+  my-app:
+    path: ~/projects/my-app
+    backends: [claude-code, open-code]  # Which backends are available here
+
+  scripts:
+    path: ~/scripts  # Omit backends → defaults to [claude-code]
+```
+
+When a folder lists multiple backends, the spawn prompt shows a backend selector you can cycle through with arrow keys. The selection is persisted per folder.
+
+#### Backends
+
+Backends define how to spawn and resume agent sessions. Three are built-in (`claude-code`, `open-code`, `pi`) — you can override them or define your own:
+
+```yaml
+backends:
+  claude-code:              # Override a built-in
+    display_name: Claude
+    spawn:
+      cmd: [claude, "{{prompt}}"]
+      env:                  # Optional extra environment variables
+        CLAUDE_CODE_MAX_TURNS: "50"
+    resume:
+      cmd: [claude, --resume, "{{resume_token}}"]
+    capabilities:
+      resume: true          # Can resume sessions after daemon restart
+      hooks: true           # Supports clamor state tracking hooks
+      sync_output_mode: true  # Uses synchronized output (BSU/ESU)
+
+  my-custom-agent:          # Define a new backend
+    display_name: Custom
+    spawn:
+      cmd: [my-agent, --prompt, "{{prompt}}"]
+```
+
+**Template variables** available in `cmd`:
+
+| Variable | Description |
+| --- | --- |
+| `{{prompt}}` | User's description text (optional — omitted if empty) |
+| `{{title}}` | Agent title |
+| `{{folder_id}}` | Folder ID from config |
+| `{{folder_path}}` | Expanded folder path |
+| `{{cwd}}` | Working directory |
+| `{{backend_id}}` | Backend ID |
+| `{{resume_token}}` | Session ID for resume (resume commands only) |
+
+**Capabilities**:
+
+| Capability | Default | Description |
+| --- | --- | --- |
+| `resume` | `false` | Agent sessions can be resumed after daemon restart |
+| `hooks` | `false` | Backend supports `clamor hook` for state tracking |
+| `sync_output_mode` | `false` | Backend uses synchronized output markers |
+
+Use `clamor config print-example` to see a full config, or `clamor config print-backend claude-code` to see one backend's template.
+
+### Launch
+
+```bash
+clamor
+```
+
+## Usage
+
+```
+clamor                  Open the dashboard (starts daemon if needed)
+clamor ls               List all agents
+clamor new <title>      Spawn a new agent
+clamor attach <ref>     Attach to an agent (by ID or jump key)
+clamor adopt <id>       Adopt an existing agent session
+clamor edit <ref>       Update agent description
+clamor kill <ref>       Terminate an agent
+clamor kill --all       Terminate all agents
+clamor clean            Remove finished agents
+clamor config           Open config in $EDITOR
+clamor config init      Write a starter XDG config
+clamor config migrate   Copy legacy JSON config to XDG YAML
+clamor config print-example
+                        Print a full example config
+clamor config print-backend <id>
+                        Print one built-in backend template
+clamor stop             Stop the daemon
+```
+
+### Dashboard keys
+
+| Key            | Action                           |
+| -------------- | -------------------------------- |
+| `a`–`h`, `1`–`0` | Jump to agent                 |
+| `J` / `K`      | Navigate agent list (vim-style)  |
+| `g` / `G`      | Jump to first / last agent       |
+| `Enter`        | Attach to selected agent         |
+| `c`            | Create agent (inline prompt)     |
+| `C`            | Create agent ($EDITOR prompt)    |
+| `x` + key      | Kill agent (with confirmation)   |
+| `e` + key      | Edit agent description           |
+| `v`            | Toggle select agent              |
+| `V`            | Select / deselect all            |
+| `/`            | Filter agents by name            |
+| `R`            | Adopt existing agent session     |
+| `?`            | Help popup                       |
+| `Esc`          | Clear selection                  |
+| `q`            | Quit dashboard                   |
+
+### Spawn prompt keys
+
+| Key              | Action                                |
+| ---------------- | ------------------------------------- |
+| `Tab` / `Shift+Tab` | Cycle fields (title → description → backend) |
+| `←` / `→`       | Select backend (when backend field active) |
+| `Shift+Enter`    | New line in description               |
+| `↑` / `↓`       | Prompt history                        |
+| `Ctrl+W`         | Delete word                           |
+| `Ctrl+U`         | Delete line                           |
+| `Enter`          | Spawn agent (empty = interactive)     |
+
+### Terminal keys
+
+| Key      | Action                     |
+| -------- | -------------------------- |
+| `Ctrl+F` | Detach (back to dashboard) |
+| `Ctrl+C` | Send SIGINT to agent       |
+| `Ctrl+J` | Snap to bottom (live view) |
 
 ## Architecture
 
-```
-agentic-kit/
-├── skills/           # 31 self-contained skill folders
-├── hooks/            # 10 event-triggered scripts
-├── presets/          # 3 composable installation recipes
-├── common/           # 6 reusable instruction fragments
-├── pipelines/        # 1 data processing pipeline
-├── tools/            # External tools (clamor)
-├── install.py        # Core installer
-└── installations.yaml  # Registry of installed presets
-```
-
-### Presets
-
-A preset is a manifest (`manifest.yaml`) that declares which components to install, plus a template (`claude.md`) for generating project instructions.
-
-```yaml
-# presets/dev-workspace/manifest.yaml
-description: Multi-project development workspace
-agents:
-  - claude-code
-  - open-code
-  - pi
-skills:
-  - workspace
-  - orchestrator
-  - checkpoint
-  - review
-  - ...
-hooks:
-  - notification
-  - workflow-check
-  - clamor
-common:
-  - dev-workflow        # Reusable instruction fragment
-  - code-conventions
-  - git
-external:
-  - github.com/anthropics/skills/skill-creator
-```
-
-The installer reads the manifest, symlinks all components, processes `{{include:common/git.md}}` directives in the template, validates that common files' required skills are present, merges hook configs from each hook's `hooks.json`, and then delegates final layout generation to each selected agent installer.
-
-Components are symlinked, not copied — editing a skill in Agentic Kit and running `just install` updates every project that uses it. No duplication, no drift.
-
-### Common Files
-
-Reusable instruction fragments shared across presets. Each can declare required skills:
-
-```markdown
----
-required_skills:
-  - orchestrator
-  - todo
-  - review
----
-
-## Dev Workflow
-
-Every non-trivial task follows this cycle: ...
-```
-
-The installer validates that all required skills are present in the preset before including the fragment.
-
-### Skills
-
-Skills follow the [skills.sh](https://skills.sh/) format — a folder with a `SKILL.md` (YAML frontmatter + markdown instructions) and optional scripts or templates. Compatible with the skills.sh registry for individual installation. Skills are **atomic and independent**: they don't reference each other. Cross-skill workflows belong in presets.
+Clamor uses a daemon-client architecture, similar to tmux:
 
 ```
-my-skill/
-├── SKILL.md          # Required: frontmatter + instructions
-├── scripts/          # Optional: executable scripts
-└── templates/        # Optional: file templates
+┌──────────────┐    Unix socket    ┌────────────────────────┐
+│              │◄─────────────────►│         Daemon         │
+│   Dashboard  │  length-prefixed  │                        │
+│  (TUI client)│       JSON        │  ┌───────┐ ┌───────┐   │
+│              │                   │  │  PTY  │ │  PTY  │   │
+└──────────────┘                   │  │ agent │ │ agent │…  │
+                                   │  └───────┘ └───────┘   │
+                                   └────────────────────────┘
 ```
 
-### Hooks
+- The **daemon** runs in the background, owns all agent PTY processes, and persists across dashboard restarts
+- The **dashboard** connects over a Unix socket (`~/.clamor/clamor.sock`), subscribes to output streams, and renders the TUI
+- **State** is tracked in `~/.clamor/state.json` with file-locked reads/writes, updated by hooks in real time
 
-Event-triggered scripts that Claude Code executes at specific moments (session start, tool use, session end). Each hook has a `hooks.json` declaring which events it listens to. The installer merges all hook configs into `.claude/settings.json`.
+## Troubleshooting
 
-### Registry
+**Agent terminal looks garbled after attaching** — Double `Ctrl+F` fixes it. The first detaches to the dashboard, the second re-attaches, resetting the terminal state.
 
-`installations.yaml` tracks every installed preset, target path, and selected agents. Running `just install` reinstalls all entries — useful after modifying any skill, hook, or instruction in Agentic Kit.
+**Daemon won't start** — Check if a stale socket exists: `rm ~/.clamor/clamor.sock` and try again.
 
-## Presets
+**Hooks not updating state** — Verify that `clamor` is in your `PATH` and the hook entries are in your `.claude/settings.json`.
 
-| Preset | Skills | Hooks | Focus |
-| ------ | ------ | ----- | ----- |
-| `dev-workspace` | 23 | 7 | Multi-project development, orchestration, code review |
-| `knowledge-base` | 20 | 7 | Obsidian vault, atomic notes, auto-saving, zettelkasten |
-| `work` | 18 | 6 | Scala/infrastructure, Jira, GitLab, corporate tooling |
+## License
 
-## Skills
-
-| Skill | Description |
-| ----- | ----------- |
-| `brainstorm` | Creative exploration for vague ideas |
-| `checkpoint` | Verify, commit, and review in one step |
-| `config` | Configuration and infrastructure patterns (Ansible, Docker) |
-| `confluence` | Import Confluence pages to Markdown |
-| `crazy` | Altered-state thinking for boundary-breaking ideation |
-| `creative-freedom` | Deep autonomous creative exploration |
-| `context7` | Up-to-date library and framework documentation lookup |
-| `dev-cycle` | Automated implement-review-test development loop |
-| `dev-philosophy` | Core development principles across languages |
-| `documentation` | Project documentation guidelines |
-| `dp-gitlab` | GitLab interaction via dp CLI |
-| `dp-jira` | Jira issue details via dp CLI |
-| `frontend` | Frontend dev — stack, architecture, design, production readiness |
-| `graph` | Obsidian vault graph analysis |
-| `idea-roaster` | Rigorous critical evaluation of ideas |
-| `lyrics` | Song lyrics from Genius |
-| `orchestrator` | Multi-agent orchestration mode |
-| `pinchtab` | Browser control with persistent sessions |
-| `playwright` | E2E testing and visual regression |
-| `project-setup` | Project scaffolding patterns |
-| `reflect` | Reflective listening for processing thoughts |
-| `review` | Browser-based code review and file annotation |
-| `shh` | Kill TTS playback |
-| `spec` | Technical specification generator |
-| `spectrogram` | Audio spectrogram generation for visual analysis |
-| `talk` | Voice conversation mode with TTS |
-| `todo` | Cross-session task tracking |
-| `transcribe` | Audio transcription with Whisper |
-| `workspace` | Multi-project workspace management |
-| `worktree` | Git worktree management for parallel agent isolation |
-| `youtube` | YouTube transcript fetcher |
-
-## Hooks
-
-| Hook | Events | Description |
-| ---- | ------ | ----------- |
-| `clamor` | SessionStart, PreToolUse, PostToolUse, UserPromptSubmit, Notification, Stop | Agent state tracking for the [clamor](https://github.com/amenocturne/clamor) dashboard |
-| `deny-read` | PreToolUse | Enforce per-project file access deny lists |
-| `graph-colors` | Stop | Regenerate Obsidian graph color groups |
-| `link-proxy` | SessionStart, PreToolUse, PostToolUse | URL masking for corporate environments |
-| `notification` | Notification, Stop | System notifications on events and session end |
-| `save-conversation` | Stop | Auto-save transcripts and commit to git |
-| `smart-approve` | PreToolUse | Auto-approve safe read-only Bash commands |
-| `tts` | Stop | Text-to-speech via kokoro-tts |
-| `workflow-check` | SubagentStop | Remind agents about uncommitted changes |
-| `worktree` | Stop | Auto-clean git worktrees after agent sessions |
-
-## Preset Instructions
-
-Presets compose instructions in two ways:
-
-**Always-active** — embedded in the preset's `claude.md` template, loaded at conversation start. Use for folder structure, naming conventions, communication style.
-
-**On-demand** — separate files in `instructions/`, referenced with `@` imports. The agent reads them when performing a specific action. Use for detailed procedures (saving, linking, processing).
-
-```markdown
-## Action-Specific Instructions
-
-- **Creating notes with links**: Read @.claude/instructions/linking.md first
-- **Saving conversations**: Read @.claude/instructions/saving.md first
-```
-
-## Individual Skill Installation
-
-If you don't need presets, install skills individually via [skills.sh](https://skills.sh/):
-
-```bash
-npx skills add amenocturne/agent-kit@youtube
-npx skills add amenocturne/agent-kit@spec
-```
-
-## Links
-
-- [skills.sh](https://skills.sh/) — Claude Code skill registry
-- [Claude Code](https://claude.com/claude-code) — Anthropic's CLI for Claude
-- [clamor](https://github.com/amenocturne/clamor) — Terminal multiplexer for parallel Claude Code sessions
+[MIT](LICENSE)

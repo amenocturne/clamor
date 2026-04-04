@@ -1,0 +1,29 @@
+[package]
+name = "clamor"
+version = "0.3.0"
+edition = "2021"
+description = "Terminal multiplexer for managing multiple coding agents"
+license = "MIT"
+repository = "https://github.com/amenocturne/clamor"
+readme = "README.md"
+keywords = ["terminal", "multiplexer", "agent", "coding", "tui"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+ratatui = "0.30"
+crossterm = { version = "0.29", features = ["event-stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+fs2 = "0.4"
+rand = "0.8"
+portable-pty = "0.9"
+vt100 = "0.16"
+tui-term = "0.3"
+libc = "0.2"
+notify = "7"
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"

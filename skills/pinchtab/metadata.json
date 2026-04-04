@@ -1,7 +1,0 @@
-{
-  "name": "pinchtab",
-  "description": "Browser control with persistent sessions. HTTP-based Chrome automation for scraping, authenticated browsing, and quick automation. Sessions survive restarts.",
-  "author": "amenocturne",
-  "version": "1.0.0",
-  "tags": ["browser", "automation", "scraping", "sessions", "kagi"]
-}

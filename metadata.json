@@ -1,0 +1,13 @@
+{
+  "name": "clamor",
+  "version": "0.1.0",
+  "description": "Terminal multiplexer for managing multiple Claude Code instances",
+  "abstract": "Spawn, monitor, and switch between multiple Claude Code sessions using a live dashboard. Track agent states (working/input/done) via hooks.",
+  "author": "amenocturne",
+  "keywords": [
+    "terminal",
+    "orchestration",
+    "multi-agent",
+    "dashboard"
+  ]
+}

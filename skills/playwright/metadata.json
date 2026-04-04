@@ -1,7 +1,0 @@
-{
-  "name": "playwright",
-  "description": "E2E testing and visual regression. Structured test suites, CI pipelines, and complex multi-step test scenarios.",
-  "author": "amenocturne",
-  "version": "1.0.0",
-  "tags": ["testing", "e2e", "visual-regression", "ci"]
-}

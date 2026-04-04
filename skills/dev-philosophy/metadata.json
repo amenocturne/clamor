@@ -1,7 +1,0 @@
-{
-  "name": "dev-philosophy",
-  "description": "Core development principles: functional programming, KISS, strong typing, iterative development. Apply across all languages and projects.",
-  "author": "amenocturne",
-  "version": "1.0.0",
-  "tags": ["philosophy", "patterns", "architecture", "functional"]
-}

@@ -1,8 +1,0 @@
-{
-	"name": "review",
-	"version": "0.1.0",
-	"description": "Local code review UI for agentic workflows",
-	"abstract": "Launches a browser-based diff viewer for reviewing committed git changes. Supports inline commenting with severity levels, expandable context, commit-by-commit toggling, and outputs structured markdown for agent consumption.",
-	"author": "amenocturne",
-	"keywords": ["review", "diff", "code-review", "git"]
-}

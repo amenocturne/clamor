@@ -1,7 +1,0 @@
-{
-  "name": "dp-gitlab",
-  "description": "Interact with GitLab via the dp CLI. Use when working with merge requests, pipelines, or other GitLab resources.",
-  "author": "amenocturne",
-  "version": "1.0.0",
-  "tags": ["gitlab", "dp", "merge-requests", "pipelines", "devplatform"]
-}
