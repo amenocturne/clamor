@@ -913,6 +913,17 @@ impl AgentSlot {
         self.ring_buffer.extend(data);
     }
 
+    /// Rebuild the parser from scratch by replaying the ring buffer.
+    /// Fixes accumulated rendering issues (parser state corruption, etc.).
+    fn rebuild_parser(&mut self) {
+        let screen = self.parser.screen();
+        let (rows, cols) = screen.size();
+        let mut new_parser = vt100::Parser::new(rows, cols, 0);
+        let buf: Vec<u8> = self.ring_buffer.iter().copied().collect();
+        new_parser.process(&buf);
+        self.parser = new_parser;
+    }
+
     /// Ring buffer (scrollback) + contents_formatted (clean visible screen).
     /// Client processes both: ring buffer creates scrollback, then
     /// contents_formatted clears and repaints the visible area cleanly.
@@ -1288,6 +1299,30 @@ async fn handle_client_message(
         }
         ClientMessage::Subscribe { id } => {
             if let Some(slot) = agents.get(&id) {
+                let catch_up_data = slot.catch_up_data();
+                subscriptions.insert(id.clone());
+                let _ = send_to_client(
+                    stream,
+                    &DaemonMessage::CatchUp {
+                        id,
+                        data: catch_up_data,
+                    },
+                )
+                .await;
+            } else {
+                let _ = send_to_client(
+                    stream,
+                    &DaemonMessage::Error {
+                        message: format!("unknown agent: {id}"),
+                    },
+                )
+                .await;
+            }
+            HandleResult::Continue
+        }
+        ClientMessage::RefreshParser { id } => {
+            if let Some(slot) = agents.get_mut(&id) {
+                slot.rebuild_parser();
                 let catch_up_data = slot.catch_up_data();
                 subscriptions.insert(id.clone());
                 let _ = send_to_client(

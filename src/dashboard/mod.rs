@@ -383,31 +383,32 @@ async fn main_loop(
                                 .await
                                 .unwrap_or_default();
 
-                            match client.subscribe_buffered(&agent_id).await {
+                            // On re-attach, rebuild daemon parser to fix rendering drift.
+                    // On first attach, just subscribe normally.
+                    let result = if has_existing {
+                        client.refresh_parser_buffered(&agent_id).await
+                    } else {
+                        client.subscribe_buffered(&agent_id).await
+                    };
+
+                    match result {
                                 Ok(result) => {
-                                    if has_existing {
-                                        let pv = pane_views.get_mut(&agent_id).unwrap();
-                                        pv.resize(content_rows, term_cols);
-                                        // Replay messages that were in-flight during
-                                        // resize + subscribe so the parser stays in sync
-                                        for msg in resize_msgs.into_iter().chain(result.buffered) {
-                                            apply_daemon_message(
-                                                &msg,
-                                                &mut pane_views,
-                                                state_source,
-                                            );
-                                        }
+                                    let pv = if result.catch_up.is_empty() {
+                                        PaneView::new(content_rows, term_cols)
                                     } else {
-                                        let pv = if result.catch_up.is_empty() {
-                                            PaneView::new(content_rows, term_cols)
-                                        } else {
-                                            PaneView::from_catch_up(
-                                                content_rows,
-                                                term_cols,
-                                                &result.catch_up,
-                                            )
-                                        };
-                                        pane_views.insert(agent_id.clone(), pv);
+                                        PaneView::from_catch_up(
+                                            content_rows,
+                                            term_cols,
+                                            &result.catch_up,
+                                        )
+                                    };
+                                    pane_views.insert(agent_id.clone(), pv);
+                                    for msg in resize_msgs.into_iter().chain(result.buffered) {
+                                        apply_daemon_message(
+                                            &msg,
+                                            &mut pane_views,
+                                            state_source,
+                                        );
                                     }
                                 }
                                 Err(_) => continue,
@@ -1739,6 +1740,29 @@ async fn handle_terminal_event(
             {
                 if let Some(pv) = pane_views.get_mut(agent_id) {
                     pv.enter_copy_mode(content_rows, term_cols);
+                }
+                return Ok(LoopAction::Continue);
+            }
+
+            // Ctrl+R -> refresh terminal (rebuild daemon parser from ring buffer)
+            if key_event.modifiers.contains(KeyModifiers::CONTROL)
+                && key_event.code == KeyCode::Char('r')
+            {
+                if let Ok(result) = client.refresh_parser_buffered(agent_id).await {
+                    let pv = if result.catch_up.is_empty() {
+                        PaneView::new(content_rows, term_cols)
+                    } else {
+                        PaneView::from_catch_up(content_rows, term_cols, &result.catch_up)
+                    };
+                    pane_views.insert(agent_id.to_string(), pv);
+                    for msg in result.buffered {
+                        if let DaemonMessage::Output { ref id, ref data } = msg {
+                            if let Some(pv) = pane_views.get_mut(id.as_str()) {
+                                pv.process_output(data);
+                            }
+                        }
+                    }
+                    terminal.clear()?;
                 }
                 return Ok(LoopAction::Continue);
             }
