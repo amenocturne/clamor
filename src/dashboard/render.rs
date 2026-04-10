@@ -48,6 +48,11 @@ pub enum Overlay<'a> {
     ConfirmBatchKill {
         count: usize,
     },
+    PendingReload,
+    ConfirmReload {
+        agent_id: &'a str,
+        description: &'a str,
+    },
     QuitHint,
     PendingEdit,
     EditInput {
@@ -183,7 +188,9 @@ pub fn render(
     }
 
     let kill_target_id = match overlay {
-        Overlay::ConfirmKill { agent_id, .. } => Some(*agent_id),
+        Overlay::ConfirmKill { agent_id, .. } | Overlay::ConfirmReload { agent_id, .. } => {
+            Some(*agent_id)
+        }
         _ => None,
     };
 
@@ -233,6 +240,9 @@ pub fn render(
         }
         Overlay::ConfirmBatchKill { count } => {
             render_batch_kill_popup(frame, area, *count);
+        }
+        Overlay::ConfirmReload { description, .. } => {
+            render_confirm_reload_popup(frame, area, description);
         }
         Overlay::QuitHint => {
             render_quit_hint_popup(frame, area);
@@ -411,6 +421,15 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay, batch_count: 
             Span::raw(" yes  "),
             Span::styled("[Esc]", Style::default().fg(Color::Cyan)),
             Span::raw(" cancel"),
+        ])),
+        Overlay::PendingReload => Paragraph::new(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                "Reload: press agent key (Esc to cancel)",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ])),
         Overlay::PendingEdit => Paragraph::new(Line::from(vec![
             Span::raw(" "),
@@ -1039,6 +1058,32 @@ fn render_confirm_kill_popup(frame: &mut Frame, area: Rect, description: &str) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Red))
         .title(" Kill agent? ");
+
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let text = vec![
+        Line::from(format!(" {}", description)),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw(" "),
+            Span::styled("[Enter]", Style::default().fg(Color::Cyan)),
+            Span::raw(" yes  "),
+            Span::styled("[Esc]", Style::default().fg(Color::Cyan)),
+            Span::raw(" cancel"),
+        ]),
+    ];
+    frame.render_widget(Paragraph::new(text), inner);
+}
+
+fn render_confirm_reload_popup(frame: &mut Frame, area: Rect, description: &str) {
+    let popup = popup_area(area, 45, 7);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .title(" Reload session? ");
 
     let inner = block.inner(popup);
     frame.render_widget(block, popup);

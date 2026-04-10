@@ -16,6 +16,8 @@ pub enum DashboardAction {
     SpawnEditor,
     KillAgent(String),
     PendingKill,
+    ReloadAgent(String),
+    PendingReload,
     EditAgent(String),
     PendingEdit,
     EditInput(PromptEdit),
@@ -74,6 +76,11 @@ pub enum FolderPickReason {
 pub enum InputMode {
     Normal,
     WaitingKill,
+    WaitingReload,
+    ConfirmReload {
+        agent_id: String,
+        title: String,
+    },
     PickingFolder {
         folder_count: usize,
         reason: FolderPickReason,
@@ -131,6 +138,8 @@ pub fn handle_input(
     match mode {
         InputMode::Normal => handle_normal(event, key_map),
         InputMode::WaitingKill => handle_pending_kill(event, key_map),
+        InputMode::WaitingReload => handle_pending_reload(event, key_map),
+        InputMode::ConfirmReload { .. } => handle_confirm_reload_input(event),
         InputMode::WaitingEdit => handle_pending_edit(event, key_map),
         InputMode::EditingDescription { .. } => handle_edit_input(event),
         InputMode::PickingFolder { folder_count, .. } => handle_folder_pick(event, *folder_count),
@@ -155,6 +164,7 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
         KeyCode::Char('c') => DashboardAction::SpawnInline,
         KeyCode::Char('x') => DashboardAction::PendingKill,
         KeyCode::Char('e') => DashboardAction::PendingEdit,
+        KeyCode::Char('r') => DashboardAction::PendingReload,
         KeyCode::Char('R') => DashboardAction::AdoptStart,
         KeyCode::Char('J') | KeyCode::Down => DashboardAction::SelectNext,
         KeyCode::Char('j') if event.modifiers.contains(KeyModifiers::SHIFT) => {
@@ -188,6 +198,25 @@ fn handle_pending_kill(event: KeyEvent, key_map: &HashMap<char, String>) -> Dash
         },
         KeyCode::Esc => DashboardAction::Cancel,
         _ => DashboardAction::Cancel,
+    }
+}
+
+fn handle_pending_reload(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardAction {
+    match event.code {
+        KeyCode::Char(c) => match key_map.get(&c) {
+            Some(agent_id) => DashboardAction::ReloadAgent(agent_id.clone()),
+            None => DashboardAction::Cancel,
+        },
+        KeyCode::Esc => DashboardAction::Cancel,
+        _ => DashboardAction::Cancel,
+    }
+}
+
+fn handle_confirm_reload_input(event: KeyEvent) -> DashboardAction {
+    match event.code {
+        KeyCode::Enter => DashboardAction::ConfirmYes,
+        KeyCode::Esc | KeyCode::Char('n') => DashboardAction::Cancel,
+        _ => DashboardAction::Refresh,
     }
 }
 

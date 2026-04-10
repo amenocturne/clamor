@@ -607,6 +607,13 @@ fn build_overlay<'a>(
             }
         }
         InputMode::WaitingKill => render::Overlay::PendingKill,
+        InputMode::WaitingReload => render::Overlay::PendingReload,
+        InputMode::ConfirmReload {
+            agent_id, title, ..
+        } => render::Overlay::ConfirmReload {
+            agent_id,
+            description: title,
+        },
         InputMode::PickingFolder { .. } => render::Overlay::FolderPicker {
             folders: sorted_folders,
         },
@@ -1257,7 +1264,29 @@ async fn handle_dashboard_event(
             }
 
             DashboardAction::ConfirmYes => {
-                if let InputMode::ConfirmKill { agent_id, .. } = &*input_mode {
+                if let InputMode::ConfirmReload { agent_id, .. } = &*input_mode {
+                    let id = agent_id.clone();
+                    let _ = client.kill_agent(&id).await;
+                    if let Some(agent) = state.agents.get(&id) {
+                        match reconcile_resume_action(config, &id, agent) {
+                            ResumeReconcileAction::Resume { cwd, cmd, env } => {
+                                let _ = client
+                                    .spawn_agent(&id, &cwd, &cmd, &env, pty_rows, pty_cols)
+                                    .await;
+                                let _ = with_state(|state| {
+                                    if let Some(a) = state.agents.get_mut(&id) {
+                                        a.state = AgentState::Input;
+                                        a.last_activity_at = chrono::Utc::now();
+                                    }
+                                });
+                                state_source.invalidate();
+                            }
+                            ResumeReconcileAction::Remove => {
+                                killed_at.insert(id, Instant::now());
+                            }
+                        }
+                    }
+                } else if let InputMode::ConfirmKill { agent_id, .. } = &*input_mode {
                     let id = agent_id.clone();
                     let _ = client.kill_agent(&id).await;
                     selected_agents.remove(&id);
@@ -1373,6 +1402,19 @@ async fn handle_dashboard_event(
                     .map(|a| a.title.clone())
                     .unwrap_or_default();
                 *input_mode = InputMode::ConfirmKill { agent_id, title };
+            }
+
+            DashboardAction::PendingReload => {
+                *input_mode = InputMode::WaitingReload;
+            }
+
+            DashboardAction::ReloadAgent(agent_id) => {
+                let title = state
+                    .agents
+                    .get(&agent_id)
+                    .map(|a| a.title.clone())
+                    .unwrap_or_default();
+                *input_mode = InputMode::ConfirmReload { agent_id, title };
             }
 
             DashboardAction::AdoptStart => {

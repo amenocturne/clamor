@@ -84,6 +84,10 @@ pub const DASHBOARD_SHORTCUTS: &[Shortcut] = &[
         description: "kill (batch if selected)",
     },
     Shortcut {
+        keys: "r + key",
+        description: "reload session",
+    },
+    Shortcut {
         keys: "R",
         description: "adopt session",
     },
