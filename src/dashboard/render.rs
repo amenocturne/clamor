@@ -597,6 +597,14 @@ fn render_body(
     let mut agent_idx = 0usize;
     let mut selected_line: Option<usize> = None;
 
+    // Compute max backend label width for aligned type column
+    let type_col_width = groups
+        .iter()
+        .flat_map(|g| g.agents.iter())
+        .map(|da| da.backend_label.len())
+        .max()
+        .unwrap_or(0);
+
     for (i, group) in groups.iter().enumerate() {
         if i > 0 {
             lines.push(Line::from(""));
@@ -619,7 +627,7 @@ fn render_body(
         for da in &group.agents {
             let batch_selected = selected_agents.contains(&da.agent.id);
             let is_kill_target = kill_target_id == Some(da.agent.id.as_str());
-            let mut line = render_agent_line(da, width, batch_selected, theme);
+            let mut line = render_agent_line(da, width, batch_selected, type_col_width, theme);
             if is_kill_target {
                 line = kill_highlight_line(line, theme);
             } else if selected_index == Some(agent_idx) {
@@ -689,6 +697,7 @@ fn render_agent_line(
     da: &DisplayAgent,
     width: usize,
     batch_selected: bool,
+    type_col_width: usize,
     theme: &ThemeConfig,
 ) -> Line<'static> {
     let select_marker = if batch_selected { "● " } else { "  " };
@@ -720,7 +729,6 @@ fn render_agent_line(
     };
 
     let duration = format_duration(da.agent.started_at);
-    let backend_badge = format!("[{}]", truncate(&da.backend_label, 10));
 
     // Build tool suffix: "  ToolName 2m" in very dim style
     let tool_suffix = if !da.killed && da.agent.state != AgentState::Done {
@@ -737,10 +745,17 @@ fn render_agent_line(
     // state_label is 5 or 6 chars — normalize to 6 for "killed"
     let state_display = format!("{:<6}", state_label);
 
+    // Fixed-width type column from backend label
+    let type_display = format!(
+        "{:<width$}",
+        truncate(&da.backend_label, type_col_width),
+        width = type_col_width
+    );
+
     // Calculate available space for description:
-    // marker(2) + key(3) + state(6) + spacing(4) + backend badge + duration + padding + tool suffix
+    // marker(2) + key(3) + state(6) + type_col + spacing(6) + duration + padding + tool suffix
     let overhead =
-        2 + key_str.len() + 6 + 4 + backend_badge.len() + 3 + duration.len() + 2 + tool_suffix_len;
+        2 + key_str.len() + 6 + type_col_width + 6 + duration.len() + 2 + tool_suffix_len;
     let desc_width = width.saturating_sub(overhead);
     let description = truncate(&da.agent.title, desc_width);
 
@@ -773,10 +788,10 @@ fn render_agent_line(
         Span::styled(key_str, key_style),
         Span::styled(state_display, state_style),
         Span::raw("  "),
+        Span::styled(type_display, Style::default().fg(Color::DarkGray)),
+        Span::raw("  "),
         Span::styled(padded_desc, desc_style),
         Span::raw("  "),
-        Span::styled(backend_badge, Style::default().fg(Color::DarkGray)),
-        Span::raw(" "),
         Span::styled(duration, duration_style),
     ];
 
