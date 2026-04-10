@@ -477,6 +477,8 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay, batch_count: 
                 Span::raw(" mark  "),
                 Span::styled("[x]", Style::default().fg(Color::Cyan)),
                 Span::raw(" kill  "),
+                Span::styled("[r]", Style::default().fg(Color::Cyan)),
+                Span::raw("eload  "),
                 Span::styled("[c]", Style::default().fg(Color::Cyan)),
                 Span::raw("reate  "),
                 Span::styled("[/]", Style::default().fg(Color::Cyan)),
