@@ -155,7 +155,16 @@ pub fn builtin_backends() -> HashMap<String, BackendConfig> {
                     env: HashMap::new(),
                     title_template: Some("{{title}}".to_string()),
                 },
-                ..BackendConfig::default()
+                resume: Some(BackendCommandConfig {
+                    cmd: vec!["pi".to_string(), "--continue".to_string()],
+                    env: HashMap::new(),
+                    title_template: Some("{{title}}".to_string()),
+                }),
+                capabilities: BackendCapabilities {
+                    resume: true,
+                    hooks: false,
+                    sync_output_mode: false,
+                },
             },
         ),
     ])

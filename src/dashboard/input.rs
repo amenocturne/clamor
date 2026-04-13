@@ -106,6 +106,9 @@ pub enum InputMode {
         title: String,
     },
     ConfirmBatchKill,
+    ReloadUnavailable {
+        reason: String,
+    },
     QuitHint,
     WaitingEdit,
     EditingDescription {
@@ -148,6 +151,7 @@ pub fn handle_input(
         InputMode::ConfirmEmptySpawn { .. } => handle_confirm_input(event),
         InputMode::ConfirmKill { .. } => handle_confirm_kill_input(event),
         InputMode::ConfirmBatchKill => handle_confirm_batch_kill(event),
+        InputMode::ReloadUnavailable { .. } => DashboardAction::Cancel,
         InputMode::QuitHint => handle_quit_hint(event),
         InputMode::Filtering { .. } => handle_filter_input(event),
         InputMode::Help { filtering, .. } => handle_help_input(event, *filtering),

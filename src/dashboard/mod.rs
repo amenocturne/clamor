@@ -140,10 +140,6 @@ fn reconcile_resume_action(
     agent_id: &str,
     agent: &Agent,
 ) -> ResumeReconcileAction {
-    let Some(resume_token) = agent.resume_token.as_deref() else {
-        return ResumeReconcileAction::Remove;
-    };
-
     let folder_path = config
         .folder_path(&agent.folder_id)
         .unwrap_or(agent.cwd.as_str());
@@ -154,7 +150,7 @@ fn reconcile_resume_action(
         folder_path,
         &agent.cwd,
         &agent.title,
-        resume_token,
+        agent.resume_token.as_deref(),
     ) {
         Ok(launch) => {
             let mut env = launch.env;
@@ -655,6 +651,9 @@ fn build_overlay<'a>(
         InputMode::ConfirmBatchKill => render::Overlay::ConfirmBatchKill {
             count: selected_agents.len(),
         },
+        InputMode::ReloadUnavailable { ref reason } => {
+            render::Overlay::ReloadUnavailable { reason }
+        }
         InputMode::QuitHint => render::Overlay::QuitHint,
         InputMode::WaitingEdit => render::Overlay::PendingEdit,
         InputMode::EditingDescription { input, .. } => render::Overlay::EditInput { input },
@@ -1409,12 +1408,19 @@ async fn handle_dashboard_event(
             }
 
             DashboardAction::ReloadAgent(agent_id) => {
-                let title = state
-                    .agents
-                    .get(&agent_id)
-                    .map(|a| a.title.clone())
-                    .unwrap_or_default();
-                *input_mode = InputMode::ConfirmReload { agent_id, title };
+                if let Some(agent) = state.agents.get(&agent_id) {
+                    if !crate::spawn::backend_supports_resume(config, &agent.backend_id) {
+                        let name = config.backend_display_name(&agent.backend_id);
+                        *input_mode = InputMode::ReloadUnavailable {
+                            reason: format!("{name} backend does not support resume"),
+                        };
+                    } else {
+                        *input_mode = InputMode::ConfirmReload {
+                            agent_id,
+                            title: agent.title.clone(),
+                        };
+                    }
+                }
             }
 
             DashboardAction::AdoptStart => {
@@ -2108,7 +2114,7 @@ async fn adopt_inline(
         folder_path,
         &cwd_str,
         &format!("adopted: {session_id}"),
-        session_id,
+        Some(session_id),
     )?;
 
     let existing_ids: std::collections::HashSet<String> =
@@ -2268,5 +2274,36 @@ folders:
             reconcile_resume_action(&config, &agent.id, &agent),
             ResumeReconcileAction::Remove
         ));
+    }
+
+    #[test]
+    fn reconcile_resumes_tokenless_backend() {
+        let config: ClamorConfig = serde_yaml::from_str(
+            r#"
+backends:
+  pi:
+    display_name: Pi
+    spawn:
+      cmd: [pi, "{{prompt}}"]
+    resume:
+      cmd: [pi, --continue]
+    capabilities:
+      resume: true
+folders:
+  work:
+    path: ~/work
+    backends: [pi]
+"#,
+        )
+        .unwrap();
+
+        // No resume token — pi uses --continue instead
+        let agent = test_agent("pi", None);
+        match reconcile_resume_action(&config, &agent.id, &agent) {
+            ResumeReconcileAction::Resume { cmd, .. } => {
+                assert_eq!(cmd, vec!["pi", "--continue"]);
+            }
+            ResumeReconcileAction::Remove => panic!("expected Resume, got Remove"),
+        }
     }
 }

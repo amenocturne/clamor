@@ -53,6 +53,9 @@ pub enum Overlay<'a> {
         agent_id: &'a str,
         description: &'a str,
     },
+    ReloadUnavailable {
+        reason: &'a str,
+    },
     QuitHint,
     PendingEdit,
     EditInput {
@@ -243,6 +246,9 @@ pub fn render(
         }
         Overlay::ConfirmReload { description, .. } => {
             render_confirm_reload_popup(frame, area, description);
+        }
+        Overlay::ReloadUnavailable { .. } => {
+            // Footer-only overlay, no popup needed
         }
         Overlay::QuitHint => {
             render_quit_hint_popup(frame, area);
@@ -438,6 +444,13 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay, batch_count: 
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
+            ),
+        ])),
+        Overlay::ReloadUnavailable { reason } => Paragraph::new(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                format!("Cannot reload: {reason} (press any key)"),
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
             ),
         ])),
         Overlay::FilterInput { query } => Paragraph::new(Line::from(vec![

@@ -188,6 +188,20 @@ pub fn backend_supports_resume(config: &ClamorConfig, backend_id: &str) -> bool 
         .is_some_and(|backend| backend.capabilities.resume && backend.resume.is_some())
 }
 
+/// Backend can resume without a token (e.g. pi's `--continue` picks up the last session in CWD).
+fn backend_supports_tokenless_resume(config: &ClamorConfig, backend_id: &str) -> bool {
+    config
+        .backends
+        .get(backend_id)
+        .and_then(|b| b.resume.as_ref())
+        .is_some_and(|resume| {
+            !resume
+                .cmd
+                .iter()
+                .any(|arg| arg.contains("{{resume_token}}") || arg.contains("{{session_id}}"))
+        })
+}
+
 pub fn resolve_spawn_launch(
     config: &ClamorConfig,
     state: &ClamorState,
@@ -242,17 +256,14 @@ pub fn resolve_resume_launch(
     folder_path: &str,
     cwd: &str,
     title: &str,
-    resume_token: &str,
+    resume_token: Option<&str>,
 ) -> anyhow::Result<ResolvedLaunch> {
-    if resume_token.is_empty() {
-        bail!("Backend '{backend_id}' cannot resume without a resume token");
-    }
-
     if is_debug_mode() {
+        let token = resume_token.unwrap_or("tokenless");
         return Ok(ResolvedLaunch {
             backend_id: backend_id.to_string(),
             title: title.to_string(),
-            cmd: build_debug_resume_cmd(resume_token),
+            cmd: build_debug_resume_cmd(token),
             env: Vec::new(),
         });
     }
@@ -270,6 +281,7 @@ pub fn resolve_resume_launch(
         .resume
         .as_ref()
         .with_context(|| format!("Backend '{backend_id}' is missing a resume command"))?;
+    let token = resume_token.filter(|t| !t.is_empty());
     let ctx = TemplateContext {
         prompt: None,
         title: Some(title),
@@ -277,8 +289,8 @@ pub fn resolve_resume_launch(
         folder_path,
         cwd,
         backend_id,
-        session_id: Some(resume_token),
-        resume_token: Some(resume_token),
+        session_id: token,
+        resume_token: token,
     };
     let (cmd, env, rendered_title) = render_command_config(resume, &ctx)?;
     if cmd.is_empty() {
@@ -439,7 +451,7 @@ pub async fn adopt_session(
         &folder_path,
         &cwd_str,
         &title,
-        session_id,
+        Some(session_id),
     )?;
 
     let existing_ids: std::collections::HashSet<String> = state.agents.keys().cloned().collect();
@@ -500,13 +512,19 @@ pub async fn pre_upgrade() -> anyhow::Result<bool> {
         let resumable: Vec<&Agent> = state
             .agents
             .values()
-            .filter(|a| a.resume_token.is_some() && backend_supports_resume(&config, &a.backend_id))
+            .filter(|a| {
+                backend_supports_resume(&config, &a.backend_id)
+                    && (a.resume_token.is_some()
+                        || backend_supports_tokenless_resume(&config, &a.backend_id))
+            })
             .collect();
         let lost: Vec<&Agent> = state
             .agents
             .values()
             .filter(|a| {
-                a.resume_token.is_none() || !backend_supports_resume(&config, &a.backend_id)
+                !backend_supports_resume(&config, &a.backend_id)
+                    || (a.resume_token.is_none()
+                        && !backend_supports_tokenless_resume(&config, &a.backend_id))
             })
             .collect();
 
@@ -562,7 +580,7 @@ pub async fn resume_agents() -> anyhow::Result<()> {
     let resumable: Vec<&Agent> = state
         .agents
         .values()
-        .filter(|a| a.resume_token.is_some())
+        .filter(|a| a.resume_token.is_some() || backend_supports_resume(&config, &a.backend_id))
         .collect();
 
     if resumable.is_empty() {
@@ -578,11 +596,6 @@ pub async fn resume_agents() -> anyhow::Result<()> {
     let mut resumed_ids = Vec::new();
 
     for agent in &resumable {
-        let Some(resume_token) = agent.resume_token.as_deref() else {
-            eprintln!("  Skipped {}: no resume token available", agent.id);
-            continue;
-        };
-
         let folder_path = config
             .folder_path(&agent.folder_id)
             .unwrap_or(agent.cwd.as_str());
@@ -593,7 +606,7 @@ pub async fn resume_agents() -> anyhow::Result<()> {
             folder_path,
             &agent.cwd,
             &agent.title,
-            resume_token,
+            agent.resume_token.as_deref(),
         ) {
             Ok(launch) => launch,
             Err(e) => {
@@ -929,10 +942,20 @@ backends:
     spawn:
       cmd: [opencode, run, --prompt, "{{prompt}}"]
       title_template: "{{title}}"
+  pi:
+    display_name: Pi
+    spawn:
+      cmd: [pi, "{{prompt}}"]
+      title_template: "{{title}}"
+    resume:
+      cmd: [pi, --continue]
+      title_template: "{{title}}"
+    capabilities:
+      resume: true
 folders:
   work:
     path: ~/work
-    backends: [claude-code, open-code]
+    backends: [claude-code, open-code, pi]
 "#,
         )
         .unwrap()
@@ -970,6 +993,18 @@ folders:
     }
 
     #[test]
+    fn pi_resumes_with_continue_flag_without_token() {
+        let config = test_config();
+
+        let launch =
+            resolve_resume_launch(&config, "pi", "work", "~/work", "/tmp/work", "task", None)
+                .unwrap();
+
+        assert_eq!(launch.cmd, vec!["pi", "--continue"]);
+        assert_eq!(launch.title, "task");
+    }
+
+    #[test]
     fn preserves_claude_resume_parity() {
         let config = test_config();
 
@@ -980,7 +1015,7 @@ folders:
             "~/work",
             "/tmp/work",
             "task",
-            "sess-1",
+            Some("sess-1"),
         )
         .unwrap();
 
@@ -1028,7 +1063,7 @@ folders:
             "~/work",
             "/tmp/work",
             "task",
-            "sess-1",
+            Some("sess-1"),
         )
         .unwrap_err();
 
