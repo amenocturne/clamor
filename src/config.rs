@@ -131,6 +131,36 @@ pub fn builtin_backends() -> HashMap<String, BackendConfig> {
             },
         ),
         (
+            "claude-yolo".to_string(),
+            BackendConfig {
+                display_name: "Claude (YOLO)".to_string(),
+                spawn: BackendCommandConfig {
+                    cmd: vec![
+                        "claude".to_string(),
+                        "--dangerously-skip-permissions".to_string(),
+                        "{{prompt}}".to_string(),
+                    ],
+                    env: HashMap::new(),
+                    title_template: Some("{{title}}".to_string()),
+                },
+                resume: Some(BackendCommandConfig {
+                    cmd: vec![
+                        "claude".to_string(),
+                        "--dangerously-skip-permissions".to_string(),
+                        "--resume".to_string(),
+                        "{{resume_token}}".to_string(),
+                    ],
+                    env: HashMap::new(),
+                    title_template: Some("{{title}}".to_string()),
+                }),
+                capabilities: BackendCapabilities {
+                    resume: true,
+                    hooks: true,
+                    sync_output_mode: true,
+                },
+            },
+        ),
+        (
             "open-code".to_string(),
             BackendConfig {
                 display_name: "OpenCode".to_string(),
