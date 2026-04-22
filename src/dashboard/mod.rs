@@ -1820,17 +1820,12 @@ async fn handle_terminal_event(
                 pv.snap_to_bottom();
             }
 
-            // Escape interrupts Claude Code — transition to Input
-            if key_event.code == KeyCode::Esc {
-                let id = agent_id.to_owned();
-                let _ = with_state(|state| {
-                    if let Some(agent) = state.agents.get_mut(&id) {
-                        if agent.state == AgentState::Working {
-                            agent.state = AgentState::Input;
-                        }
-                    }
-                });
-            }
+            // Esc is forwarded to the PTY. The old path also pre-emptively
+            // flipped agent.state Working→Input on the guess that Esc
+            // interrupts Claude Code, but that races with hook events and
+            // caused visible "stuck Input" when Esc was absorbed by other TUI
+            // contexts (menus, vim-mode, etc.). If Esc truly interrupts,
+            // Claude will fire Stop which will correctly land on Done.
 
             if let Some(bytes) = pane::encode_key(*key_event) {
                 let _ = client.send_input(agent_id, &bytes).await;
