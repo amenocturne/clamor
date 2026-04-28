@@ -4,18 +4,18 @@ mod client;
 mod config;
 mod daemon;
 mod dashboard;
-mod hook;
 mod mock_agent;
 mod pane;
 mod picker;
 mod protocol;
+mod set_state;
 mod spawn;
 mod state;
 mod watcher;
 
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Command, ConfigCommand};
+use cli::{Cli, Command, ConfigCommand, SetStateArg};
 use config::ClamorConfig;
 
 #[tokio::main]
@@ -103,11 +103,6 @@ async fn main() -> Result<()> {
             println!("Left the legacy file in place for safety.");
         }
         Some(Command::Config {
-            command: Some(ConfigCommand::PrintBackend { backend_id }),
-        }) => {
-            print!("{}", config::serialize_backend_yaml(&backend_id)?);
-        }
-        Some(Command::Config {
             command: Some(ConfigCommand::PrintExample),
         }) => {
             print!(
@@ -119,8 +114,26 @@ async fn main() -> Result<()> {
             let theme = config::ThemeConfig::default();
             println!("{}", serde_json::to_string_pretty(&theme)?);
         }
-        Some(Command::Hook) => {
-            hook::run();
+        Some(Command::SetState {
+            state,
+            agent,
+            tool,
+            session_token,
+            activity_only,
+        }) => {
+            use agent::AgentState;
+            let new_state = Some(match state {
+                SetStateArg::Working => AgentState::Working,
+                SetStateArg::Input => AgentState::Input,
+                SetStateArg::Done => AgentState::Done,
+            });
+            set_state::run(set_state::SetStateArgs {
+                agent_id: agent,
+                new_state,
+                tool,
+                session_token,
+                activity_only,
+            });
         }
         Some(Command::PreUpgrade) => {
             if !spawn::pre_upgrade().await? {

@@ -11,6 +11,10 @@ pub fn next_available_key(agents: &[&Agent]) -> Option<char> {
     KEY_POOL.iter().copied().find(|k| !used.contains(k))
 }
 
+pub fn key_pool() -> &'static [char] {
+    KEY_POOL
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

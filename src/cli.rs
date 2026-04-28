@@ -1,4 +1,12 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[clap(rename_all = "lowercase")]
+pub enum SetStateArg {
+    Working,
+    Input,
+    Done,
+}
 
 #[derive(Parser, Debug)]
 #[command(
@@ -71,8 +79,29 @@ pub enum Command {
     /// Print default theme as JSON
     DefaultTheme,
 
-    /// Internal: called by Claude Code hooks (reads stdin JSON)
-    Hook,
+    /// Update an agent's state. Called by harness hooks.
+    ///
+    /// This is the generic state-writer contract: any backend's hook
+    /// system wires its events to invoke this command. Clamor does not
+    /// read any environment variables — the caller must pass `--agent`
+    /// explicitly (typically `--agent "$CLAMOR_AGENT_ID"` from a shell).
+    SetState {
+        /// New agent state.
+        #[arg(value_enum)]
+        state: SetStateArg,
+        /// Target agent id (required; typically `$CLAMOR_AGENT_ID`).
+        #[arg(long)]
+        agent: String,
+        /// Optional "last tool" label shown in the dashboard.
+        #[arg(long)]
+        tool: Option<String>,
+        /// Optional backend-specific resume token (e.g. session id).
+        #[arg(long)]
+        session_token: Option<String>,
+        /// Bump last_activity_at without changing the state.
+        #[arg(long)]
+        activity_only: bool,
+    },
 
     /// Check sessions, warn user, stop daemon if confirmed (exit 1 = declined)
     PreUpgrade,
@@ -100,16 +129,13 @@ pub enum Command {
 
 #[derive(Subcommand, Debug)]
 pub enum ConfigCommand {
-    /// Create a starter XDG config with built-in backends
+    /// Create an empty starter XDG config
     Init,
 
     /// Migrate legacy ~/.clamor/config.json to XDG YAML
     Migrate,
 
-    /// Print one built-in backend template as YAML
-    PrintBackend { backend_id: String },
-
-    /// Print a full example config with built-in backends
+    /// Print a full example config (inline backend definitions)
     PrintExample,
 }
 
@@ -119,12 +145,12 @@ mod tests {
 
     #[test]
     fn parses_nested_config_commands() {
-        let cli = Cli::parse_from(["clamor", "config", "print-backend", "claude-code"]);
+        let cli = Cli::parse_from(["clamor", "config", "print-example"]);
 
         match cli.command {
             Some(Command::Config {
-                command: Some(ConfigCommand::PrintBackend { backend_id }),
-            }) => assert_eq!(backend_id, "claude-code"),
+                command: Some(ConfigCommand::PrintExample),
+            }) => {}
             other => panic!("unexpected command: {other:?}"),
         }
     }

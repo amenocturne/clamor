@@ -1,10 +1,10 @@
 {
-  "SessionStart": [
+  "UserPromptSubmit": [
     {
       "hooks": [
         {
           "type": "command",
-          "command": "clamor hook",
+          "command": "TOKEN=$(jq -r .session_id); clamor set-state working --agent \"$CLAMOR_AGENT_ID\" --session-token \"$TOKEN\"",
           "timeout": 5
         }
       ]
@@ -16,7 +16,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "clamor hook",
+          "command": "clamor set-state input --agent \"$CLAMOR_AGENT_ID\"",
           "timeout": 5
         }
       ]
@@ -27,7 +27,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "clamor hook",
+          "command": "TOOL=$(jq -r .tool_name); clamor set-state working --agent \"$CLAMOR_AGENT_ID\" --tool \"$TOOL\"",
           "timeout": 5
         }
       ]
@@ -38,7 +38,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "clamor hook",
+          "command": "TOOL=$(jq -r .tool_name); clamor set-state input --agent \"$CLAMOR_AGENT_ID\" --tool \"$TOOL\"",
           "timeout": 5
         }
       ]
@@ -49,18 +49,18 @@
       "hooks": [
         {
           "type": "command",
-          "command": "clamor hook",
+          "command": "clamor set-state working --agent \"$CLAMOR_AGENT_ID\"",
           "timeout": 5
         }
       ]
     }
   ],
-  "UserPromptSubmit": [
+  "PreCompact": [
     {
       "hooks": [
         {
           "type": "command",
-          "command": "clamor hook",
+          "command": "clamor set-state working --agent \"$CLAMOR_AGENT_ID\"",
           "timeout": 5
         }
       ]
@@ -71,7 +71,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "clamor hook",
+          "command": "clamor set-state input --agent \"$CLAMOR_AGENT_ID\"",
           "timeout": 5
         }
       ]

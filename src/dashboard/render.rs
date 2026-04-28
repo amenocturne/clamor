@@ -48,12 +48,18 @@ pub enum Overlay<'a> {
     ConfirmBatchKill {
         count: usize,
     },
+    ConfirmRebind {
+        count: usize,
+    },
     PendingReload,
     ConfirmReload {
         agent_id: &'a str,
         description: &'a str,
     },
     ReloadUnavailable {
+        reason: &'a str,
+    },
+    ActionFailed {
         reason: &'a str,
     },
     QuitHint,
@@ -143,6 +149,7 @@ pub fn render(
     filter_query: &str,
     selected_agents: &HashSet<String>,
     daemon_connected: bool,
+    flash: Option<&str>,
 ) {
     let area = frame.area();
 
@@ -208,7 +215,7 @@ pub fn render(
         kill_target_id,
         &config.theme,
     );
-    render_footer(frame, chunks[3], overlay, batch_count);
+    render_footer(frame, chunks[3], overlay, batch_count, flash);
 
     // Render overlay popups on top
     match overlay {
@@ -244,10 +251,16 @@ pub fn render(
         Overlay::ConfirmBatchKill { count } => {
             render_batch_kill_popup(frame, area, *count);
         }
+        Overlay::ConfirmRebind { count } => {
+            render_confirm_rebind_popup(frame, area, *count);
+        }
         Overlay::ConfirmReload { description, .. } => {
             render_confirm_reload_popup(frame, area, description);
         }
         Overlay::ReloadUnavailable { .. } => {
+            // Footer-only overlay, no popup needed
+        }
+        Overlay::ActionFailed { .. } => {
             // Footer-only overlay, no popup needed
         }
         Overlay::QuitHint => {
@@ -272,6 +285,7 @@ pub fn render(
 /// `scroll_info` is `Some((offset, total))` when scrolled up, `None` at live view.
 /// `has_pending` indicates output is being buffered while the view is frozen.
 /// `copy_cursor` is `Some((col, row))` when in copy mode.
+#[allow(clippy::too_many_arguments)]
 pub fn render_terminal(
     frame: &mut Frame,
     screen: &vt100::Screen,
@@ -280,6 +294,7 @@ pub fn render_terminal(
     scroll_info: Option<(usize, usize)>,
     has_pending: bool,
     copy_cursor: Option<(u16, u16)>,
+    flash: Option<&str>,
 ) {
     let area = frame.area();
     let chunks = Layout::vertical([
@@ -298,11 +313,7 @@ pub fn render_terminal(
     let hint_text = if copy_cursor.is_some() {
         match scroll_info {
             Some((offset, total)) => {
-                let pct = if total > 0 {
-                    100 - (offset * 100 / total)
-                } else {
-                    100
-                };
+                let pct = (offset * 100).checked_div(total).map_or(100, |v| 100 - v);
                 format!("COPY  {}%  v/V:select  y:yank  q:exit", pct)
             }
             None => "COPY  v/V:select  y:yank  q:exit".to_string(),
@@ -310,17 +321,14 @@ pub fn render_terminal(
     } else {
         match scroll_info {
             Some((offset, total)) => {
-                let pct = if total > 0 {
-                    100 - (offset * 100 / total)
-                } else {
-                    100
-                };
+                let pct = (offset * 100).checked_div(total).map_or(100, |v| 100 - v);
                 let frozen = if has_pending { "FROZEN  " } else { "" };
                 format!("{}{}%  ^F back  ^J bottom", frozen, pct)
             }
             None => "^F back".to_string(),
         }
     };
+    let effective_hint = flash.unwrap_or(hint_text.as_str());
     pane::render_title_bar(
         frame,
         chunks[0],
@@ -331,7 +339,7 @@ pub fn render_terminal(
             duration: &duration,
             color,
             focused: true,
-            hint: Some(&hint_text),
+            hint: Some(effective_hint),
         },
     );
 
@@ -404,7 +412,27 @@ fn render_separator(frame: &mut Frame, area: Rect) {
     frame.render_widget(sep, area);
 }
 
-fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay, batch_count: usize) {
+fn render_footer(
+    frame: &mut Frame,
+    area: Rect,
+    overlay: &Overlay,
+    batch_count: usize,
+    flash: Option<&str>,
+) {
+    if let Some(msg) = flash {
+        let para = Paragraph::new(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                msg.to_string(),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::ITALIC),
+            ),
+        ]));
+        frame.render_widget(para, area);
+        return;
+    }
+
     let footer = match overlay {
         Overlay::PendingKill => Paragraph::new(Line::from(vec![
             Span::raw(" "),
@@ -453,6 +481,29 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay, batch_count: 
                 Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
             ),
         ])),
+        Overlay::ActionFailed { reason } => {
+            let collapsed: String = reason
+                .replace('\r', " ")
+                .replace('\n', " | ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            let max_len = area.width.saturating_sub(28) as usize;
+            let display = if max_len > 0 && collapsed.chars().count() > max_len {
+                let mut s: String = collapsed.chars().take(max_len.saturating_sub(1)).collect();
+                s.push('\u{2026}');
+                s
+            } else {
+                collapsed
+            };
+            Paragraph::new(Line::from(vec![
+                Span::raw(" "),
+                Span::styled(
+                    format!("Failed: {display} (press any key)"),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
+            ]))
+        }
         Overlay::FilterInput { query } => Paragraph::new(Line::from(vec![
             Span::raw(" filter: "),
             Span::styled(
@@ -483,22 +534,19 @@ fn render_footer(frame: &mut Frame, area: Rect, overlay: &Overlay, batch_count: 
                         .add_modifier(Modifier::BOLD),
                 ));
             }
-            spans.extend([
-                Span::styled("[J/K]", Style::default().fg(Color::Cyan)),
-                Span::raw(" select  "),
-                Span::styled("[v]", Style::default().fg(Color::Cyan)),
-                Span::raw(" mark  "),
-                Span::styled("[x]", Style::default().fg(Color::Cyan)),
-                Span::raw(" kill  "),
-                Span::styled("[r]", Style::default().fg(Color::Cyan)),
-                Span::raw("eload  "),
-                Span::styled("[c]", Style::default().fg(Color::Cyan)),
-                Span::raw("reate  "),
-                Span::styled("[/]", Style::default().fg(Color::Cyan)),
-                Span::raw(" filter  "),
-                Span::styled("[?]", Style::default().fg(Color::Cyan)),
-                Span::raw(" help"),
-            ]);
+            let entries: Vec<&shortcuts::FooterEntry> = shortcuts::DASHBOARD_SHORTCUTS
+                .iter()
+                .filter_map(|s| s.footer.as_ref())
+                .collect();
+            let last = entries.len().saturating_sub(1);
+            for (idx, entry) in entries.iter().enumerate() {
+                spans.push(Span::styled(
+                    format!("[{}]", entry.key),
+                    Style::default().fg(Color::Cyan),
+                ));
+                let sep = if idx == last { "" } else { "  " };
+                spans.push(Span::raw(format!("{}{}", entry.label, sep)));
+            }
             Paragraph::new(Line::from(spans))
         }
     };
@@ -665,7 +713,7 @@ fn render_body(
             let max_offset = sel_line.saturating_sub(margin);
             // Clamp: pick min_offset if we need to scroll down, keep current if in range
             // Since we don't persist scroll state, just ensure selected is visible
-            min_offset.max(0).min(max_offset)
+            min_offset.min(max_offset)
         }
     } else {
         0
@@ -1178,6 +1226,37 @@ fn render_batch_kill_popup(frame: &mut Frame, area: Rect, count: usize) {
             count,
             if count != 1 { "s" } else { "" }
         )),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw(" "),
+            Span::styled("[Enter]", Style::default().fg(Color::Cyan)),
+            Span::raw(" yes    "),
+            Span::styled("[Esc]", Style::default().fg(Color::Cyan)),
+            Span::raw(" cancel"),
+        ]),
+    ];
+    frame.render_widget(Paragraph::new(text), inner);
+}
+
+fn render_confirm_rebind_popup(frame: &mut Frame, area: Rect, count: usize) {
+    let width = area.width.min(54);
+    let popup = popup_area(area, width, 6);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .title(" Rebind agent keys ");
+
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let text = vec![
+        Line::from(format!(
+            " Reassign keys for {count} agent{} from the pool, top to bottom?",
+            if count != 1 { "s" } else { "" }
+        )),
+        Line::from(" Existing bindings will be overwritten."),
         Line::from(""),
         Line::from(vec![
             Span::raw(" "),

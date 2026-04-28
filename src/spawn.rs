@@ -166,12 +166,6 @@ pub fn select_adopt_backend(config: &ClamorConfig, folder_id: &str) -> anyhow::R
         .folder_backends(folder_id)
         .with_context(|| format!("Unknown folder '{folder_id}'"))?;
 
-    if allowed.iter().any(|backend_id| backend_id == "claude-code")
-        && backend_supports_resume(config, "claude-code")
-    {
-        return Ok("claude-code".to_string());
-    }
-
     allowed
         .iter()
         .find(|backend_id| backend_supports_resume(config, backend_id))

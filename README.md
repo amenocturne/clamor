@@ -53,30 +53,26 @@ cp target/release/clamor ~/.local/bin/
 
 ### Hook setup
 
-Clamor tracks agent state (working/waiting/done) via hooks. For Claude Code, add these to your `.claude/settings.json`:
+Clamor tracks agent state (working/waiting/done) through a generic CLI primitive:
 
-```json
-{
-  "hooks": {
-    "SessionStart": [{ "type": "command", "command": "clamor hook" }],
-    "Notification": [{ "type": "command", "command": "clamor hook" }],
-    "PreToolUse": [{ "type": "command", "command": "clamor hook" }],
-    "UserPromptSubmit": [{ "type": "command", "command": "clamor hook" }],
-    "Stop": [{ "type": "command", "command": "clamor hook" }]
-  }
-}
+```
+clamor set-state <working|input|done> --agent "$CLAMOR_AGENT_ID" [--tool LABEL] [--session-token TOKEN] [--activity-only]
 ```
 
-That's it — no files to copy. The hook reads events from stdin and updates agent state in `~/.clamor/state.json`.
+Each backend wires its own hook system to invoke this command. `CLAMOR_AGENT_ID` is set automatically in the spawned agent's environment; pass it through explicitly — clamor does not read it from the environment.
+
+For Claude Code, copy `hooks/hooks.json` from this repo into `~/.claude/settings.json` (or merge the `hooks` section). The template uses `jq` to extract `session_id` from the hook payload, so install jq if you want resume-token tracking.
+
+Want to add a new backend? Declare its spawn/resume commands in `config.yaml` and wire its hooks (or equivalent) to call `clamor set-state`. No Rust changes needed.
 
 ### Configure folders
 
 ```bash
-clamor config init    # Write starter config with built-in backends
+clamor config init    # Write an empty starter config
 clamor config         # Open config in $EDITOR
 ```
 
-Config lives at `~/.config/clamor/config.yaml`. Legacy `~/.clamor/config.json` is auto-detected — run `clamor config migrate` to convert.
+Config lives at `~/.config/clamor/config.yaml`. Legacy `~/.clamor/config.json` is auto-detected — run `clamor config migrate` to convert. Clamor ships no built-in backends; you must declare at least one before it can spawn anything. Run `clamor config print-example` for a ready-to-edit template.
 
 #### Folders
 
@@ -87,20 +83,17 @@ folders:
   my-app:
     path: ~/projects/my-app
     backends: [claude-code, open-code]  # Which backends are available here
-
-  scripts:
-    path: ~/scripts  # Omit backends → defaults to [claude-code]
 ```
 
-When a folder lists multiple backends, the spawn prompt shows a backend selector you can cycle through with arrow keys. The selection is persisted per folder.
+Every folder must list at least one backend id that is declared under `backends:`. When a folder lists multiple backends, the spawn prompt shows a backend selector you can cycle through with arrow keys. The selection is persisted per folder.
 
 #### Backends
 
-Backends define how to spawn and resume agent sessions. Three are built-in (`claude-code`, `open-code`, `pi`) — you can override them or define your own:
+Backends define how to spawn and resume agent sessions. Clamor has no knowledge of specific harnesses — declare whatever you use:
 
 ```yaml
 backends:
-  claude-code:              # Override a built-in
+  claude-code:
     display_name: Claude
     spawn:
       cmd: [claude, "{{prompt}}"]
@@ -110,10 +103,9 @@ backends:
       cmd: [claude, --resume, "{{resume_token}}"]
     capabilities:
       resume: true          # Can resume sessions after daemon restart
-      hooks: true           # Supports clamor state tracking hooks
       sync_output_mode: true  # Uses synchronized output (BSU/ESU)
 
-  my-custom-agent:          # Define a new backend
+  my-custom-agent:          # Define your own
     display_name: Custom
     spawn:
       cmd: [my-agent, --prompt, "{{prompt}}"]
@@ -136,10 +128,9 @@ backends:
 | Capability | Default | Description |
 | --- | --- | --- |
 | `resume` | `false` | Agent sessions can be resumed after daemon restart |
-| `hooks` | `false` | Backend supports `clamor hook` for state tracking |
 | `sync_output_mode` | `false` | Backend uses synchronized output markers |
 
-Use `clamor config print-example` to see a full config, or `clamor config print-backend claude-code` to see one backend's template.
+Use `clamor config print-example` to see a full config.
 
 ### Launch
 
@@ -164,8 +155,6 @@ clamor config init      Write a starter XDG config
 clamor config migrate   Copy legacy JSON config to XDG YAML
 clamor config print-example
                         Print a full example config
-clamor config print-backend <id>
-                        Print one built-in backend template
 clamor stop             Stop the daemon
 ```
 
@@ -226,7 +215,7 @@ Clamor uses a daemon-client architecture, similar to tmux:
 
 - The **daemon** runs in the background, owns all agent PTY processes, and persists across dashboard restarts
 - The **dashboard** connects over a Unix socket (`~/.clamor/clamor.sock`), subscribes to output streams, and renders the TUI
-- **State** is tracked in `~/.clamor/state.json` with file-locked reads/writes, updated by hooks in real time
+- **State** is tracked in `~/.clamor/state.json` with file-locked reads/writes, updated in real time via `clamor set-state` calls from harness hooks
 
 ## Troubleshooting
 

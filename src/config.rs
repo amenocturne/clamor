@@ -57,7 +57,7 @@ pub struct MigrationOutcome {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FolderConfig {
     pub path: String,
-    #[serde(default = "default_folder_backends")]
+    #[serde(default)]
     pub backends: Vec<String>,
 }
 
@@ -87,8 +87,6 @@ pub struct BackendCapabilities {
     #[serde(default)]
     pub resume: bool,
     #[serde(default)]
-    pub hooks: bool,
-    #[serde(default)]
     pub sync_output_mode: bool,
 }
 
@@ -97,119 +95,6 @@ pub struct BackendCapabilities {
 enum FolderConfigDef {
     LegacyPath(String),
     Structured(FolderConfig),
-}
-
-fn default_folder_backends() -> Vec<String> {
-    vec!["claude-code".to_string()]
-}
-
-pub fn builtin_backends() -> HashMap<String, BackendConfig> {
-    HashMap::from([
-        (
-            "claude-code".to_string(),
-            BackendConfig {
-                display_name: "Claude".to_string(),
-                spawn: BackendCommandConfig {
-                    cmd: vec!["claude".to_string(), "{{prompt}}".to_string()],
-                    env: HashMap::new(),
-                    title_template: Some("{{title}}".to_string()),
-                },
-                resume: Some(BackendCommandConfig {
-                    cmd: vec![
-                        "claude".to_string(),
-                        "--resume".to_string(),
-                        "{{resume_token}}".to_string(),
-                    ],
-                    env: HashMap::new(),
-                    title_template: Some("{{title}}".to_string()),
-                }),
-                capabilities: BackendCapabilities {
-                    resume: true,
-                    hooks: true,
-                    sync_output_mode: true,
-                },
-            },
-        ),
-        (
-            "claude-yolo".to_string(),
-            BackendConfig {
-                display_name: "Claude (YOLO)".to_string(),
-                spawn: BackendCommandConfig {
-                    cmd: vec![
-                        "claude".to_string(),
-                        "--dangerously-skip-permissions".to_string(),
-                        "{{prompt}}".to_string(),
-                    ],
-                    env: HashMap::new(),
-                    title_template: Some("{{title}}".to_string()),
-                },
-                resume: Some(BackendCommandConfig {
-                    cmd: vec![
-                        "claude".to_string(),
-                        "--dangerously-skip-permissions".to_string(),
-                        "--resume".to_string(),
-                        "{{resume_token}}".to_string(),
-                    ],
-                    env: HashMap::new(),
-                    title_template: Some("{{title}}".to_string()),
-                }),
-                capabilities: BackendCapabilities {
-                    resume: true,
-                    hooks: true,
-                    sync_output_mode: true,
-                },
-            },
-        ),
-        (
-            "open-code".to_string(),
-            BackendConfig {
-                display_name: "OpenCode".to_string(),
-                spawn: BackendCommandConfig {
-                    cmd: vec![
-                        "opencode".to_string(),
-                        "--prompt".to_string(),
-                        "{{prompt}}".to_string(),
-                    ],
-                    env: HashMap::new(),
-                    title_template: Some("{{title}}".to_string()),
-                },
-                ..BackendConfig::default()
-            },
-        ),
-        (
-            "pi".to_string(),
-            BackendConfig {
-                display_name: "Pi".to_string(),
-                spawn: BackendCommandConfig {
-                    cmd: vec!["pi".to_string(), "{{prompt}}".to_string()],
-                    env: HashMap::new(),
-                    title_template: Some("{{title}}".to_string()),
-                },
-                resume: Some(BackendCommandConfig {
-                    cmd: vec!["pi".to_string(), "--continue".to_string()],
-                    env: HashMap::new(),
-                    title_template: Some("{{title}}".to_string()),
-                }),
-                capabilities: BackendCapabilities {
-                    resume: true,
-                    hooks: false,
-                    sync_output_mode: false,
-                },
-            },
-        ),
-    ])
-}
-
-pub fn built_in_backend(backend_id: &str) -> Option<BackendConfig> {
-    builtin_backends().remove(backend_id)
-}
-
-fn resolve_backends(
-    user_backends: &HashMap<String, BackendConfig>,
-) -> HashMap<String, BackendConfig> {
-    let mut resolved = builtin_backends();
-    resolved.extend(user_backends.clone());
-    resolved
 }
 
 fn validate_config(config: &ClamorConfig) -> anyhow::Result<()> {
@@ -228,12 +113,6 @@ fn validate_config(config: &ClamorConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn resolve_and_validate(mut config: ClamorConfig) -> anyhow::Result<ClamorConfig> {
-    config.backends = resolve_backends(&config.backends);
-    validate_config(&config)?;
-    Ok(config)
-}
-
 fn write_config_file(path: &Path, config: &ClamorConfig) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -250,48 +129,71 @@ fn load_config_from_path(path: &Path, source: &ConfigSource) -> anyhow::Result<C
     let contents = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read config from {}", path.display()))?;
 
-    let config = match source {
+    let config: ClamorConfig = match source {
         ConfigSource::XdgYaml(_) => serde_yaml::from_str(&contents)
             .with_context(|| format!("Failed to parse config from {}", path.display()))?,
         ConfigSource::LegacyJson(_) => serde_json::from_str(&contents)
             .with_context(|| format!("Failed to parse config from {}", path.display()))?,
     };
 
-    resolve_and_validate(config)
+    validate_config(&config)?;
+    Ok(config)
 }
 
 pub fn starter_config() -> ClamorConfig {
-    ClamorConfig {
-        folders: HashMap::new(),
-        backends: builtin_backends(),
-        dashboard: DashboardConfig::default(),
-        theme: ThemeConfig::default(),
-    }
+    ClamorConfig::default()
 }
 
 pub fn example_config() -> ClamorConfig {
+    let claude_code = BackendConfig {
+        display_name: "Claude".to_string(),
+        spawn: BackendCommandConfig {
+            cmd: vec!["claude".to_string(), "{{prompt}}".to_string()],
+            env: HashMap::new(),
+            title_template: Some("{{title}}".to_string()),
+        },
+        resume: Some(BackendCommandConfig {
+            cmd: vec![
+                "claude".to_string(),
+                "--resume".to_string(),
+                "{{resume_token}}".to_string(),
+            ],
+            env: HashMap::new(),
+            title_template: Some("{{title}}".to_string()),
+        }),
+        capabilities: BackendCapabilities {
+            resume: true,
+            sync_output_mode: true,
+        },
+    };
+    let open_code = BackendConfig {
+        display_name: "OpenCode".to_string(),
+        spawn: BackendCommandConfig {
+            cmd: vec![
+                "opencode".to_string(),
+                "--prompt".to_string(),
+                "{{prompt}}".to_string(),
+            ],
+            env: HashMap::new(),
+            title_template: Some("{{title}}".to_string()),
+        },
+        ..BackendConfig::default()
+    };
+
     ClamorConfig {
-        folders: HashMap::from([
-            (
-                "agentic-kit".to_string(),
-                FolderConfig {
-                    path: "~/Vault/Projects/personal/agentic-kit".to_string(),
-                    backends: vec![
-                        "claude-code".to_string(),
-                        "open-code".to_string(),
-                        "pi".to_string(),
-                    ],
-                },
-            ),
-            (
-                "work".to_string(),
-                FolderConfig {
-                    path: "~/Vault/Projects/work".to_string(),
-                    backends: vec!["claude-code".to_string(), "open-code".to_string()],
-                },
-            ),
+        folders: HashMap::from([(
+            "work".to_string(),
+            FolderConfig {
+                path: "~/Vault/Projects/work".to_string(),
+                backends: vec!["claude-code".to_string(), "open-code".to_string()],
+            },
+        )]),
+        backends: HashMap::from([
+            ("claude-code".to_string(), claude_code),
+            ("open-code".to_string(), open_code),
         ]),
-        ..starter_config()
+        dashboard: DashboardConfig::default(),
+        theme: ThemeConfig::default(),
     }
 }
 
@@ -312,21 +214,6 @@ pub fn serialize_config_yaml(config: &ClamorConfig) -> anyhow::Result<String> {
     };
 
     serde_yaml::to_string(&output).context("Failed to serialize config")
-}
-
-pub fn serialize_backend_yaml(backend_id: &str) -> anyhow::Result<String> {
-    #[derive(Serialize)]
-    struct BackendOutput {
-        backends: BTreeMap<String, BackendConfig>,
-    }
-
-    let backend = built_in_backend(backend_id)
-        .with_context(|| format!("Unknown built-in backend '{backend_id}'"))?;
-    let output = BackendOutput {
-        backends: BTreeMap::from([(backend_id.to_string(), backend)]),
-    };
-
-    serde_yaml::to_string(&output).context("Failed to serialize backend template")
 }
 
 fn init_config_at_paths(xdg_path: &Path, legacy_path: &Path) -> anyhow::Result<PathBuf> {
@@ -524,14 +411,9 @@ where
             let folder = match entry {
                 FolderConfigDef::LegacyPath(path) => FolderConfig {
                     path,
-                    backends: default_folder_backends(),
+                    backends: Vec::new(),
                 },
-                FolderConfigDef::Structured(mut folder) => {
-                    if folder.backends.is_empty() {
-                        folder.backends = default_folder_backends();
-                    }
-                    folder
-                }
+                FolderConfigDef::Structured(folder) => folder,
             };
             (name, folder)
         })
@@ -781,7 +663,8 @@ impl ClamorConfig {
             ConfigSource::XdgYaml(path) if path.exists() => load_config_from_path(path, &source)?,
             ConfigSource::LegacyJson(path) => load_config_from_path(path, &source)?,
             ConfigSource::XdgYaml(path) => {
-                let config = resolve_and_validate(starter_config())?;
+                let config = starter_config();
+                validate_config(&config)?;
                 write_config_file(path, &config)?;
                 config
             }
@@ -794,6 +677,17 @@ impl ClamorConfig {
     /// Creates a default config file if it doesn't exist.
     pub fn load() -> anyhow::Result<Self> {
         Ok(Self::load_with_source()?.config)
+    }
+}
+
+/// Resolve a folder path, expanding `~`.
+pub fn resolve_path(path: &str) -> PathBuf {
+    if path.starts_with('~') {
+        std::env::var("HOME")
+            .map(|home| PathBuf::from(path.replacen('~', &home, 1)))
+            .unwrap_or_else(|_| PathBuf::from(path))
+    } else {
+        PathBuf::from(path)
     }
 }
 
@@ -811,7 +705,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_legacy_folder_map_with_default_backend() {
+    fn parses_legacy_folder_map_with_empty_backends() {
         let config: ClamorConfig = serde_json::from_str(
             r#"{
                 "folders": {
@@ -823,25 +717,12 @@ mod tests {
 
         let folder = config.folders.get("work").unwrap();
         assert_eq!(folder.path, "~/work");
-        assert_eq!(folder.backends, vec!["claude-code"]);
-    }
-
-    #[test]
-    fn resolves_builtin_backend_registry() {
-        let config = resolve_and_validate(ClamorConfig::default()).unwrap();
-
-        assert!(config.backends.contains_key("claude-code"));
-        assert!(config.backends.contains_key("open-code"));
-        assert!(config.backends.contains_key("pi"));
-        assert_eq!(
-            config.backends["claude-code"].spawn.cmd,
-            vec!["claude", "{{prompt}}"]
-        );
+        assert!(folder.backends.is_empty());
     }
 
     #[test]
     fn parses_backend_registry_and_structured_folders() {
-        let parsed: ClamorConfig = serde_yaml::from_str(
+        let config: ClamorConfig = serde_yaml::from_str(
             r#"
 backends:
   claude-code:
@@ -853,16 +734,13 @@ backends:
 folders:
   work:
     path: ~/work
-    backends: [claude-code, open-code]
+    backends: [claude-code]
 "#,
         )
         .unwrap();
-        let config = resolve_and_validate(parsed).unwrap();
+        validate_config(&config).unwrap();
 
-        assert_eq!(
-            config.folders["work"].backends,
-            vec!["claude-code", "open-code"]
-        );
+        assert_eq!(config.folders["work"].backends, vec!["claude-code"]);
         assert_eq!(config.backends["claude-code"].display_name, "Claude");
         assert_eq!(
             config.backends["claude-code"].spawn.cmd,
@@ -872,7 +750,7 @@ folders:
 
     #[test]
     fn rejects_unknown_folder_backend_ids() {
-        let parsed: ClamorConfig = serde_yaml::from_str(
+        let config: ClamorConfig = serde_yaml::from_str(
             r#"
 folders:
   work:
@@ -882,8 +760,23 @@ folders:
         )
         .unwrap();
 
-        let err = resolve_and_validate(parsed).unwrap_err();
+        let err = validate_config(&config).unwrap_err();
         assert!(err.to_string().contains("unknown backend 'missing'"));
+    }
+
+    #[test]
+    fn rejects_folder_with_empty_backends() {
+        let config: ClamorConfig = serde_yaml::from_str(
+            r#"
+folders:
+  work:
+    path: ~/work
+"#,
+        )
+        .unwrap();
+
+        let err = validate_config(&config).unwrap_err();
+        assert!(err.to_string().contains("must define at least one backend"));
     }
 
     #[test]
@@ -914,22 +807,7 @@ folders:
     }
 
     #[test]
-    fn serializes_builtin_backend_template() {
-        let yaml = serialize_backend_yaml("claude-code").unwrap();
-        let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
-
-        assert_eq!(
-            parsed["backends"]["claude-code"]["display_name"],
-            serde_yaml::Value::String("Claude".to_string())
-        );
-        assert_eq!(
-            parsed["backends"]["claude-code"]["spawn"]["cmd"],
-            serde_yaml::to_value(vec!["claude", "{{prompt}}"] as Vec<&str>).unwrap()
-        );
-    }
-
-    #[test]
-    fn init_writes_starter_config_with_materialized_backends() {
+    fn init_writes_empty_starter_config() {
         let temp_root = temp_path("init");
         let xdg_path = temp_root.join(".config").join("clamor").join("config.yaml");
         let legacy_path = temp_root.join(".clamor").join("config.json");
@@ -939,9 +817,8 @@ folders:
 
         let contents = std::fs::read_to_string(&written_path).unwrap();
         let parsed: serde_yaml::Value = serde_yaml::from_str(&contents).unwrap();
-        assert!(parsed["backends"]["claude-code"].is_mapping());
-        assert!(parsed["backends"]["open-code"].is_mapping());
-        assert!(parsed["backends"]["pi"].is_mapping());
+        assert!(parsed["backends"].as_mapping().unwrap().is_empty());
+        assert!(parsed["folders"].as_mapping().unwrap().is_empty());
 
         let _ = std::fs::remove_dir_all(temp_root.parent().unwrap_or(&temp_root));
     }
@@ -1026,7 +903,7 @@ folders:
     }
 
     #[test]
-    fn config_path_for_editing_materializes_starter_config_for_clean_home() {
+    fn config_path_for_editing_materializes_empty_starter_for_clean_home() {
         let temp_root = temp_path("config-open-clean");
         let legacy_path = temp_root.join(".clamor").join("config.json");
         let xdg_path = temp_root.join(".config").join("clamor").join("config.yaml");
@@ -1048,27 +925,26 @@ folders:
 
         let contents = std::fs::read_to_string(&xdg_path).unwrap();
         let parsed: serde_yaml::Value = serde_yaml::from_str(&contents).unwrap();
-        assert!(parsed["backends"]["claude-code"].is_mapping());
-        assert!(parsed["backends"]["open-code"].is_mapping());
-        assert!(parsed["backends"]["pi"].is_mapping());
+        assert!(parsed["backends"].as_mapping().unwrap().is_empty());
 
         let _ = std::fs::remove_dir_all(temp_root.parent().unwrap_or(&temp_root));
     }
 
     #[test]
-    fn serializes_full_example_config_with_materialized_backends() {
+    fn example_config_has_inline_backends() {
         let yaml = serialize_config_yaml(&example_config()).unwrap();
         let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
 
+        assert!(parsed["backends"]["claude-code"].is_mapping());
         assert!(parsed["backends"]["open-code"].is_mapping());
         assert_eq!(
-            parsed["folders"]["agentic-kit"]["backends"],
-            serde_yaml::to_value(vec!["claude-code", "open-code", "pi"] as Vec<&str>).unwrap()
+            parsed["folders"]["work"]["backends"],
+            serde_yaml::to_value(vec!["claude-code", "open-code"] as Vec<&str>).unwrap()
         );
     }
 
     #[test]
-    fn migrates_legacy_json_to_xdg_yaml_without_deleting_legacy_file() {
+    fn migrate_preserves_explicit_backends_and_rejects_folders_without_backends() {
         let temp_root = temp_path("migration");
         let legacy_path = temp_root.join(".clamor").join("config.json");
         let xdg_path = temp_root.join(".config").join("clamor").join("config.yaml");
@@ -1076,9 +952,7 @@ folders:
         std::fs::write(
             &legacy_path,
             r#"{
-                "folders": {
-                    "work": "~/work"
-                }
+                "folders": {}
             }"#,
         )
         .unwrap();
@@ -1096,23 +970,9 @@ folders:
 
         let migrated = std::fs::read_to_string(&xdg_path).unwrap();
         let parsed: serde_yaml::Value = serde_yaml::from_str(&migrated).unwrap();
-        assert_eq!(
-            parsed["folders"]["work"]["backends"],
-            serde_yaml::to_value(vec!["claude-code"] as Vec<&str>).unwrap()
-        );
-        assert!(parsed["backends"]["claude-code"].is_mapping());
+        assert!(parsed["folders"].as_mapping().unwrap().is_empty());
+        assert!(parsed["backends"].as_mapping().unwrap().is_empty());
 
         let _ = std::fs::remove_dir_all(temp_root.parent().unwrap_or(&temp_root));
-    }
-}
-
-/// Resolve a folder path, expanding `~`.
-pub fn resolve_path(path: &str) -> PathBuf {
-    if path.starts_with('~') {
-        std::env::var("HOME")
-            .map(|home| PathBuf::from(path.replacen('~', &home, 1)))
-            .unwrap_or_else(|_| PathBuf::from(path))
-    } else {
-        PathBuf::from(path)
     }
 }

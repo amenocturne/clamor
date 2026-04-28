@@ -52,6 +52,9 @@ pub enum DashboardAction {
     Cancel,
     Quit,
     Refresh,
+    JumpInputNext,
+    JumpInputPrev,
+    RebindStart,
 }
 
 /// Edits to a text input.
@@ -106,7 +109,11 @@ pub enum InputMode {
         title: String,
     },
     ConfirmBatchKill,
+    ConfirmRebind,
     ReloadUnavailable {
+        reason: String,
+    },
+    ActionFailed {
         reason: String,
     },
     QuitHint,
@@ -138,6 +145,21 @@ pub fn handle_input(
         };
     }
 
+    // Ctrl+G / Ctrl+Shift+G: jump to next/prev agent in Input state.
+    // Intercepted only in Normal mode so popups aren't disrupted.
+    if matches!(mode, InputMode::Normal)
+        && event.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(event.code, KeyCode::Char('g') | KeyCode::Char('G'))
+    {
+        let shifted = event.modifiers.contains(KeyModifiers::SHIFT)
+            || matches!(event.code, KeyCode::Char('G'));
+        return if shifted {
+            DashboardAction::JumpInputPrev
+        } else {
+            DashboardAction::JumpInputNext
+        };
+    }
+
     match mode {
         InputMode::Normal => handle_normal(event, key_map),
         InputMode::WaitingKill => handle_pending_kill(event, key_map),
@@ -151,7 +173,9 @@ pub fn handle_input(
         InputMode::ConfirmEmptySpawn { .. } => handle_confirm_input(event),
         InputMode::ConfirmKill { .. } => handle_confirm_kill_input(event),
         InputMode::ConfirmBatchKill => handle_confirm_batch_kill(event),
+        InputMode::ConfirmRebind => handle_confirm_rebind_input(event),
         InputMode::ReloadUnavailable { .. } => DashboardAction::Cancel,
+        InputMode::ActionFailed { .. } => DashboardAction::Cancel,
         InputMode::QuitHint => handle_quit_hint(event),
         InputMode::Filtering { .. } => handle_filter_input(event),
         InputMode::Help { filtering, .. } => handle_help_input(event, *filtering),
@@ -170,6 +194,7 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
         KeyCode::Char('e') => DashboardAction::PendingEdit,
         KeyCode::Char('r') => DashboardAction::PendingReload,
         KeyCode::Char('R') => DashboardAction::AdoptStart,
+        KeyCode::Char('b') => DashboardAction::RebindStart,
         KeyCode::Char('J') | KeyCode::Down => DashboardAction::SelectNext,
         KeyCode::Char('j') if event.modifiers.contains(KeyModifiers::SHIFT) => {
             DashboardAction::SelectNext
@@ -334,6 +359,14 @@ fn handle_confirm_batch_kill(event: KeyEvent) -> DashboardAction {
     match event.code {
         KeyCode::Enter => DashboardAction::ConfirmYes,
         KeyCode::Esc => DashboardAction::Cancel,
+        _ => DashboardAction::Refresh,
+    }
+}
+
+fn handle_confirm_rebind_input(event: KeyEvent) -> DashboardAction {
+    match event.code {
+        KeyCode::Enter => DashboardAction::ConfirmYes,
+        KeyCode::Esc | KeyCode::Char('n') => DashboardAction::Cancel,
         _ => DashboardAction::Refresh,
     }
 }

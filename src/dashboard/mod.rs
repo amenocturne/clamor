@@ -254,6 +254,7 @@ async fn main_loop(
     let mut selected_agents: HashSet<String> = HashSet::new();
     let mut daemon_connected = true;
     let mut pending_g = false;
+    let mut flash: Option<(String, Instant)> = None;
 
     let mut mode = if let Some(ref agent_id) = attach_to {
         let state = state_source.get();
@@ -351,6 +352,7 @@ async fn main_loop(
                                 &mut history_stash,
                                 &mut selected_agents,
                                 &mut pending_g,
+                                &mut flash,
                             ).await?
                         }
                         AppMode::Terminal { ref agent_id } => {
@@ -420,6 +422,87 @@ async fn main_loop(
                             mode = AppMode::Dashboard;
                             input_mode = InputMode::Normal;
                         }
+                        LoopAction::JumpInput(forward) => {
+                            let state = state_source.get();
+                            let agent_refs: HashMap<String, &Agent> = state
+                                .agents
+                                .iter()
+                                .map(|(id, a)| (id.clone(), a))
+                                .collect();
+                            let ordered =
+                                render::ordered_agent_ids(config, &agent_refs, &filter_query);
+                            let current = match mode {
+                                AppMode::Terminal { ref agent_id } => Some(agent_id.as_str()),
+                                AppMode::Dashboard => selected_index
+                                    .and_then(|i| ordered.get(i))
+                                    .map(|s| s.as_str()),
+                            };
+                            match pick_jump_target(&ordered, &agent_refs, current, forward) {
+                                Some(target) => match mode {
+                                    AppMode::Dashboard => {
+                                        if let Some(pos) =
+                                            ordered.iter().position(|id| *id == target)
+                                        {
+                                            selected_index = Some(pos);
+                                        }
+                                    }
+                                    AppMode::Terminal { .. } => {
+                                        if Some(target.as_str()) != current {
+                                            // Reuse the existing switch pipeline to resize/subscribe.
+                                            // Goto top of the loop body via a synthesized action.
+                                            // Easiest: recursively handle as SwitchToTerminal.
+                                            // We can't call it directly; set last_agent_id and
+                                            // push the switch through the normal flow.
+                                            // Instead, duplicate the SwitchToTerminal logic:
+                                            let (term_cols, term_rows) =
+                                                crossterm::terminal::size()?;
+                                            let content_rows = term_rows.saturating_sub(1);
+                                            let has_existing = pane_views.contains_key(&target);
+                                            let resize_msgs = client
+                                                .resize_buffered(
+                                                    &target,
+                                                    content_rows,
+                                                    term_cols,
+                                                )
+                                                .await
+                                                .unwrap_or_default();
+                                            let result = if has_existing {
+                                                client.refresh_parser_buffered(&target).await
+                                            } else {
+                                                client.subscribe_buffered(&target).await
+                                            };
+                                            if let Ok(result) = result {
+                                                let pv = if result.catch_up.is_empty() {
+                                                    PaneView::new(content_rows, term_cols)
+                                                } else {
+                                                    PaneView::from_catch_up(
+                                                        content_rows,
+                                                        term_cols,
+                                                        &result.catch_up,
+                                                    )
+                                                };
+                                                pane_views.insert(target.clone(), pv);
+                                                for msg in resize_msgs
+                                                    .into_iter()
+                                                    .chain(result.buffered)
+                                                {
+                                                    apply_daemon_message(
+                                                        &msg,
+                                                        &mut pane_views,
+                                                        state_source,
+                                                    );
+                                                }
+                                                terminal.clear()?;
+                                                mode = AppMode::Terminal { agent_id: target };
+                                            }
+                                        }
+                                    }
+                                },
+                                None => {
+                                    set_flash(&mut flash, "no agents needing input");
+                                }
+                            }
+                        }
                         LoopAction::Continue => {}
                     }
                     needs_render = true;
@@ -446,7 +529,16 @@ async fn main_loop(
                     needs_render = true;
                 }
 
+                if flash
+                    .as_ref()
+                    .is_some_and(|(_, until)| *until <= Instant::now())
+                {
+                    flash = None;
+                    needs_render = true;
+                }
+
                 if needs_render {
+                    let flash_text = active_flash(&flash).map(|s| s.to_string());
                     match mode {
                         AppMode::Dashboard => {
                             render_dashboard(
@@ -460,6 +552,7 @@ async fn main_loop(
                                 &filter_query,
                                 &selected_agents,
                                 daemon_connected,
+                                flash_text.as_deref(),
                             )?;
                         }
                         AppMode::Terminal { ref agent_id } => {
@@ -478,10 +571,16 @@ async fn main_loop(
                                 agent_id,
                                 &mut pane_views,
                                 state_source,
+                                flash_text.as_deref(),
                             )?;
                         }
                     }
-                    needs_render = false;
+                    if flash.is_some() {
+                        // Re-render next tick so the flash can expire visually.
+                        needs_render = true;
+                    } else {
+                        needs_render = false;
+                    }
                 }
             }
         }
@@ -520,6 +619,81 @@ enum LoopAction {
     Quit,
     SwitchToTerminal(String),
     SwitchToDashboard,
+    JumpInput(bool),
+}
+
+/// Pick the next/prev agent in `Input` state relative to `from_id`,
+/// cycling through `ordered_ids` (dashboard display order). Returns `None`
+/// if no agent is currently in `Input`.
+fn pick_jump_target(
+    ordered_ids: &[String],
+    agents: &HashMap<String, &Agent>,
+    from_id: Option<&str>,
+    forward: bool,
+) -> Option<String> {
+    if ordered_ids.is_empty() {
+        return None;
+    }
+
+    let candidates: Vec<&String> = ordered_ids
+        .iter()
+        .filter(|id| {
+            agents
+                .get(id.as_str())
+                .is_some_and(|a| a.state == AgentState::Input)
+        })
+        .collect();
+
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let from_pos = from_id
+        .and_then(|id| ordered_ids.iter().position(|o| o == id))
+        .unwrap_or(0);
+
+    if forward {
+        for id in candidates.iter() {
+            let pos = ordered_ids.iter().position(|o| o == *id).unwrap();
+            if pos > from_pos {
+                return Some((*id).clone());
+            }
+        }
+        candidates.first().map(|s| (*s).clone())
+    } else {
+        for id in candidates.iter().rev() {
+            let pos = ordered_ids.iter().position(|o| o == *id).unwrap();
+            if pos < from_pos {
+                return Some((*id).clone());
+            }
+        }
+        candidates.last().map(|s| (*s).clone())
+    }
+}
+
+/// Assign keys from `keys::key_pool()` to `ordered_ids` in order, returning
+/// `(agent_id, key)` pairs. Stops when the pool is exhausted; any remaining
+/// agents get no key.
+fn rebind_assignments(ordered_ids: &[String]) -> Vec<(String, char)> {
+    keys::key_pool()
+        .iter()
+        .copied()
+        .zip(ordered_ids.iter().cloned())
+        .map(|(key, id)| (id, key))
+        .collect()
+}
+
+const FLASH_TTL: Duration = Duration::from_millis(2000);
+
+fn set_flash(flash: &mut Option<(String, Instant)>, msg: &str) {
+    *flash = Some((msg.to_string(), Instant::now() + FLASH_TTL));
+}
+
+fn active_flash(flash: &Option<(String, Instant)>) -> Option<&str> {
+    flash
+        .as_ref()
+        .filter(|(_, until)| *until > Instant::now())
+        .map(|(msg, _)| msg.as_str())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -534,6 +708,7 @@ fn render_dashboard(
     filter_query: &str,
     selected_agents: &HashSet<String>,
     daemon_connected: bool,
+    flash: Option<&str>,
 ) -> Result<()> {
     let state = state_source.get();
     let killed_ids: Vec<String> = killed_at.keys().cloned().collect();
@@ -569,6 +744,7 @@ fn render_dashboard(
             filter_query,
             selected_agents,
             daemon_connected,
+            flash,
         );
     })?;
 
@@ -651,9 +827,13 @@ fn build_overlay<'a>(
         InputMode::ConfirmBatchKill => render::Overlay::ConfirmBatchKill {
             count: selected_agents.len(),
         },
+        InputMode::ConfirmRebind => render::Overlay::ConfirmRebind {
+            count: state.agents.len(),
+        },
         InputMode::ReloadUnavailable { ref reason } => {
             render::Overlay::ReloadUnavailable { reason }
         }
+        InputMode::ActionFailed { ref reason } => render::Overlay::ActionFailed { reason },
         InputMode::QuitHint => render::Overlay::QuitHint,
         InputMode::WaitingEdit => render::Overlay::PendingEdit,
         InputMode::EditingDescription { input, .. } => render::Overlay::EditInput { input },
@@ -675,6 +855,7 @@ fn render_terminal_view(
     agent_id: &str,
     pane_views: &mut HashMap<String, PaneView>,
     state_source: &StateSource,
+    flash: Option<&str>,
 ) -> Result<()> {
     let state = state_source.get();
     let agent = match state.agents.get(agent_id) {
@@ -706,6 +887,7 @@ fn render_terminal_view(
                 scroll_info,
                 has_pending,
                 copy_cursor,
+                flash,
             );
         })?;
     }
@@ -731,6 +913,7 @@ async fn handle_dashboard_event(
     history_stash: &mut Option<(String, String)>,
     selected_agents: &mut HashSet<String>,
     pending_g: &mut bool,
+    _flash: &mut Option<(String, Instant)>,
 ) -> Result<LoopAction> {
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
     let pty_rows = term_rows.saturating_sub(1);
@@ -868,6 +1051,15 @@ async fn handle_dashboard_event(
 
         match action {
             DashboardAction::Quit => return Ok(LoopAction::Quit),
+
+            DashboardAction::JumpInputNext => return Ok(LoopAction::JumpInput(true)),
+            DashboardAction::JumpInputPrev => return Ok(LoopAction::JumpInput(false)),
+
+            DashboardAction::RebindStart => {
+                if !state.agents.is_empty() {
+                    *input_mode = InputMode::ConfirmRebind;
+                }
+            }
 
             DashboardAction::Attach(ref agent_id) => {
                 *input_mode = InputMode::Normal;
@@ -1229,7 +1421,7 @@ async fn handle_dashboard_event(
                             pty_rows,
                             pty_cols,
                         };
-                        spawn_inline(
+                        let spawn_result = spawn_inline(
                             client,
                             &SpawnParams {
                                 folder_name,
@@ -1239,19 +1431,31 @@ async fn handle_dashboard_event(
                             },
                             &ctx,
                         )
-                        .await?;
-                        if !title_trimmed.is_empty() {
-                            let entry = PromptHistoryEntry {
-                                title: title_trimmed,
-                                description: desc_trimmed,
-                            };
-                            let _ = with_state(|state| {
-                                state.prompt_history.retain(|e| e != &entry);
-                                state.prompt_history.insert(0, entry);
-                                state.prompt_history.truncate(50);
-                            });
+                        .await;
+                        match spawn_result {
+                            Ok(()) => {
+                                if !title_trimmed.is_empty() {
+                                    let entry = PromptHistoryEntry {
+                                        title: title_trimmed,
+                                        description: desc_trimmed,
+                                    };
+                                    let _ = with_state(|state| {
+                                        state.prompt_history.retain(|e| e != &entry);
+                                        state.prompt_history.insert(0, entry);
+                                        state.prompt_history.truncate(50);
+                                    });
+                                }
+                                submitted = true;
+                            }
+                            Err(e) => {
+                                *prompt_draft = None;
+                                *history_index = None;
+                                *history_stash = None;
+                                *input_mode = InputMode::ActionFailed {
+                                    reason: format!("{e:#}"),
+                                };
+                            }
                         }
-                        submitted = true;
                     }
                 }
                 if submitted {
@@ -1263,6 +1467,7 @@ async fn handle_dashboard_event(
             }
 
             DashboardAction::ConfirmYes => {
+                let mut failure_reason: Option<String> = None;
                 if let InputMode::ConfirmReload { agent_id, .. } = &*input_mode {
                     let id = agent_id.clone();
                     let _ = client.kill_agent(&id).await;
@@ -1295,6 +1500,22 @@ async fn handle_dashboard_event(
                         let _ = client.kill_agent(&agent_id).await;
                         killed_at.insert(agent_id, Instant::now());
                     }
+                } else if let InputMode::ConfirmRebind = &*input_mode {
+                    let agent_refs: HashMap<String, &Agent> =
+                        state.agents.iter().map(|(id, a)| (id.clone(), a)).collect();
+                    let ordered = render::ordered_agent_ids(config, &agent_refs, filter_query);
+                    let assignments = rebind_assignments(&ordered);
+                    let _ = with_state(|state| {
+                        for agent in state.agents.values_mut() {
+                            agent.key = None;
+                        }
+                        for (id, key) in &assignments {
+                            if let Some(agent) = state.agents.get_mut(id) {
+                                agent.key = Some(*key);
+                            }
+                        }
+                    });
+                    state_source.invalidate();
                 } else if let InputMode::ConfirmEmptySpawn {
                     folder_name,
                     folder_path,
@@ -1307,7 +1528,7 @@ async fn handle_dashboard_event(
                         pty_rows,
                         pty_cols,
                     };
-                    spawn_inline(
+                    if let Err(e) = spawn_inline(
                         client,
                         &SpawnParams {
                             folder_name,
@@ -1317,9 +1538,15 @@ async fn handle_dashboard_event(
                         },
                         &ctx,
                     )
-                    .await?;
+                    .await
+                    {
+                        failure_reason = Some(format!("{e:#}"));
+                    }
                 }
-                *input_mode = InputMode::Normal;
+                *input_mode = match failure_reason {
+                    Some(reason) => InputMode::ActionFailed { reason },
+                    None => InputMode::Normal,
+                };
             }
 
             DashboardAction::PendingEdit => {
@@ -1448,6 +1675,7 @@ async fn handle_dashboard_event(
             }
 
             DashboardAction::AdoptSubmitted => {
+                let mut failure_reason: Option<String> = None;
                 if let InputMode::TypingAdopt {
                     input,
                     folder_name,
@@ -1463,10 +1691,17 @@ async fn handle_dashboard_event(
                             pty_rows,
                             pty_cols,
                         };
-                        adopt_inline(client, &session_id, folder_name, folder_path, &ctx).await?;
+                        if let Err(e) =
+                            adopt_inline(client, &session_id, folder_name, folder_path, &ctx).await
+                        {
+                            failure_reason = Some(format!("{e:#}"));
+                        }
                     }
                 }
-                *input_mode = InputMode::Normal;
+                *input_mode = match failure_reason {
+                    Some(reason) => InputMode::ActionFailed { reason },
+                    None => InputMode::Normal,
+                };
             }
 
             DashboardAction::SelectNext => {
@@ -1756,6 +1991,18 @@ async fn handle_terminal_event(
                 && key_event.code == KeyCode::Char('f')
             {
                 return Ok(LoopAction::SwitchToDashboard);
+            }
+
+            // Ctrl+G / Ctrl+Shift+G -> jump to next/prev agent in Input state.
+            // Shifted form arrives as KeyCode::Char('G') on most terminals; on
+            // terminals with disambiguating escape codes the SHIFT modifier may
+            // also be set, so accept either signal.
+            if key_event.modifiers.contains(KeyModifiers::CONTROL)
+                && matches!(key_event.code, KeyCode::Char('g') | KeyCode::Char('G'))
+            {
+                let shifted = key_event.modifiers.contains(KeyModifiers::SHIFT)
+                    || matches!(key_event.code, KeyCode::Char('G'));
+                return Ok(LoopAction::JumpInput(!shifted));
             }
 
             // Ctrl+C -> send SIGINT to agent
@@ -2076,17 +2323,17 @@ async fn spawn_inline(
         color_index,
     };
 
-    with_state(|state| {
-        state.agents.insert(id.clone(), agent);
-    })?;
-    ctx.state_source.invalidate();
-
     let mut env = launch.env.clone();
     env.push(("CLAMOR_AGENT_ID".to_string(), id.clone()));
 
     client
         .spawn_agent(&id, &cwd_str, &launch.cmd, &env, ctx.pty_rows, ctx.pty_cols)
         .await?;
+
+    with_state(|state| {
+        state.agents.insert(id.clone(), agent);
+    })?;
+    ctx.state_source.invalidate();
 
     Ok(())
 }
@@ -2138,17 +2385,17 @@ async fn adopt_inline(
         color_index,
     };
 
-    with_state(|state| {
-        state.agents.insert(id.clone(), agent);
-    })?;
-    ctx.state_source.invalidate();
-
     let mut env = launch.env.clone();
     env.push(("CLAMOR_AGENT_ID".to_string(), id.clone()));
 
     client
         .spawn_agent(&id, &cwd_str, &launch.cmd, &env, ctx.pty_rows, ctx.pty_cols)
         .await?;
+
+    with_state(|state| {
+        state.agents.insert(id.clone(), agent);
+    })?;
+    ctx.state_source.invalidate();
 
     Ok(())
 }
@@ -2198,6 +2445,83 @@ mod tests {
             key: None,
             color_index: 0,
         }
+    }
+
+    fn jump_agent(id: &str, state: AgentState) -> (String, Agent) {
+        let mut a = test_agent("claude-code", None);
+        a.id = id.to_string();
+        a.state = state;
+        (id.to_string(), a)
+    }
+
+    #[test]
+    fn jump_picks_next_input_agent_in_display_order() {
+        let pairs = [
+            jump_agent("a", AgentState::Working),
+            jump_agent("b", AgentState::Input),
+            jump_agent("c", AgentState::Working),
+            jump_agent("d", AgentState::Input),
+        ];
+        let ordered: Vec<String> = pairs.iter().map(|(id, _)| id.clone()).collect();
+        let agents: HashMap<String, &Agent> = pairs.iter().map(|(id, a)| (id.clone(), a)).collect();
+
+        assert_eq!(
+            pick_jump_target(&ordered, &agents, Some("a"), true).as_deref(),
+            Some("b")
+        );
+        assert_eq!(
+            pick_jump_target(&ordered, &agents, Some("b"), true).as_deref(),
+            Some("d")
+        );
+    }
+
+    #[test]
+    fn jump_wraps_around_in_both_directions() {
+        let pairs = [
+            jump_agent("a", AgentState::Input),
+            jump_agent("b", AgentState::Working),
+            jump_agent("c", AgentState::Input),
+        ];
+        let ordered: Vec<String> = pairs.iter().map(|(id, _)| id.clone()).collect();
+        let agents: HashMap<String, &Agent> = pairs.iter().map(|(id, a)| (id.clone(), a)).collect();
+
+        assert_eq!(
+            pick_jump_target(&ordered, &agents, Some("c"), true).as_deref(),
+            Some("a")
+        );
+        assert_eq!(
+            pick_jump_target(&ordered, &agents, Some("a"), false).as_deref(),
+            Some("c")
+        );
+    }
+
+    #[test]
+    fn rebind_assigns_keys_in_pool_order_truncating_overflow() {
+        let pool_len = keys::key_pool().len();
+        let ordered: Vec<String> = (0..pool_len + 3).map(|i| format!("agent-{i}")).collect();
+        let assignments = rebind_assignments(&ordered);
+
+        assert_eq!(assignments.len(), pool_len);
+        let expected_first: Vec<(String, char)> = keys::key_pool()
+            .iter()
+            .copied()
+            .zip(ordered.iter().cloned())
+            .map(|(k, id)| (id, k))
+            .collect();
+        assert_eq!(assignments, expected_first);
+    }
+
+    #[test]
+    fn jump_returns_none_when_no_agent_needs_input() {
+        let pairs = [
+            jump_agent("a", AgentState::Working),
+            jump_agent("b", AgentState::Done),
+        ];
+        let ordered: Vec<String> = pairs.iter().map(|(id, _)| id.clone()).collect();
+        let agents: HashMap<String, &Agent> = pairs.iter().map(|(id, a)| (id.clone(), a)).collect();
+
+        assert!(pick_jump_target(&ordered, &agents, Some("a"), true).is_none());
+        assert!(pick_jump_target(&ordered, &agents, None, false).is_none());
     }
 
     #[test]

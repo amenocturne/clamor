@@ -13,22 +13,32 @@ fn clamor_cmd() -> Command {
     cmd
 }
 
-/// Create an isolated HOME directory with a minimal clamor config.
+/// Create an isolated HOME directory with a minimal clamor YAML config.
 fn setup_test_env() -> PathBuf {
     let test_home =
         std::env::temp_dir().join(format!("clm-t-{}-{}", std::process::id(), rand_suffix()));
     std::fs::create_dir_all(test_home.join(".clamor")).unwrap();
+    std::fs::create_dir_all(test_home.join(".config/clamor")).unwrap();
 
-    let config = serde_json::json!({
-        "folders": {
-            "test": test_home.to_string_lossy()
-        }
-    });
-    std::fs::write(
-        test_home.join(".clamor/config.json"),
-        serde_json::to_string_pretty(&config).unwrap(),
-    )
-    .unwrap();
+    let config_yaml = format!(
+        r#"backends:
+  claude-code:
+    display_name: Claude
+    spawn:
+      cmd: [claude, "{{{{prompt}}}}"]
+    resume:
+      cmd: [claude, --resume, "{{{{resume_token}}}}"]
+    capabilities:
+      resume: true
+folders:
+  test:
+    path: {path}
+    backends: [claude-code]
+"#,
+        path = test_home.to_string_lossy()
+    );
+
+    std::fs::write(test_home.join(".config/clamor/config.yaml"), config_yaml).unwrap();
 
     test_home
 }
@@ -62,6 +72,7 @@ fn cleanup_test_env(test_home: &PathBuf) {
 
 /// Start the daemon in the background and wait for it to be ready.
 fn start_daemon(home: &PathBuf) {
+    #[allow(clippy::zombie_processes)]
     let mut child = Command::new(clamor_bin())
         .arg("daemon")
         .env("HOME", home)
@@ -416,14 +427,12 @@ fn setup_multi_backend_env() -> PathBuf {
       cmd: [claude, --resume, "{{{{resume_token}}}}"]
     capabilities:
       resume: true
-      hooks: true
   open-code:
     display_name: OpenCode
     spawn:
       cmd: [opencode, run, --prompt, "{{{{prompt}}}}"]
     capabilities:
       resume: false
-      hooks: false
 folders:
   test:
     path: {path}
@@ -449,6 +458,7 @@ fn multi_backend_cmd(home: &PathBuf) -> Command {
 
 /// Start the daemon with XDG_CONFIG_HOME cleared for multi-backend tests.
 fn start_daemon_xdg(home: &PathBuf) {
+    #[allow(clippy::zombie_processes)]
     let mut child = Command::new(clamor_bin())
         .arg("daemon")
         .env("HOME", home)
