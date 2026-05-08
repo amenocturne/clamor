@@ -42,6 +42,14 @@ Clamor fixes this without replacing your workflow. It's *not* a new terminal, *n
 cargo install clamor
 ```
 
+Or with Nix (flakes enabled):
+
+```bash
+nix profile install github:amenocturne/clamor
+```
+
+Run without installing: `nix run github:amenocturne/clamor`. Hack on it: `nix develop`.
+
 Or build from source:
 
 ```bash
