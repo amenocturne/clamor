@@ -99,5 +99,10 @@
       );
 
       formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-rfc-style);
+
+      homeManagerModules = {
+        default = import ./nix/home-manager-module.nix;
+        clamor = import ./nix/home-manager-module.nix;
+      };
     };
 }
