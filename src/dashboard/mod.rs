@@ -2135,9 +2135,9 @@ async fn handle_terminal_event(
                                         }
                                     }
                                 } else if mouse_event.row
-                                    >= pane_area
-                                        .y
-                                        .saturating_add(pane_area.height.saturating_sub(scroll_zone))
+                                    >= pane_area.y.saturating_add(
+                                        pane_area.height.saturating_sub(scroll_zone),
+                                    )
                                 {
                                     let edge_start = pane_area.y.saturating_add(
                                         pane_area.height.saturating_sub(scroll_zone),
@@ -2169,8 +2169,7 @@ async fn handle_terminal_event(
                             // Drag = clamor selection. Copy and clear.
                             let sel = pv.selection.clone().unwrap();
                             let screen = pv.scrolled_screen();
-                            let text =
-                                pane::extract_selected_text(screen, &sel, pane_area.width);
+                            let text = pane::extract_selected_text(screen, &sel, pane_area.width);
                             if !text.is_empty() {
                                 pane::copy_to_clipboard(&text);
                             }
