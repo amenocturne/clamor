@@ -1,10 +1,15 @@
 import { spawn } from "node:child_process";
 
 /**
- * Pi extension that reports session ID to clamor.
+ * Pi extension that integrates with clamor for session tracking and state.
  *
- * On session_start, pipes the session ID to `clamor hook` so clamor
- * can store it as resume_token for later reload/resume.
+ * - session_start: sets state to Working via `clamor set-state working`,
+ *   passing the session ID as `--session-token` so clamor can persist it as
+ *   resume_token for token-based session resume.
+ * - before_agent_start: sets state to Working and re-records the session
+ *   token on every turn, so agents that missed session_start get their token
+ *   on the next user prompt.
+ * - turn_end: sets state to Input when the model finishes and awaits input.
  *
  * Requires CLAMOR_AGENT_ID in the environment (set automatically by clamor
  * when spawning agents). Silently no-ops if clamor isn't available.
@@ -13,28 +18,43 @@ import { spawn } from "node:child_process";
  *   { "extensions": ["/path/to/clamor/extensions/pi"] }
  * Or symlink into ~/.pi/agent/extensions/clamor-session/
  */
-export default function (pi: any) {
-  pi.on("session_start", async (_event: any, ctx: any) => {
-    if (!process.env.CLAMOR_AGENT_ID) return;
 
+function setState(state: "working" | "input", sessionToken?: string): void {
+  const agentId = process.env.CLAMOR_AGENT_ID;
+  if (!agentId) return;
+  try {
+    const args = ["set-state", state, "--agent", agentId];
+    if (sessionToken) {
+      args.push("--session-token", sessionToken);
+    }
+    spawn("clamor", args, {
+      stdio: "ignore",
+      env: process.env,
+    });
+  } catch {
+    // clamor not installed or not in PATH — silently ignore
+  }
+}
+
+export default function (pi: any) {
+  pi.on("session_start", async (event: any, ctx: any) => {
+    // Only set Working for brand-new sessions; resume/reload/fork leave clamor
+    // state as-is (it's already persisted from the original run).
+    if (event.reason !== "new") return;
     const sessionId = ctx.sessionManager.getSessionId();
     if (!sessionId) return;
+    setState("working", sessionId);
+  });
 
-    const payload = JSON.stringify({
-      hook_event_name: "SessionStart",
-      session_id: sessionId,
-    });
+  pi.on("before_agent_start", async (_event: any, ctx: any) => {
+    const sessionId = ctx?.sessionManager?.getSessionId() ?? undefined;
+    setState("working", sessionId);
+  });
 
-    try {
-      const child = spawn("clamor", ["hook"], {
-        stdio: ["pipe", "ignore", "ignore"],
-        env: process.env,
-      });
-      child.stdin.write(payload);
-      child.stdin.end();
-      // Don't wait — fire and forget so we don't block pi
-    } catch {
-      // clamor not installed or not in PATH — silently ignore
-    }
+  // agent_end wraps the full agent loop for one user prompt; turn_end would
+  // fire after every individual LLM response cycle, including mid-tool-use
+  // turns, causing false Input state while the agent is still executing.
+  pi.on("agent_end", async () => {
+    setState("input");
   });
 }
