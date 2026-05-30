@@ -2061,11 +2061,11 @@ async fn handle_terminal_event(
             let content_rows = term_rows.saturating_sub(1);
             let pane_area = ratatui::layout::Rect::new(0, 1, term_cols, content_rows);
 
-            let mouse_mode = pane_views
+            let delegate_mouse = pane_views
                 .get(agent_id)
-                .is_some_and(|pv| pv.mouse_mode_active());
+                .is_some_and(|pv| pv.mouse_mode_active() || pv.alternate_screen());
 
-            if mouse_mode {
+            if delegate_mouse {
                 if let Some(bytes) = pane::encode_mouse_for_pane(*mouse_event, pane_area) {
                     let _ = client.send_input(agent_id, &bytes).await;
                 }

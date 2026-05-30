@@ -480,16 +480,47 @@ pub fn encode_mouse_for_pane(mouse: MouseEvent, pane_area: Rect) -> Option<Vec<u
     let c = col as u32 + 1;
     let r = row as u32 + 1;
 
+    let modifier_bits = {
+        let mut bits = 0;
+        if mouse.modifiers.contains(KeyModifiers::SHIFT) {
+            bits |= 4;
+        }
+        if mouse.modifiers.contains(KeyModifiers::ALT) {
+            bits |= 8;
+        }
+        if mouse.modifiers.contains(KeyModifiers::CONTROL) {
+            bits |= 16;
+        }
+        bits
+    };
+
     let seq = match mouse.kind {
-        MouseEventKind::ScrollUp => format!("\x1b[<64;{c};{r}M"),
-        MouseEventKind::ScrollDown => format!("\x1b[<65;{c};{r}M"),
-        MouseEventKind::Down(MouseButton::Left) => format!("\x1b[<0;{c};{r}M"),
-        MouseEventKind::Up(MouseButton::Left) => format!("\x1b[<0;{c};{r}m"),
-        MouseEventKind::Down(MouseButton::Right) => format!("\x1b[<2;{c};{r}M"),
-        MouseEventKind::Up(MouseButton::Right) => format!("\x1b[<2;{c};{r}m"),
-        MouseEventKind::Down(MouseButton::Middle) => format!("\x1b[<1;{c};{r}M"),
-        MouseEventKind::Up(MouseButton::Middle) => format!("\x1b[<1;{c};{r}m"),
-        MouseEventKind::Moved => format!("\x1b[<35;{c};{r}M"),
+        MouseEventKind::ScrollUp => format!("\x1b[<{};{c};{r}M", 64 + modifier_bits),
+        MouseEventKind::ScrollDown => format!("\x1b[<{};{c};{r}M", 65 + modifier_bits),
+        MouseEventKind::Down(MouseButton::Left) => format!("\x1b[<{};{c};{r}M", modifier_bits),
+        MouseEventKind::Up(MouseButton::Left) => format!("\x1b[<{};{c};{r}m", modifier_bits),
+        MouseEventKind::Down(MouseButton::Right) => {
+            format!("\x1b[<{};{c};{r}M", 2 + modifier_bits)
+        }
+        MouseEventKind::Up(MouseButton::Right) => {
+            format!("\x1b[<{};{c};{r}m", 2 + modifier_bits)
+        }
+        MouseEventKind::Down(MouseButton::Middle) => {
+            format!("\x1b[<{};{c};{r}M", 1 + modifier_bits)
+        }
+        MouseEventKind::Up(MouseButton::Middle) => {
+            format!("\x1b[<{};{c};{r}m", 1 + modifier_bits)
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            format!("\x1b[<{};{c};{r}M", 32 + modifier_bits)
+        }
+        MouseEventKind::Drag(MouseButton::Middle) => {
+            format!("\x1b[<{};{c};{r}M", 33 + modifier_bits)
+        }
+        MouseEventKind::Drag(MouseButton::Right) => {
+            format!("\x1b[<{};{c};{r}M", 34 + modifier_bits)
+        }
+        MouseEventKind::Moved => format!("\x1b[<{};{c};{r}M", 35 + modifier_bits),
         _ => return None,
     };
     Some(seq.into_bytes())
@@ -644,5 +675,46 @@ fn dim_color(color: Color) -> Color {
         Color::LightMagenta => Color::Rgb(100, 0, 100),
         Color::Rgb(r, g, b) => Color::Rgb(r / 2, g / 2, b / 2),
         other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mouse(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::empty(),
+        }
+    }
+
+    #[test]
+    fn encodes_left_drag_as_sgr_button_motion() {
+        let area = Rect::new(10, 5, 20, 10);
+        let bytes =
+            encode_mouse_for_pane(mouse(MouseEventKind::Drag(MouseButton::Left), 12, 8), area)
+                .expect("drag should encode");
+
+        assert_eq!(bytes, b"\x1b[<32;3;4M");
+    }
+
+    #[test]
+    fn encodes_mouse_modifiers_in_sgr_button_code() {
+        let area = Rect::new(0, 0, 20, 10);
+        let bytes = encode_mouse_for_pane(
+            MouseEvent {
+                kind: MouseEventKind::ScrollUp,
+                column: 1,
+                row: 2,
+                modifiers: KeyModifiers::SHIFT | KeyModifiers::ALT | KeyModifiers::CONTROL,
+            },
+            area,
+        )
+        .expect("scroll should encode");
+
+        assert_eq!(bytes, b"\x1b[<92;2;3M");
     }
 }

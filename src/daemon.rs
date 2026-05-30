@@ -932,9 +932,14 @@ impl AgentSlot {
         data.extend(self.ring_buffer.iter());
         // CAN (0x18) aborts any in-progress escape sequence left at the end
         // of the ring buffer (from PTY read splitting mid-sequence).
+        // The mode prelude rehydrates terminal modes that may have been
+        // established before the retained ring-buffer window. Without it,
+        // long-running TUIs can reattach looking fine but lose mouse routing.
         // SGR reset + cursor home + screen clear ensure contents_formatted()
         // starts from a known-good state and fully repaints the visible area.
-        data.extend_from_slice(b"\x18\x1b[m\x1b[H\x1b[2J");
+        data.push(0x18);
+        data.extend(catch_up_terminal_mode_prelude(self.parser.screen()));
+        data.extend_from_slice(b"\x1b[m\x1b[H\x1b[2J");
         data.extend(self.parser.screen().contents_formatted());
         data
     }
@@ -983,6 +988,85 @@ impl AgentSlot {
             self.push_ring_buffer(chunk);
         }
         chunks
+    }
+}
+
+fn catch_up_terminal_mode_prelude(screen: &vt100::Screen) -> Vec<u8> {
+    let mut data = Vec::new();
+
+    data.extend_from_slice(
+        b"\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?2004l\x1b[?1049l",
+    );
+
+    if screen.alternate_screen() {
+        data.extend_from_slice(b"\x1b[?1049h");
+    }
+
+    match screen.mouse_protocol_mode() {
+        vt100::MouseProtocolMode::None => {}
+        vt100::MouseProtocolMode::Press => data.extend_from_slice(b"\x1b[?9h"),
+        vt100::MouseProtocolMode::PressRelease => data.extend_from_slice(b"\x1b[?1000h"),
+        vt100::MouseProtocolMode::ButtonMotion => data.extend_from_slice(b"\x1b[?1002h"),
+        vt100::MouseProtocolMode::AnyMotion => data.extend_from_slice(b"\x1b[?1003h"),
+    }
+
+    match screen.mouse_protocol_encoding() {
+        vt100::MouseProtocolEncoding::Default => {}
+        vt100::MouseProtocolEncoding::Utf8 => data.extend_from_slice(b"\x1b[?1005h"),
+        vt100::MouseProtocolEncoding::Sgr => data.extend_from_slice(b"\x1b[?1006h"),
+    }
+
+    if screen.bracketed_paste() {
+        data.extend_from_slice(b"\x1b[?2004h");
+    }
+
+    data
+}
+
+#[cfg(test)]
+mod catch_up_mode_tests {
+    use super::*;
+
+    #[test]
+    fn prelude_rehydrates_mouse_bracketed_paste_and_alt_screen() {
+        let mut source = vt100::Parser::new(24, 80, 0);
+        source.process(b"\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?2004h");
+
+        let prelude = catch_up_terminal_mode_prelude(source.screen());
+        let mut restored = vt100::Parser::new(24, 80, 0);
+        restored.process(&prelude);
+
+        assert!(restored.screen().alternate_screen());
+        assert!(restored.screen().bracketed_paste());
+        assert_eq!(
+            restored.screen().mouse_protocol_mode(),
+            vt100::MouseProtocolMode::ButtonMotion
+        );
+        assert_eq!(
+            restored.screen().mouse_protocol_encoding(),
+            vt100::MouseProtocolEncoding::Sgr
+        );
+    }
+
+    #[test]
+    fn prelude_clears_stale_modes_when_source_has_none() {
+        let source = vt100::Parser::new(24, 80, 0);
+        let prelude = catch_up_terminal_mode_prelude(source.screen());
+
+        let mut restored = vt100::Parser::new(24, 80, 0);
+        restored.process(b"\x1b[?1049h\x1b[?1003h\x1b[?1006h\x1b[?2004h");
+        restored.process(&prelude);
+
+        assert!(!restored.screen().alternate_screen());
+        assert!(!restored.screen().bracketed_paste());
+        assert_eq!(
+            restored.screen().mouse_protocol_mode(),
+            vt100::MouseProtocolMode::None
+        );
+        assert_eq!(
+            restored.screen().mouse_protocol_encoding(),
+            vt100::MouseProtocolEncoding::Default
+        );
     }
 }
 
