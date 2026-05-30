@@ -11,6 +11,10 @@ build:
 build-debug:
     cargo build
 
+# Install clamor from this checkout
+install:
+    cargo install --path .
+
 # Run clamor dashboard
 run *FLAGS:
     cargo run -- "$@"
