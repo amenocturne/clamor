@@ -109,7 +109,7 @@
               pkgs.pkg-config
               pkgs.rustup
               pkgs.rust-analyzer
-              pkgs.zig
+              pkgs.zig_0_15
             ]
             ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
               pkgs.apple-sdk
