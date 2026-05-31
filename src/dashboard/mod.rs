@@ -262,11 +262,18 @@ async fn main_loop(
         } else {
             let (term_cols, term_rows) = crossterm::terminal::size()?;
             let content_rows = term_rows.saturating_sub(1);
-            let _ = client.resize(agent_id, content_rows, term_cols).await;
-            match client.subscribe(agent_id).await {
-                Ok(catch_up) => {
-                    let pv = pane_view_from_catch_up(config, content_rows, term_cols, &catch_up)?;
+            let resize_msgs = client
+                .resize_buffered(agent_id, content_rows, term_cols)
+                .await
+                .unwrap_or_default();
+            match client.subscribe_buffered(agent_id).await {
+                Ok(result) => {
+                    let pv =
+                        pane_view_from_catch_up(config, content_rows, term_cols, &result.catch_up)?;
                     pane_views.insert(agent_id.clone(), pv);
+                    for msg in resize_msgs.into_iter().chain(result.buffered) {
+                        apply_daemon_message(&msg, &mut pane_views, state_source);
+                    }
                     AppMode::Terminal {
                         agent_id: agent_id.clone(),
                     }
@@ -357,6 +364,7 @@ async fn main_loop(
                                 client,
                                 agent_id,
                                 &mut pane_views,
+                                state_source,
                             ).await?
                         }
                     };
@@ -393,13 +401,13 @@ async fn main_loop(
                                         &result.catch_up,
                                     )?;
                                     pane_views.insert(agent_id.clone(), pv);
-                                    for msg in resize_msgs.into_iter().chain(result.buffered) {
-                                        apply_daemon_message(
-                                            &msg,
-                                            &mut pane_views,
-                                            state_source,
-                                        );
-                                    }
+                                    apply_buffered_after_catch_up(
+                                        &agent_id,
+                                        has_existing,
+                                        resize_msgs.into_iter().chain(result.buffered),
+                                        &mut pane_views,
+                                        state_source,
+                                    );
                                 }
                                 Err(_) => continue,
                             }
@@ -471,16 +479,13 @@ async fn main_loop(
                                                     &result.catch_up,
                                                 )?;
                                                 pane_views.insert(target.clone(), pv);
-                                                for msg in resize_msgs
-                                                    .into_iter()
-                                                    .chain(result.buffered)
-                                                {
-                                                    apply_daemon_message(
-                                                        &msg,
-                                                        &mut pane_views,
-                                                        state_source,
-                                                    );
-                                                }
+                                                apply_buffered_after_catch_up(
+                                                    &target,
+                                                    has_existing,
+                                                    resize_msgs.into_iter().chain(result.buffered),
+                                                    &mut pane_views,
+                                                    state_source,
+                                                );
                                                 terminal.clear()?;
                                                 mode = AppMode::Terminal { agent_id: target };
                                             }
@@ -576,6 +581,23 @@ async fn main_loop(
     }
 
     Ok(())
+}
+
+fn apply_buffered_after_catch_up(
+    target_id: &str,
+    refreshed_existing_pane: bool,
+    messages: impl IntoIterator<Item = DaemonMessage>,
+    pane_views: &mut HashMap<String, PaneView>,
+    state_source: &StateSource,
+) {
+    for msg in messages {
+        if refreshed_existing_pane
+            && matches!(&msg, DaemonMessage::Output { id, .. } if id == target_id)
+        {
+            continue;
+        }
+        apply_daemon_message(&msg, pane_views, state_source);
+    }
 }
 
 /// Apply a buffered daemon message (Output/Exited) to the appropriate pane view.
@@ -1973,6 +1995,7 @@ async fn handle_terminal_event(
     client: &mut DaemonClient,
     agent_id: &str,
     pane_views: &mut HashMap<String, PaneView>,
+    state_source: &StateSource,
 ) -> Result<LoopAction> {
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
     let content_rows = term_rows.saturating_sub(1);
@@ -2233,10 +2256,14 @@ async fn handle_terminal_event(
 
         Event::Resize(cols, rows) => {
             let content_rows = rows.saturating_sub(1);
-            if let Some(pv) = pane_views.get_mut(agent_id) {
-                pv.resize(content_rows, *cols);
+            if let Ok(buffered) = client.resize_buffered(agent_id, content_rows, *cols).await {
+                for msg in buffered {
+                    apply_daemon_message(&msg, pane_views, state_source);
+                }
+                if let Some(pv) = pane_views.get_mut(agent_id) {
+                    pv.resize(content_rows, *cols);
+                }
             }
-            let _ = client.resize(agent_id, content_rows, *cols).await;
         }
 
         _ => {}

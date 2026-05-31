@@ -66,17 +66,7 @@ impl DaemonClient {
         .await
     }
 
-    pub async fn resize(&mut self, id: &str, rows: u16, cols: u16) -> Result<()> {
-        self.send(ClientMessage::Resize {
-            id: id.to_string(),
-            rows,
-            cols,
-        })
-        .await?;
-        self.expect_ok().await
-    }
-
-    /// Like resize(), but returns any in-flight Output/Exited messages that
+    /// Resize an agent and return any in-flight Output/Exited messages that
     /// arrived while waiting for the OK response, instead of discarding them.
     pub async fn resize_buffered(
         &mut self,
@@ -93,13 +83,8 @@ impl DaemonClient {
         self.expect_ok_buffered().await
     }
 
-    pub async fn subscribe(&mut self, id: &str) -> Result<Vec<u8>> {
-        let result = self.subscribe_buffered(id).await?;
-        Ok(result.catch_up)
-    }
-
-    /// Like subscribe(), but returns any in-flight Output/Exited messages that
-    /// arrived while waiting for the CatchUp response, instead of discarding them.
+    /// Subscribe to an agent and return catch-up data plus any in-flight
+    /// Output/Exited messages that arrived while waiting for CatchUp.
     pub async fn subscribe_buffered(&mut self, id: &str) -> Result<SubscribeResult> {
         self.send(ClientMessage::Subscribe { id: id.to_string() })
             .await?;

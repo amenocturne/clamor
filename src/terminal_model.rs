@@ -152,10 +152,7 @@ mod ghostty {
         }
 
         fn size(&self) -> (u16, u16) {
-            let shadow_size = self.render_shadow.size();
-            let rows = with_stderr_suppressed(|| self.terminal.rows()).unwrap_or(shadow_size.0);
-            let cols = with_stderr_suppressed(|| self.terminal.cols()).unwrap_or(shadow_size.1);
-            (rows, cols)
+            self.render_shadow.size()
         }
 
         fn cursor(&self) -> CursorState {
