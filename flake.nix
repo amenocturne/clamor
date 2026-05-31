@@ -3,9 +3,9 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    libghostty-vt = {
-      url = "path:./nix/ghostty";
-      inputs.nixpkgs.follows = "nixpkgs";
+    ghostty-src = {
+      url = "github:ghostty-org/ghostty/bebca84668947bfc92b9a30ed58712e1c34eee1d";
+      flake = false;
     };
   };
 
@@ -13,7 +13,7 @@
     {
       self,
       nixpkgs,
-      libghostty-vt,
+      ghostty-src,
     }:
     let
       systems = [
@@ -83,7 +83,9 @@
       packages = forAllSystems (
         system:
         let
-          clamor = mkClamor nixpkgs.legacyPackages.${system} libghostty-vt.packages.${system}.default;
+          pkgs = nixpkgs.legacyPackages.${system};
+          ghosttyLib = import ./nix/ghostty/package.nix { inherit pkgs ghostty-src; };
+          clamor = mkClamor pkgs ghosttyLib;
         in
         {
           default = clamor;
