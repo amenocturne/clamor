@@ -9,7 +9,7 @@ mod ghostty {
             GhosttyTerminalScreen_GHOSTTY_TERMINAL_SCREEN_PRIMARY,
         },
         fmt::{Format, Formatter, FormatterOptions},
-        terminal::{Mode, ScrollViewport},
+        terminal::Mode,
         Terminal, TerminalOptions,
     };
 
@@ -17,7 +17,7 @@ mod ghostty {
         screen_visible_text, CursorState, MouseEncoding, MouseMode, TerminalModel, TerminalModes,
     };
     use crate::config::TerminalLogLevel;
-    use crate::diagnostics::terminal_log;
+    use crate::diagnostics::{terminal_log, with_stderr_suppressed};
 
     pub struct GhosttyTerminalModel {
         terminal: Terminal<'static, 'static>,
@@ -29,10 +29,12 @@ mod ghostty {
         pub fn new(rows: u16, cols: u16, scrollback: usize) -> anyhow::Result<Self> {
             crate::diagnostics::suppress_embedded_ghostty_logging();
 
-            let terminal = Terminal::new(TerminalOptions {
-                cols,
-                rows,
-                max_scrollback: scrollback,
+            let terminal = with_stderr_suppressed(|| {
+                Terminal::new(TerminalOptions {
+                    cols,
+                    rows,
+                    max_scrollback: scrollback,
+                })
             })
             .context("creating ghostty terminal model")?;
 
@@ -48,82 +50,80 @@ mod ghostty {
         }
 
         fn mode(&self, mode: Mode) -> bool {
-            self.terminal.mode(mode).unwrap_or(false)
+            with_stderr_suppressed(|| self.terminal.mode(mode)).unwrap_or(false)
         }
 
         fn format(&self, format: Format) -> anyhow::Result<Vec<u8>> {
-            let mut formatter = Formatter::new(
-                &self.terminal,
-                FormatterOptions {
-                    format,
-                    trim: true,
-                    unwrap: false,
-                },
-            )
-            .context("creating ghostty formatter")?;
-            let bytes = formatter
-                .format_alloc(None::<&libghostty_vt::alloc::Allocator<'_, ()>>)
-                .context("formatting ghostty terminal")?;
+            let bytes = with_stderr_suppressed(|| {
+                let mut formatter = Formatter::new(
+                    &self.terminal,
+                    FormatterOptions {
+                        format,
+                        trim: true,
+                        unwrap: false,
+                    },
+                )
+                .context("creating ghostty formatter")?;
+                formatter
+                    .format_alloc(None::<&libghostty_vt::alloc::Allocator<'_, ()>>)
+                    .context("formatting ghostty terminal")
+            })?;
             Ok(bytes.as_ref().to_vec())
         }
     }
 
     impl TerminalModel for GhosttyTerminalModel {
         fn process_output(&mut self, bytes: &[u8]) {
-            self.terminal.vt_write(bytes);
+            with_stderr_suppressed(|| self.terminal.vt_write(bytes));
             self.render_shadow.process_output(bytes);
         }
 
         fn resize(&mut self, rows: u16, cols: u16) {
-            let _ = self.terminal.resize(cols, rows, 0, 0);
+            let _ = with_stderr_suppressed(|| self.terminal.resize(cols, rows, 0, 0));
             self.render_shadow.resize(rows, cols);
         }
 
         fn size(&self) -> (u16, u16) {
             let shadow_size = self.render_shadow.size();
-            let rows = self.terminal.rows().unwrap_or(shadow_size.0);
-            let cols = self.terminal.cols().unwrap_or(shadow_size.1);
+            let rows = with_stderr_suppressed(|| self.terminal.rows()).unwrap_or(shadow_size.0);
+            let cols = with_stderr_suppressed(|| self.terminal.cols()).unwrap_or(shadow_size.1);
             (rows, cols)
         }
 
         fn cursor(&self) -> CursorState {
             let shadow_cursor = self.render_shadow.cursor();
             CursorState {
-                row: self.terminal.cursor_y().unwrap_or(shadow_cursor.row),
-                col: self.terminal.cursor_x().unwrap_or(shadow_cursor.col),
+                row: with_stderr_suppressed(|| self.terminal.cursor_y())
+                    .unwrap_or(shadow_cursor.row),
+                col: with_stderr_suppressed(|| self.terminal.cursor_x())
+                    .unwrap_or(shadow_cursor.col),
             }
         }
 
         fn set_scrollback(&mut self, offset: usize) {
-            let max = self
-                .terminal
-                .scrollback_rows()
-                .unwrap_or_else(|_| self.render_shadow.scrollback_len());
+            let max = self.render_shadow.scrollback_total();
             let target = offset.min(max);
-            let delta = target as isize - self.viewport_offset as isize;
-            if delta != 0 {
-                self.terminal.scroll_viewport(ScrollViewport::Delta(delta));
-            }
-            self.viewport_offset = target;
-            self.render_shadow.set_scrollback(offset);
+            self.render_shadow.set_scrollback(target);
+            self.viewport_offset = self.render_shadow.scrollback_len();
             terminal_log(
                 TerminalLogLevel::Debug,
-                format!("ghostty set_scrollback requested={offset} target={target} max={max} delta={delta}"),
+                format!(
+                    "ghostty shadow set_scrollback requested={offset} target={target} actual={} max={max}",
+                    self.viewport_offset
+                ),
             );
         }
 
         fn scrollback_len(&self) -> usize {
-            self.viewport_offset
+            self.render_shadow.scrollback_len()
         }
 
         fn scrollback_total(&mut self) -> usize {
-            self.terminal
-                .scrollback_rows()
-                .unwrap_or_else(|_| self.render_shadow.scrollback_total())
+            self.render_shadow.scrollback_total()
         }
 
         fn modes(&self) -> TerminalModes {
-            let active_screen = self.terminal.active_screen().ok();
+            let active_screen = with_stderr_suppressed(|| self.terminal.active_screen()).ok();
             TerminalModes {
                 alternate_screen: active_screen
                     == Some(GhosttyTerminalScreen_GHOSTTY_TERMINAL_SCREEN_ALTERNATE)
@@ -481,6 +481,24 @@ mod tests {
         vt100.process_output(bytes);
         ghostty.process_output(bytes);
 
+        assert_eq!(ghostty.contents_formatted(), vt100.contents_formatted());
+    }
+
+    #[test]
+    fn ghostty_render_scrollback_tracks_vt100_shadow() {
+        let mut vt100 = TerminalModelState::new(TerminalBackend::Vt100, 3, 10, 50).unwrap();
+        let mut ghostty = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 50).unwrap();
+        let bytes = b"one\r\ntwo\r\nthree\r\nfour\r\nfive";
+
+        vt100.process_output(bytes);
+        ghostty.process_output(bytes);
+
+        assert_eq!(ghostty.scrollback_total(), vt100.scrollback_total());
+
+        vt100.set_scrollback(1);
+        ghostty.set_scrollback(1);
+
+        assert_eq!(ghostty.scrollback_len(), vt100.scrollback_len());
         assert_eq!(ghostty.contents_formatted(), vt100.contents_formatted());
     }
 }

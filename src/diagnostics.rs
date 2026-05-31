@@ -1,5 +1,6 @@
 use std::fs::{File, OpenOptions};
 use std::io::Write;
+use std::os::fd::AsRawFd;
 use std::sync::{Mutex, OnceLock};
 
 use chrono::Utc;
@@ -17,6 +18,34 @@ pub fn suppress_embedded_ghostty_logging() {
     // libghostty-vt inherits Ghostty's stderr logger, which corrupts Clamor's TUI.
     // Clamor terminal diagnostics are written separately to the runtime log file.
     std::env::set_var("GHOSTTY_LOG", "no-stderr,no-macos");
+}
+
+pub fn with_stderr_suppressed<T>(f: impl FnOnce() -> T) -> T {
+    let Ok(dev_null) = OpenOptions::new().write(true).open("/dev/null") else {
+        return f();
+    };
+
+    unsafe {
+        let saved_stderr = libc::dup(libc::STDERR_FILENO);
+        if saved_stderr < 0 {
+            return f();
+        }
+
+        if libc::dup2(dev_null.as_raw_fd(), libc::STDERR_FILENO) < 0 {
+            let _ = libc::close(saved_stderr);
+            return f();
+        }
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+
+        let _ = libc::dup2(saved_stderr, libc::STDERR_FILENO);
+        let _ = libc::close(saved_stderr);
+
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
 }
 
 pub fn init_terminal_logging(level: TerminalLogLevel, component: &str) -> anyhow::Result<()> {
