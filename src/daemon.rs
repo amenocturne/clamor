@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
@@ -12,6 +12,7 @@ use crate::config::{ClamorConfig, TerminalBackend, TerminalLogLevel};
 use crate::diagnostics::{byte_preview, terminal_log, terminal_log_enabled};
 use crate::protocol::{
     recv_message_async, send_message_async, ClientMessage, DaemonAgent, DaemonMessage,
+    CATCH_UP_ESCAPE_CANCEL, CATCH_UP_MODE_RESET, CATCH_UP_REPAINT_RESET,
 };
 use crate::terminal_model::{
     MouseEncoding, MouseMode, TerminalModel, TerminalModelState, TerminalModes,
@@ -987,6 +988,7 @@ impl AgentSlot {
     /// Rebuild the parser from scratch by replaying the ring buffer.
     /// Fixes accumulated rendering issues (parser state corruption, etc.).
     fn rebuild_parser(&mut self) {
+        let started = Instant::now();
         let (rows, cols) = self.terminal.size();
         let mut new_terminal = TerminalModelState::new(self.terminal.backend(), rows, cols, 0)
             .expect("existing terminal backend should remain constructible");
@@ -996,12 +998,13 @@ impl AgentSlot {
         terminal_log(
             TerminalLogLevel::Info,
             format!(
-                "daemon rebuilt terminal backend={:?} size={}x{} replay_bytes={} scrollback={}",
+                "daemon rebuilt terminal backend={:?} size={}x{} replay_bytes={} scrollback={} elapsed_ms={}",
                 self.terminal.backend(),
                 rows,
                 cols,
                 buf.len(),
-                self.terminal.scrollback_len()
+                self.terminal.scrollback_len(),
+                started.elapsed().as_millis()
             ),
         );
     }
@@ -1019,9 +1022,9 @@ impl AgentSlot {
         // long-running TUIs can reattach looking fine but lose mouse routing.
         // SGR reset + cursor home + screen clear ensure contents_formatted()
         // starts from a known-good state and fully repaints the visible area.
-        data.push(0x18);
+        data.push(CATCH_UP_ESCAPE_CANCEL);
         data.extend(catch_up_terminal_mode_prelude(self.terminal.modes()));
-        data.extend_from_slice(b"\x1b[m\x1b[H\x1b[2J");
+        data.extend_from_slice(CATCH_UP_REPAINT_RESET);
         let formatted = self.terminal.contents_formatted();
         terminal_log(
             TerminalLogLevel::Debug,
@@ -1145,9 +1148,7 @@ impl AgentSlot {
 fn catch_up_terminal_mode_prelude(modes: TerminalModes) -> Vec<u8> {
     let mut data = Vec::new();
 
-    data.extend_from_slice(
-        b"\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?2004l\x1b[?1049l",
-    );
+    data.extend_from_slice(CATCH_UP_MODE_RESET);
 
     if modes.alternate_screen {
         data.extend_from_slice(b"\x1b[?1049h");

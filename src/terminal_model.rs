@@ -18,6 +18,8 @@ mod ghostty {
     };
     use crate::config::TerminalLogLevel;
     use crate::diagnostics::{terminal_log, with_stderr_suppressed};
+    use crate::protocol::catch_up_repair_start;
+    use std::time::Instant;
 
     pub struct GhosttyTerminalModel {
         terminal: Terminal<'static, 'static>,
@@ -78,6 +80,26 @@ mod ghostty {
             self.render_shadow.process_output(bytes);
         }
 
+        fn process_catch_up(&mut self, bytes: &[u8]) {
+            let started = Instant::now();
+            self.render_shadow.process_output(bytes);
+
+            let ghostty_bytes = catch_up_repair_start(bytes)
+                .map(|start| &bytes[start..])
+                .unwrap_or(bytes);
+            with_stderr_suppressed(|| self.terminal.vt_write(ghostty_bytes));
+
+            terminal_log(
+                TerminalLogLevel::Debug,
+                format!(
+                    "ghostty catch-up optimized total={} ghostty={} elapsed_ms={}",
+                    bytes.len(),
+                    ghostty_bytes.len(),
+                    started.elapsed().as_millis()
+                ),
+            );
+        }
+
         fn resize(&mut self, rows: u16, cols: u16) {
             let _ = with_stderr_suppressed(|| self.terminal.resize(cols, rows, 0, 0));
             self.render_shadow.resize(rows, cols);
@@ -101,14 +123,12 @@ mod ghostty {
         }
 
         fn set_scrollback(&mut self, offset: usize) {
-            let max = self.render_shadow.scrollback_total();
-            let target = offset.min(max);
-            self.render_shadow.set_scrollback(target);
+            self.render_shadow.set_scrollback(offset);
             self.viewport_offset = self.render_shadow.scrollback_len();
             terminal_log(
-                TerminalLogLevel::Debug,
+                TerminalLogLevel::Trace,
                 format!(
-                    "ghostty shadow set_scrollback requested={offset} target={target} actual={} max={max}",
+                    "ghostty shadow set_scrollback requested={offset} actual={}",
                     self.viewport_offset
                 ),
             );
@@ -202,6 +222,9 @@ pub struct TerminalModes {
 
 pub trait TerminalModel {
     fn process_output(&mut self, bytes: &[u8]);
+    fn process_catch_up(&mut self, bytes: &[u8]) {
+        self.process_output(bytes);
+    }
     fn resize(&mut self, rows: u16, cols: u16);
     fn size(&self) -> (u16, u16);
     fn cursor(&self) -> CursorState;
@@ -273,6 +296,13 @@ impl TerminalModel for TerminalModelState {
         match self {
             Self::Vt100(model) => model.process_output(bytes),
             Self::Ghostty(model) => model.process_output(bytes),
+        }
+    }
+
+    fn process_catch_up(&mut self, bytes: &[u8]) {
+        match self {
+            Self::Vt100(model) => model.process_catch_up(bytes),
+            Self::Ghostty(model) => model.process_catch_up(bytes),
         }
     }
 
@@ -449,6 +479,7 @@ fn screen_visible_text(screen: &vt100::Screen) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::{CATCH_UP_ESCAPE_CANCEL, CATCH_UP_MODE_RESET, CATCH_UP_REPAINT_RESET};
 
     #[test]
     fn vt100_backend_is_constructible() {
@@ -500,5 +531,24 @@ mod tests {
 
         assert_eq!(ghostty.scrollback_len(), vt100.scrollback_len());
         assert_eq!(ghostty.contents_formatted(), vt100.contents_formatted());
+    }
+
+    #[test]
+    fn ghostty_optimized_catch_up_replays_shadow_and_repairs_modes() {
+        let mut ghostty = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 50).unwrap();
+        let mut catch_up = b"one\r\ntwo\r\nthree\r\nfour\r\nfive".to_vec();
+
+        catch_up.push(CATCH_UP_ESCAPE_CANCEL);
+        catch_up.extend_from_slice(CATCH_UP_MODE_RESET);
+        catch_up.extend_from_slice(b"\x1b[?2004h");
+        catch_up.extend_from_slice(CATCH_UP_REPAINT_RESET);
+        catch_up.extend_from_slice(b"repaired");
+
+        ghostty.process_catch_up(&catch_up);
+
+        assert!(!ghostty.alternate_screen());
+        assert!(ghostty.bracketed_paste_active());
+        assert_eq!(ghostty.visible_text(), "repaired");
+        assert!(ghostty.scrollback_total() > 0);
     }
 }

@@ -6,6 +6,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
+use std::time::Instant;
 
 use crate::config::{TerminalBackend, TerminalLogLevel};
 use crate::diagnostics::{byte_preview, terminal_log, terminal_log_enabled};
@@ -88,13 +89,15 @@ impl PaneView {
         catch_up: &[u8],
     ) -> anyhow::Result<Self> {
         let mut terminal = TerminalModelState::new(backend, rows, cols, 50000)?;
-        terminal.process_output(catch_up);
+        let started = Instant::now();
+        terminal.process_catch_up(catch_up);
         terminal_log(
             TerminalLogLevel::Info,
             format!(
-                "pane catch-up backend={backend:?} rows={rows} cols={cols} bytes={} scrollback={}",
+                "pane catch-up backend={backend:?} rows={rows} cols={cols} bytes={} scrollback={} elapsed_ms={}",
                 catch_up.len(),
-                terminal.scrollback_len()
+                terminal.scrollback_len(),
+                started.elapsed().as_millis()
             ),
         );
         Ok(Self {

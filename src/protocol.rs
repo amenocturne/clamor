@@ -4,6 +4,22 @@ use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+pub const CATCH_UP_ESCAPE_CANCEL: u8 = 0x18;
+pub const CATCH_UP_MODE_RESET: &[u8] =
+    b"\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?2004l\x1b[?1049l";
+pub const CATCH_UP_REPAINT_RESET: &[u8] = b"\x1b[m\x1b[H\x1b[2J";
+
+pub fn catch_up_repair_start(data: &[u8]) -> Option<usize> {
+    let marker_len = CATCH_UP_MODE_RESET.len() + 1;
+    if data.len() < marker_len {
+        return None;
+    }
+
+    data.windows(marker_len).rposition(|window| {
+        window[0] == CATCH_UP_ESCAPE_CANCEL && &window[1..] == CATCH_UP_MODE_RESET
+    })
+}
+
 fn default_rows() -> u16 {
     24
 }
@@ -151,4 +167,26 @@ pub async fn recv_message_async<T: DeserializeOwned, R: AsyncRead + Unpin>(
         .context("reading message body")?;
 
     serde_json::from_slice(&buf).context("deserializing message")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catch_up_repair_start_finds_marker() {
+        let mut data = b"history".to_vec();
+        data.push(CATCH_UP_ESCAPE_CANCEL);
+        data.extend_from_slice(CATCH_UP_MODE_RESET);
+        data.extend_from_slice(b"repaint");
+
+        assert_eq!(catch_up_repair_start(&data), Some(7));
+    }
+
+    #[test]
+    fn catch_up_repair_start_ignores_lone_cancel() {
+        let data = [b"history".as_slice(), &[CATCH_UP_ESCAPE_CANCEL], b"repaint"].concat();
+
+        assert_eq!(catch_up_repair_start(&data), None);
+    }
 }
