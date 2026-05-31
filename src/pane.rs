@@ -188,9 +188,7 @@ impl PaneView {
 
     /// Total scrollback lines available (set to MAX, read clamped value).
     pub fn scrollback_len(&mut self) -> usize {
-        self.terminal.set_scrollback(usize::MAX);
-        let len = self.terminal.scrollback_len();
-        self.terminal.set_scrollback(0);
+        let len = self.terminal.scrollback_total();
         terminal_log(
             TerminalLogLevel::Debug,
             format!(
@@ -684,7 +682,11 @@ pub fn render_title_bar(frame: &mut Frame, area: Rect, params: &TitleBarParams) 
         Some(h) => format!(" {} {}  {} ", state, duration, h),
         None => format!(" {} {} ", state, duration),
     };
-    let padding_len = (area.width as usize).saturating_sub(left.len() + right.len());
+    let width = area.width as usize;
+    let right = fit_to_width(&right, width);
+    let left_width = width.saturating_sub(right.len());
+    let left = fit_to_width(&left, left_width);
+    let padding_len = width.saturating_sub(left.len() + right.len());
     let padding = " ".repeat(padding_len);
 
     let line = Line::from(vec![Span::styled(
@@ -692,6 +694,29 @@ pub fn render_title_bar(frame: &mut Frame, area: Rect, params: &TitleBarParams) 
         style,
     )]);
     frame.render_widget(Paragraph::new(line), area);
+}
+
+fn fit_to_width(value: &str, width: usize) -> String {
+    if value.len() <= width {
+        return value.to_string();
+    }
+    if width == 0 {
+        return String::new();
+    }
+    if width == 1 {
+        return "~".to_string();
+    }
+
+    let mut out = String::with_capacity(width);
+    for ch in value.chars() {
+        let next_len = out.len() + ch.len_utf8();
+        if next_len >= width {
+            break;
+        }
+        out.push(ch);
+    }
+    out.push('~');
+    out
 }
 
 /// Extract the text covered by a selection from the vt100 screen.
@@ -829,5 +854,12 @@ mod tests {
         .expect("scroll should encode");
 
         assert_eq!(bytes, b"\x1b[<92;2;3M");
+    }
+
+    #[test]
+    fn title_bar_text_is_clamped_to_available_width() {
+        assert_eq!(fit_to_width("abcdef", 4), "abc~");
+        assert_eq!(fit_to_width("abcdef", 1), "~");
+        assert_eq!(fit_to_width("abcdef", 0), "");
     }
 }

@@ -112,6 +112,12 @@ mod ghostty {
             self.viewport_offset
         }
 
+        fn scrollback_total(&mut self) -> usize {
+            self.terminal
+                .scrollback_rows()
+                .unwrap_or_else(|_| self.render_shadow.scrollback_total())
+        }
+
         fn modes(&self) -> TerminalModes {
             let active_screen = self.terminal.active_screen().ok();
             TerminalModes {
@@ -203,6 +209,13 @@ pub trait TerminalModel {
     fn cursor(&self) -> CursorState;
     fn set_scrollback(&mut self, offset: usize);
     fn scrollback_len(&self) -> usize;
+    fn scrollback_total(&mut self) -> usize {
+        let current = self.scrollback_len();
+        self.set_scrollback(usize::MAX);
+        let total = self.scrollback_len();
+        self.set_scrollback(current);
+        total
+    }
     fn modes(&self) -> TerminalModes;
     fn contents_formatted(&self) -> Vec<u8>;
     fn visible_text(&self) -> String;
@@ -304,6 +317,13 @@ impl TerminalModel for TerminalModelState {
         match self {
             Self::Vt100(model) => model.scrollback_len(),
             Self::Ghostty(model) => model.scrollback_len(),
+        }
+    }
+
+    fn scrollback_total(&mut self) -> usize {
+        match self {
+            Self::Vt100(model) => model.scrollback_total(),
+            Self::Ghostty(model) => model.scrollback_total(),
         }
     }
 
