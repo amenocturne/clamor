@@ -16,13 +16,22 @@ mod terminal_model;
 mod trace;
 mod watcher;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Command, ConfigCommand, SetStateArg};
 use config::ClamorConfig;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    diagnostics::suppress_embedded_ghostty_logging();
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("creating tokio runtime")?
+        .block_on(async_main())
+}
+
+async fn async_main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {

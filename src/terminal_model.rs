@@ -27,6 +27,8 @@ mod ghostty {
 
     impl GhosttyTerminalModel {
         pub fn new(rows: u16, cols: u16, scrollback: usize) -> anyhow::Result<Self> {
+            crate::diagnostics::suppress_embedded_ghostty_logging();
+
             let terminal = Terminal::new(TerminalOptions {
                 cols,
                 rows,

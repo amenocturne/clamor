@@ -13,6 +13,12 @@ struct Logger {
 
 static LOGGER: OnceLock<Logger> = OnceLock::new();
 
+pub fn suppress_embedded_ghostty_logging() {
+    // libghostty-vt inherits Ghostty's stderr logger, which corrupts Clamor's TUI.
+    // Clamor terminal diagnostics are written separately to the runtime log file.
+    std::env::set_var("GHOSTTY_LOG", "false");
+}
+
 pub fn init_terminal_logging(level: TerminalLogLevel, component: &str) -> anyhow::Result<()> {
     if level == TerminalLogLevel::Off {
         return Ok(());
