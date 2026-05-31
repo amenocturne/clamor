@@ -16,6 +16,8 @@ pub struct ClamorConfig {
     #[serde(default)]
     pub backends: HashMap<String, BackendConfig>,
     #[serde(default)]
+    pub terminal: TerminalConfig,
+    #[serde(default)]
     pub dashboard: DashboardConfig,
     #[serde(default)]
     pub theme: ThemeConfig,
@@ -88,6 +90,34 @@ pub struct BackendCapabilities {
     pub resume: bool,
     #[serde(default)]
     pub sync_output_mode: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TerminalConfig {
+    #[serde(default)]
+    pub backend: TerminalBackend,
+    #[serde(default, alias = "log_level")]
+    pub loglevel: TerminalLogLevel,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminalBackend {
+    #[default]
+    Vt100,
+    Ghostty,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminalLogLevel {
+    #[default]
+    Off,
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -192,6 +222,7 @@ pub fn example_config() -> ClamorConfig {
             ("claude-code".to_string(), claude_code),
             ("open-code".to_string(), open_code),
         ]),
+        terminal: TerminalConfig::default(),
         dashboard: DashboardConfig::default(),
         theme: ThemeConfig::default(),
     }
@@ -202,6 +233,7 @@ pub fn serialize_config_yaml(config: &ClamorConfig) -> anyhow::Result<String> {
     struct ConfigForOutput {
         backends: BTreeMap<String, BackendConfig>,
         folders: BTreeMap<String, FolderConfig>,
+        terminal: TerminalConfig,
         dashboard: DashboardConfig,
         theme: ThemeConfig,
     }
@@ -209,6 +241,7 @@ pub fn serialize_config_yaml(config: &ClamorConfig) -> anyhow::Result<String> {
     let output = ConfigForOutput {
         backends: config.backends.clone().into_iter().collect(),
         folders: config.folders.clone().into_iter().collect(),
+        terminal: config.terminal.clone(),
         dashboard: config.dashboard.clone(),
         theme: config.theme.clone(),
     };
@@ -583,6 +616,15 @@ impl Default for DashboardConfig {
     }
 }
 
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            backend: TerminalBackend::Vt100,
+            loglevel: TerminalLogLevel::Off,
+        }
+    }
+}
+
 impl ClamorConfig {
     /// Returns `~/.config/clamor/` (or `$XDG_CONFIG_HOME/clamor/`).
     pub fn config_dir() -> anyhow::Result<PathBuf> {
@@ -741,11 +783,30 @@ folders:
         validate_config(&config).unwrap();
 
         assert_eq!(config.folders["work"].backends, vec!["claude-code"]);
+        assert_eq!(config.terminal.backend, TerminalBackend::Vt100);
+        assert_eq!(config.terminal.loglevel, TerminalLogLevel::Off);
         assert_eq!(config.backends["claude-code"].display_name, "Claude");
         assert_eq!(
             config.backends["claude-code"].spawn.cmd,
             vec!["claude", "{{prompt}}"]
         );
+    }
+
+    #[test]
+    fn parses_terminal_backend_selection() {
+        let config: ClamorConfig = serde_yaml::from_str(
+            r#"
+terminal:
+  backend: ghostty
+  loglevel: debug
+backends: {}
+folders: {}
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.terminal.backend, TerminalBackend::Ghostty);
+        assert_eq!(config.terminal.loglevel, TerminalLogLevel::Debug);
     }
 
     #[test]
@@ -936,6 +997,7 @@ folders:
         let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
 
         assert!(parsed["backends"]["claude-code"].is_mapping());
+        assert_eq!(parsed["terminal"]["backend"], "vt100");
         assert!(parsed["backends"]["open-code"].is_mapping());
         assert_eq!(
             parsed["folders"]["work"]["backends"],

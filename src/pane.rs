@@ -7,6 +7,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
+use crate::config::{TerminalBackend, TerminalLogLevel};
+use crate::diagnostics::{byte_preview, terminal_log, terminal_log_enabled};
+use crate::terminal_model::{TerminalModel, TerminalModelState};
+
 /// 8 visually distinct colors for agent identification on dark terminals.
 pub const AGENT_COLORS: &[Color] = &[
     Color::Cyan,
@@ -43,14 +47,14 @@ pub struct CopyMode {
 
 /// Client-side view of a single PTY pane.
 ///
-/// Does NOT own a PTY -- the daemon does. This struct maintains a vt100 parser
-/// that processes output bytes received from the daemon, and tracks scroll state.
+/// Does NOT own a PTY -- the daemon does. This struct maintains a terminal
+/// model that processes output bytes received from the daemon, and tracks scroll state.
 ///
 /// Uses tmux-style freeze semantics: when scrolled up, new output is buffered
 /// without touching the parser, so the display stays stable. Output is flushed
 /// through the parser when returning to live view.
 pub struct PaneView {
-    pub parser: vt100::Parser,
+    pub terminal: TerminalModelState,
     pub scroll_offset: usize,
     pub selection: Option<Selection>,
     pub copy_mode: Option<CopyMode>,
@@ -58,27 +62,48 @@ pub struct PaneView {
 }
 
 impl PaneView {
-    pub fn new(rows: u16, cols: u16) -> Self {
-        Self {
-            parser: vt100::Parser::new(rows, cols, 50000),
+    pub fn new_with_backend(
+        backend: TerminalBackend,
+        rows: u16,
+        cols: u16,
+    ) -> anyhow::Result<Self> {
+        terminal_log(
+            TerminalLogLevel::Info,
+            format!("pane new backend={backend:?} rows={rows} cols={cols}"),
+        );
+        Ok(Self {
+            terminal: TerminalModelState::new(backend, rows, cols, 50000)?,
             scroll_offset: 0,
             selection: None,
             copy_mode: None,
             pending_output: Vec::new(),
-        }
+        })
     }
 
     /// Create with catch-up data already processed.
-    pub fn from_catch_up(rows: u16, cols: u16, catch_up: &[u8]) -> Self {
-        let mut parser = vt100::Parser::new(rows, cols, 50000);
-        parser.process(catch_up);
-        Self {
-            parser,
+    pub fn from_catch_up_with_backend(
+        backend: TerminalBackend,
+        rows: u16,
+        cols: u16,
+        catch_up: &[u8],
+    ) -> anyhow::Result<Self> {
+        let mut terminal = TerminalModelState::new(backend, rows, cols, 50000)?;
+        terminal.process_output(catch_up);
+        terminal_log(
+            TerminalLogLevel::Info,
+            format!(
+                "pane catch-up backend={backend:?} rows={rows} cols={cols} bytes={} scrollback={}",
+                catch_up.len(),
+                terminal.scrollback_len()
+            ),
+        );
+        Ok(Self {
+            terminal,
             scroll_offset: 0,
             selection: None,
             copy_mode: None,
             pending_output: Vec::new(),
-        }
+        })
     }
 
     /// Feed output bytes (received from daemon) into the vt100 parser.
@@ -89,8 +114,28 @@ impl PaneView {
     pub fn process_output(&mut self, data: &[u8]) {
         if self.scroll_offset > 0 || self.copy_mode.is_some() {
             self.pending_output.extend_from_slice(data);
+            terminal_log(
+                TerminalLogLevel::Debug,
+                format!(
+                    "pane buffered output bytes={} pending={} scroll_offset={} copy_mode={}",
+                    data.len(),
+                    self.pending_output.len(),
+                    self.scroll_offset,
+                    self.copy_mode.is_some()
+                ),
+            );
         } else {
-            self.parser.process(data);
+            if terminal_log_enabled(TerminalLogLevel::Trace) {
+                terminal_log(
+                    TerminalLogLevel::Trace,
+                    format!(
+                        "pane output bytes={} preview={}",
+                        data.len(),
+                        byte_preview(data)
+                    ),
+                );
+            }
+            self.terminal.process_output(data);
         }
     }
 
@@ -101,32 +146,58 @@ impl PaneView {
 
     /// Resize the virtual terminal.
     pub fn resize(&mut self, rows: u16, cols: u16) {
-        self.parser.screen_mut().set_size(rows, cols);
+        self.terminal.resize(rows, cols);
+        terminal_log(
+            TerminalLogLevel::Info,
+            format!(
+                "pane resize rows={rows} cols={cols} backend={:?}",
+                self.terminal.backend()
+            ),
+        );
     }
 
     /// Apply scrollback offset and return the screen for rendering.
     /// Clamps offset to actual scrollback size.
     pub fn scrolled_screen(&mut self) -> &vt100::Screen {
-        self.parser.screen_mut().set_scrollback(self.scroll_offset);
-        self.scroll_offset = self.parser.screen().scrollback();
-        self.parser.screen()
+        let requested = self.scroll_offset;
+        self.terminal.set_scrollback(self.scroll_offset);
+        self.scroll_offset = self.terminal.scrollback_len();
+        if requested != self.scroll_offset {
+            terminal_log(
+                TerminalLogLevel::Debug,
+                format!(
+                    "pane scroll clamp requested={} actual={} backend={:?}",
+                    requested,
+                    self.scroll_offset,
+                    self.terminal.backend()
+                ),
+            );
+        }
+        self.terminal.screen()
     }
 
     /// Whether the app inside the PTY has mouse mode enabled.
     pub fn mouse_mode_active(&self) -> bool {
-        self.parser.screen().mouse_protocol_mode() != vt100::MouseProtocolMode::None
+        self.terminal.mouse_mode_active()
     }
 
     /// Whether the app is using the alternate screen buffer.
     pub fn alternate_screen(&self) -> bool {
-        self.parser.screen().alternate_screen()
+        self.terminal.alternate_screen()
     }
 
     /// Total scrollback lines available (set to MAX, read clamped value).
     pub fn scrollback_len(&mut self) -> usize {
-        self.parser.screen_mut().set_scrollback(usize::MAX);
-        let len = self.parser.screen().scrollback();
-        self.parser.screen_mut().set_scrollback(0);
+        self.terminal.set_scrollback(usize::MAX);
+        let len = self.terminal.scrollback_len();
+        self.terminal.set_scrollback(0);
+        terminal_log(
+            TerminalLogLevel::Debug,
+            format!(
+                "pane scrollback_len len={len} backend={:?}",
+                self.terminal.backend()
+            ),
+        );
         len
     }
 
@@ -141,6 +212,14 @@ impl PaneView {
         self.scroll_offset = self.scroll_offset.saturating_add(n);
         let max = self.scrollback_len();
         self.scroll_offset = self.scroll_offset.min(max);
+        terminal_log(
+            TerminalLogLevel::Debug,
+            format!(
+                "pane scroll_up n={n} before={before} after={} max={max} pending={}",
+                self.scroll_offset,
+                self.pending_output.len()
+            ),
+        );
         let actual_delta = (self.scroll_offset - before) as u16;
         // Shift copy mode anchor down to compensate for scroll
         if actual_delta > 0 {
@@ -155,10 +234,27 @@ impl PaneView {
     /// Scroll down by `n` lines (toward live view).
     /// If this reaches offset 0, flushes pending output to return to live mode.
     pub fn scroll_down(&mut self, n: usize) {
+        let before = self.scroll_offset;
         self.scroll_offset = self.scroll_offset.saturating_sub(n);
         if self.scroll_offset == 0 && !self.pending_output.is_empty() {
             let data = std::mem::take(&mut self.pending_output);
-            self.parser.process(&data);
+            self.terminal.process_output(&data);
+            terminal_log(
+                TerminalLogLevel::Debug,
+                format!(
+                    "pane scroll_down flushed pending={} before={before} after=0",
+                    data.len()
+                ),
+            );
+        } else {
+            terminal_log(
+                TerminalLogLevel::Debug,
+                format!(
+                    "pane scroll_down n={n} before={before} after={} pending={}",
+                    self.scroll_offset,
+                    self.pending_output.len()
+                ),
+            );
         }
     }
 
@@ -169,7 +265,13 @@ impl PaneView {
         self.clear_selection();
         if !self.pending_output.is_empty() {
             let data = std::mem::take(&mut self.pending_output);
-            self.parser.process(&data);
+            self.terminal.process_output(&data);
+            terminal_log(
+                TerminalLogLevel::Debug,
+                format!("pane snap_to_bottom flushed pending={}", data.len()),
+            );
+        } else {
+            terminal_log(TerminalLogLevel::Debug, "pane snap_to_bottom");
         }
     }
 
@@ -192,6 +294,14 @@ impl PaneView {
             let max = self.scrollback_len();
             self.scroll_offset = self.scroll_offset.min(max).max(1);
         }
+        terminal_log(
+            TerminalLogLevel::Debug,
+            format!(
+                "pane enter_copy_mode rows={visible_rows} cols={visible_cols} scroll_offset={} pending={}",
+                self.scroll_offset,
+                self.pending_output.len()
+            ),
+        );
         let _ = visible_cols; // used for future word nav
     }
 
@@ -354,6 +464,14 @@ impl PaneView {
                 }
             }
         }
+        terminal_log(
+            TerminalLogLevel::Debug,
+            format!(
+                "pane scroll_down_no_flush n={n} before={before} after={} pending={}",
+                self.scroll_offset,
+                self.pending_output.len()
+            ),
+        );
     }
 
     /// Sync the selection to match copy mode cursor + anchor positions.
@@ -635,10 +753,26 @@ pub fn copy_to_clipboard(text: &str) {
     }
 }
 
+/// Dim a color for unfocused pane title bars.
+fn dim_color(color: Color) -> Color {
+    match color {
+        Color::Cyan => Color::Rgb(0, 80, 80),
+        Color::Magenta => Color::Rgb(80, 0, 80),
+        Color::Yellow => Color::Rgb(80, 80, 0),
+        Color::Blue => Color::Rgb(0, 0, 100),
+        Color::Green => Color::Rgb(0, 80, 0),
+        Color::Red => Color::Rgb(100, 0, 0),
+        Color::LightCyan => Color::Rgb(0, 100, 100),
+        Color::LightMagenta => Color::Rgb(100, 0, 100),
+        Color::Rgb(r, g, b) => Color::Rgb(r / 2, g / 2, b / 2),
+        other => other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+    use crossterm::event::{KeyEventKind, KeyEventState};
 
     fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
         KeyEvent {
@@ -660,27 +794,6 @@ mod tests {
         let event = key(KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(encode_key(event), Some(vec![0x0d]));
     }
-}
-
-/// Dim a color for unfocused pane title bars.
-fn dim_color(color: Color) -> Color {
-    match color {
-        Color::Cyan => Color::Rgb(0, 80, 80),
-        Color::Magenta => Color::Rgb(80, 0, 80),
-        Color::Yellow => Color::Rgb(80, 80, 0),
-        Color::Blue => Color::Rgb(0, 0, 100),
-        Color::Green => Color::Rgb(0, 80, 0),
-        Color::Red => Color::Rgb(100, 0, 0),
-        Color::LightCyan => Color::Rgb(0, 100, 100),
-        Color::LightMagenta => Color::Rgb(100, 0, 100),
-        Color::Rgb(r, g, b) => Color::Rgb(r / 2, g / 2, b / 2),
-        other => other,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 
     fn mouse(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
         MouseEvent {

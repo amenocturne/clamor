@@ -28,12 +28,14 @@ use crate::agent::{generate_id, next_color_index, Agent, AgentState};
 use crate::client::DaemonClient;
 use crate::config::{resolve_path, ClamorConfig};
 use crate::daemon;
+use crate::diagnostics::terminal_log;
 use crate::pane::{self, PaneView};
 use crate::protocol::DaemonMessage;
 use crate::state::{
     cycle_backend_for_folder, selected_backend_for_folder, with_state, ClamorState,
     PromptHistoryEntry,
 };
+use crate::terminal_model::TerminalModel;
 use crate::watcher::StateSource;
 
 use input::{DashboardAction, FolderPickReason, InputMode, PromptEdit, PromptField};
@@ -266,11 +268,7 @@ async fn main_loop(
             let _ = client.resize(agent_id, content_rows, term_cols).await;
             match client.subscribe(agent_id).await {
                 Ok(catch_up) => {
-                    let pv = if catch_up.is_empty() {
-                        PaneView::new(content_rows, term_cols)
-                    } else {
-                        PaneView::from_catch_up(content_rows, term_cols, &catch_up)
-                    };
+                    let pv = pane_view_from_catch_up(config, content_rows, term_cols, &catch_up)?;
                     pane_views.insert(agent_id.clone(), pv);
                     AppMode::Terminal {
                         agent_id: agent_id.clone(),
@@ -391,15 +389,12 @@ async fn main_loop(
 
                     match result {
                                 Ok(result) => {
-                                    let pv = if result.catch_up.is_empty() {
-                                        PaneView::new(content_rows, term_cols)
-                                    } else {
-                                        PaneView::from_catch_up(
-                                            content_rows,
-                                            term_cols,
-                                            &result.catch_up,
-                                        )
-                                    };
+                                    let pv = pane_view_from_catch_up(
+                                        config,
+                                        content_rows,
+                                        term_cols,
+                                        &result.catch_up,
+                                    )?;
                                     pane_views.insert(agent_id.clone(), pv);
                                     for msg in resize_msgs.into_iter().chain(result.buffered) {
                                         apply_daemon_message(
@@ -472,15 +467,12 @@ async fn main_loop(
                                                 client.subscribe_buffered(&target).await
                                             };
                                             if let Ok(result) = result {
-                                                let pv = if result.catch_up.is_empty() {
-                                                    PaneView::new(content_rows, term_cols)
-                                                } else {
-                                                    PaneView::from_catch_up(
-                                                        content_rows,
-                                                        term_cols,
-                                                        &result.catch_up,
-                                                    )
-                                                };
+                                                let pv = pane_view_from_catch_up(
+                                                    config,
+                                                    content_rows,
+                                                    term_cols,
+                                                    &result.catch_up,
+                                                )?;
                                                 pane_views.insert(target.clone(), pv);
                                                 for msg in resize_msgs
                                                     .into_iter()
@@ -611,6 +603,19 @@ fn apply_daemon_message(
             state_source.invalidate();
         }
         _ => {}
+    }
+}
+
+fn pane_view_from_catch_up(
+    config: &ClamorConfig,
+    rows: u16,
+    cols: u16,
+    catch_up: &[u8],
+) -> Result<PaneView> {
+    if catch_up.is_empty() {
+        PaneView::new_with_backend(config.terminal.backend, rows, cols)
+    } else {
+        PaneView::from_catch_up_with_backend(config.terminal.backend, rows, cols, catch_up)
     }
 }
 
@@ -877,6 +882,14 @@ fn render_terminal_view(
         } else {
             None
         };
+        terminal_log(
+            crate::config::TerminalLogLevel::Debug,
+            format!(
+                "dashboard render-terminal id={agent_id} scroll_offset={scroll_offset} scroll_info={scroll_info:?} pending={has_pending} copy_mode={} backend={:?}",
+                copy_cursor.is_some(),
+                pv.terminal.backend()
+            ),
+        );
         let screen = pv.scrolled_screen();
         terminal.draw(|frame| {
             render::render_terminal(
@@ -2205,7 +2218,7 @@ async fn handle_terminal_event(
 
             let use_bracket = pane_views
                 .get(agent_id)
-                .is_some_and(|pv| pv.parser.screen().bracketed_paste());
+                .is_some_and(|pv| pv.terminal.bracketed_paste_active());
 
             let data = if use_bracket {
                 let mut buf = Vec::with_capacity(text.len() + 14);

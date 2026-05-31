@@ -86,13 +86,15 @@
         in
         {
           default = pkgs.mkShell {
-            inputsFrom = [ self.packages.${system}.default ];
             packages = [
-              pkgs.cargo
-              pkgs.rustc
-              pkgs.rustfmt
-              pkgs.clippy
+              pkgs.pkg-config
+              pkgs.rustup
               pkgs.rust-analyzer
+              pkgs.zig
+            ]
+            ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+              pkgs.apple-sdk
+              pkgs.libiconv
             ];
           };
         }

@@ -82,6 +82,24 @@ clamor config         # Open config in $EDITOR
 
 Config lives at `~/.config/clamor/config.yaml`. Legacy `~/.clamor/config.json` is auto-detected — run `clamor config migrate` to convert. Clamor ships no built-in backends; you must declare at least one before it can spawn anything. Run `clamor config print-example` for a ready-to-edit template.
 
+#### Terminal Backend
+
+The terminal emulation core is selected separately from agent backends:
+
+```yaml
+terminal:
+  backend: vt100  # default; ghostty is experimental and not default
+  loglevel: off   # off, error, warn, info, debug, trace
+```
+
+`ghostty` is reserved for the libghostty-vt investigation and should stay opt-in until it has proven stable in daily use. The normal runtime default remains `vt100`; set `terminal.backend: ghostty` explicitly to test the Ghostty terminal model.
+
+Set `terminal.loglevel: debug` while investigating rendering bugs. Logs are appended to `~/.clamor/terminal.log` so they do not corrupt the TUI; `trace` also includes escaped byte previews and can grow quickly.
+
+#### Terminal Traces
+
+Set `CLAMOR_TRACE_DIR=/path/to/traces` before starting the daemon to record raw PTY byte streams for replay. Traces are experimental debugging artifacts for comparing terminal backends.
+
 #### Folders
 
 Each folder is a project directory where agents can be spawned:

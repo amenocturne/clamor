@@ -18,7 +18,10 @@ cargo fmt                    # Format
 - **client** (`client.rs`) — async `DaemonClient` with 5s timeouts on all operations
 - **dashboard** (`dashboard/mod.rs`) — `tokio::select!` over daemon messages, crossterm `EventStream`, and 16ms frame ticks
 - **protocol** (`protocol.rs`) — wire format (4-byte BE length + JSON), both sync and async variants
-- **pane** (`pane.rs`) — `vt100::Parser` wrapper with scrollback, selection, clipboard
+- **terminal_model** (`terminal_model.rs`) — terminal emulation boundary; `vt100` is the default backend, `ghostty` is experimental and must stay opt-in
+- **trace** (`trace.rs`) — opt-in raw PTY trace recording via `CLAMOR_TRACE_DIR` plus hidden replay harness for backend comparisons
+- **diagnostics** (`diagnostics.rs`) — opt-in terminal diagnostics via `terminal.loglevel`; writes to `~/.clamor/terminal.log` to avoid corrupting the TUI
+- **pane** (`pane.rs`) — client-side terminal model view with scrollback, selection, clipboard
 - **state** (`state.rs`) — file-locked JSON persistence (`~/.clamor/state.json`); three states: Working, Input, Done (Lost was removed — daemon auto-resumes sessions on restart)
 - **config** (`config.rs`) — YAML config at `~/.config/clamor/config.yaml`, backend registry with built-in templates, folder-to-backend mapping, legacy JSON migration
 - **spawn** (`spawn.rs`) — backend-driven spawn/resume resolver with `{{var}}` template rendering
@@ -28,7 +31,7 @@ cargo fmt                    # Format
 
 Clamor is backend-agnostic. Each folder can list multiple backends; one is selected at a time.
 
-- **Config**: `~/.config/clamor/config.yaml` defines backends (spawn/resume commands, capabilities) and folders (path + allowed backends)
+- **Config**: `~/.config/clamor/config.yaml` defines terminal backend selection/logging, agent backends (spawn/resume commands, capabilities), and folders (path + allowed backends)
 - **No built-in backends**: clamor ships zero hardcoded backends. Every backend used by a folder must be declared in the user config. `clamor config print-example` emits a ready-to-edit template.
 - **Runtime state**: selected backend per folder persists in `~/.clamor/state.json`
 - **State updates**: any backend can drive state transitions by wiring its hook system to call `clamor set-state <working|input|done> --agent "$CLAMOR_AGENT_ID"`. Clamor itself is harness-agnostic — no event names or payload schemas are baked in.

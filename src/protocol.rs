@@ -76,6 +76,10 @@ pub enum DaemonMessage {
 pub struct DaemonAgent {
     pub id: String,
     pub alive: bool,
+    #[serde(default)]
+    pub rows: u16,
+    #[serde(default)]
+    pub cols: u16,
 }
 
 /// Send a length-prefixed JSON message over a writer.

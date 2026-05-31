@@ -8,9 +8,15 @@ use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use tokio::net::UnixListener;
 use tokio::sync::mpsc;
 
+use crate::config::{ClamorConfig, TerminalBackend, TerminalLogLevel};
+use crate::diagnostics::{byte_preview, terminal_log, terminal_log_enabled};
 use crate::protocol::{
     recv_message_async, send_message_async, ClientMessage, DaemonAgent, DaemonMessage,
 };
+use crate::terminal_model::{
+    MouseEncoding, MouseMode, TerminalModel, TerminalModelState, TerminalModes,
+};
+use crate::trace::TraceRecorder;
 
 /// Buffers output between DEC 2026 synchronized update markers (BSU/ESU).
 ///
@@ -892,14 +898,16 @@ struct AgentSlot {
     child_pid: Option<u32>,
     /// Raw output history — provides scrollback when client attaches.
     ring_buffer: VecDeque<u8>,
-    /// Daemon-side vt100 parser — always holds the correct screen state.
+    /// Daemon-side terminal model — always holds the correct screen state.
     /// Appended after ring buffer in catch-up to fix the visible area.
-    parser: vt100::Parser,
+    terminal: TerminalModelState,
     alive: bool,
     /// Per-agent sync output buffer (moved from reader thread for CPR accuracy).
     sync_buf: SyncOutputBuffer,
     /// Per-agent terminal query responder.
     responder: TerminalQueryResponder,
+    /// Optional raw PTY trace recorder for replay-based backend comparison.
+    trace: Option<TraceRecorder>,
 }
 
 impl AgentSlot {
@@ -909,6 +917,15 @@ impl AgentSlot {
         if overflow > 0 {
             self.ring_buffer.drain(..overflow);
             skip_partial_escape(&mut self.ring_buffer);
+            terminal_log(
+                TerminalLogLevel::Warn,
+                format!(
+                    "daemon ring-buffer overflow dropped={} retained={} chunk={}",
+                    overflow,
+                    self.ring_buffer.len(),
+                    data.len()
+                ),
+            );
         }
         self.ring_buffer.extend(data);
     }
@@ -916,12 +933,23 @@ impl AgentSlot {
     /// Rebuild the parser from scratch by replaying the ring buffer.
     /// Fixes accumulated rendering issues (parser state corruption, etc.).
     fn rebuild_parser(&mut self) {
-        let screen = self.parser.screen();
-        let (rows, cols) = screen.size();
-        let mut new_parser = vt100::Parser::new(rows, cols, 0);
+        let (rows, cols) = self.terminal.size();
+        let mut new_terminal = TerminalModelState::new(self.terminal.backend(), rows, cols, 0)
+            .expect("existing terminal backend should remain constructible");
         let buf: Vec<u8> = self.ring_buffer.iter().copied().collect();
-        new_parser.process(&buf);
-        self.parser = new_parser;
+        new_terminal.process_output(&buf);
+        self.terminal = new_terminal;
+        terminal_log(
+            TerminalLogLevel::Info,
+            format!(
+                "daemon rebuilt terminal backend={:?} size={}x{} replay_bytes={} scrollback={}",
+                self.terminal.backend(),
+                rows,
+                cols,
+                buf.len(),
+                self.terminal.scrollback_len()
+            ),
+        );
     }
 
     /// Ring buffer (scrollback) + contents_formatted (clean visible screen).
@@ -938,9 +966,21 @@ impl AgentSlot {
         // SGR reset + cursor home + screen clear ensure contents_formatted()
         // starts from a known-good state and fully repaints the visible area.
         data.push(0x18);
-        data.extend(catch_up_terminal_mode_prelude(self.parser.screen()));
+        data.extend(catch_up_terminal_mode_prelude(self.terminal.modes()));
         data.extend_from_slice(b"\x1b[m\x1b[H\x1b[2J");
-        data.extend(self.parser.screen().contents_formatted());
+        let formatted = self.terminal.contents_formatted();
+        terminal_log(
+            TerminalLogLevel::Debug,
+            format!(
+                "daemon catch-up backend={:?} ring={} formatted={} modes={:?} scrollback={}",
+                self.terminal.backend(),
+                self.ring_buffer.len(),
+                formatted.len(),
+                self.terminal.modes(),
+                self.terminal.scrollback_len()
+            ),
+        );
+        data.extend(formatted);
         data
     }
 
@@ -949,37 +989,82 @@ impl AgentSlot {
     ///
     /// Returns sync-buffered output chunks to forward to the client.
     fn process_raw_data(&mut self, raw: &[u8]) -> Vec<Vec<u8>> {
+        if terminal_log_enabled(TerminalLogLevel::Trace) {
+            terminal_log(
+                TerminalLogLevel::Trace,
+                format!(
+                    "daemon raw bytes={} preview={}",
+                    raw.len(),
+                    byte_preview(raw)
+                ),
+            );
+        }
+
+        if let Some(trace) = self.trace.as_mut() {
+            if let Err(err) = trace.record(raw) {
+                eprintln!(
+                    "clamor-daemon: disabling trace {}: {err:#}",
+                    trace.path().display()
+                );
+                self.trace = None;
+            }
+        }
+
         // 1. Detect terminal queries (DA1, DECRQM, CPR)
         let responses = self.responder.scan_for_queries(raw);
         if !responses.is_empty() {
             let _ = self.writer.write_all(&responses);
             let _ = self.writer.flush();
+            terminal_log(
+                TerminalLogLevel::Debug,
+                format!(
+                    "daemon query responses bytes={} preview={}",
+                    responses.len(),
+                    byte_preview(&responses)
+                ),
+            );
         }
 
         // 2. Update parser — split at CPR offset for accurate cursor position
         if self.responder.cpr_requested {
             if let Some(cpr_off) = find_cpr_offset(raw) {
                 // Feed data up to the CPR query into the parser
-                self.parser.process(&raw[..cpr_off]);
+                self.terminal.process_output(&raw[..cpr_off]);
                 // Respond with cursor position at the CPR query point
-                let (row, col) = self.parser.screen().cursor_position();
+                let cursor = self.terminal.cursor();
+                let (row, col) = (cursor.row, cursor.col);
                 let response = format!("\x1b[{};{}R", row + 1, col + 1);
                 let _ = self.writer.write_all(response.as_bytes());
                 let _ = self.writer.flush();
+                terminal_log(
+                    TerminalLogLevel::Debug,
+                    format!(
+                        "daemon CPR response row={} col={} split_at={}",
+                        row, col, cpr_off
+                    ),
+                );
                 // Feed remaining data (CPR bytes are harmless — DSR is ignored)
-                self.parser.process(&raw[cpr_off..]);
+                self.terminal.process_output(&raw[cpr_off..]);
             } else {
                 // CPR sequence spans reads — respond with current parser state
                 // (parser was already updated by previous RawData events)
-                let (row, col) = self.parser.screen().cursor_position();
+                let cursor = self.terminal.cursor();
+                let (row, col) = (cursor.row, cursor.col);
                 let response = format!("\x1b[{};{}R", row + 1, col + 1);
                 let _ = self.writer.write_all(response.as_bytes());
                 let _ = self.writer.flush();
+                terminal_log(
+                    TerminalLogLevel::Debug,
+                    format!(
+                        "daemon CPR response row={} col={} split_across_reads",
+                        row, col
+                    ),
+                );
                 // Then process this read's data
-                self.parser.process(raw);
+                self.terminal.process_output(raw);
             }
         } else {
-            self.parser.process(raw);
+            self.terminal.process_output(raw);
         }
 
         // 3. Sync-buffer the raw data for ring buffer + client (strips BSU/ESU)
@@ -987,36 +1072,48 @@ impl AgentSlot {
         for chunk in &chunks {
             self.push_ring_buffer(chunk);
         }
+        terminal_log(
+            TerminalLogLevel::Debug,
+            format!(
+                "daemon processed raw={} chunks={} forwarded={} cursor={:?} modes={:?} scrollback={}",
+                raw.len(),
+                chunks.len(),
+                chunks.iter().map(Vec::len).sum::<usize>(),
+                self.terminal.cursor(),
+                self.terminal.modes(),
+                self.terminal.scrollback_len()
+            ),
+        );
         chunks
     }
 }
 
-fn catch_up_terminal_mode_prelude(screen: &vt100::Screen) -> Vec<u8> {
+fn catch_up_terminal_mode_prelude(modes: TerminalModes) -> Vec<u8> {
     let mut data = Vec::new();
 
     data.extend_from_slice(
         b"\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?2004l\x1b[?1049l",
     );
 
-    if screen.alternate_screen() {
+    if modes.alternate_screen {
         data.extend_from_slice(b"\x1b[?1049h");
     }
 
-    match screen.mouse_protocol_mode() {
-        vt100::MouseProtocolMode::None => {}
-        vt100::MouseProtocolMode::Press => data.extend_from_slice(b"\x1b[?9h"),
-        vt100::MouseProtocolMode::PressRelease => data.extend_from_slice(b"\x1b[?1000h"),
-        vt100::MouseProtocolMode::ButtonMotion => data.extend_from_slice(b"\x1b[?1002h"),
-        vt100::MouseProtocolMode::AnyMotion => data.extend_from_slice(b"\x1b[?1003h"),
+    match modes.mouse_mode {
+        MouseMode::None => {}
+        MouseMode::Press => data.extend_from_slice(b"\x1b[?9h"),
+        MouseMode::PressRelease => data.extend_from_slice(b"\x1b[?1000h"),
+        MouseMode::ButtonMotion => data.extend_from_slice(b"\x1b[?1002h"),
+        MouseMode::AnyMotion => data.extend_from_slice(b"\x1b[?1003h"),
     }
 
-    match screen.mouse_protocol_encoding() {
-        vt100::MouseProtocolEncoding::Default => {}
-        vt100::MouseProtocolEncoding::Utf8 => data.extend_from_slice(b"\x1b[?1005h"),
-        vt100::MouseProtocolEncoding::Sgr => data.extend_from_slice(b"\x1b[?1006h"),
+    match modes.mouse_encoding {
+        MouseEncoding::Default => {}
+        MouseEncoding::Utf8 => data.extend_from_slice(b"\x1b[?1005h"),
+        MouseEncoding::Sgr => data.extend_from_slice(b"\x1b[?1006h"),
     }
 
-    if screen.bracketed_paste() {
+    if modes.bracketed_paste {
         data.extend_from_slice(b"\x1b[?2004h");
     }
 
@@ -1026,13 +1123,14 @@ fn catch_up_terminal_mode_prelude(screen: &vt100::Screen) -> Vec<u8> {
 #[cfg(test)]
 mod catch_up_mode_tests {
     use super::*;
+    use crate::terminal_model::Vt100TerminalModel;
 
     #[test]
     fn prelude_rehydrates_mouse_bracketed_paste_and_alt_screen() {
-        let mut source = vt100::Parser::new(24, 80, 0);
-        source.process(b"\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?2004h");
+        let mut source = Vt100TerminalModel::new(24, 80, 0);
+        source.process_output(b"\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?2004h");
 
-        let prelude = catch_up_terminal_mode_prelude(source.screen());
+        let prelude = catch_up_terminal_mode_prelude(source.modes());
         let mut restored = vt100::Parser::new(24, 80, 0);
         restored.process(&prelude);
 
@@ -1050,8 +1148,8 @@ mod catch_up_mode_tests {
 
     #[test]
     fn prelude_clears_stale_modes_when_source_has_none() {
-        let source = vt100::Parser::new(24, 80, 0);
-        let prelude = catch_up_terminal_mode_prelude(source.screen());
+        let source = Vt100TerminalModel::new(24, 80, 0);
+        let prelude = catch_up_terminal_mode_prelude(source.modes());
 
         let mut restored = vt100::Parser::new(24, 80, 0);
         restored.process(b"\x1b[?1049h\x1b[?1003h\x1b[?1006h\x1b[?2004h");
@@ -1143,6 +1241,16 @@ async fn send_to_client(stream: &mut tokio::net::UnixStream, msg: &DaemonMessage
 }
 
 pub async fn run_daemon() -> Result<()> {
+    let config = ClamorConfig::load()?;
+    crate::diagnostics::init_terminal_logging(config.terminal.loglevel, "daemon")?;
+    let terminal_backend = config.terminal.backend;
+    terminal_log(
+        TerminalLogLevel::Info,
+        format!(
+            "daemon starting terminal_backend={:?} loglevel={:?}",
+            terminal_backend, config.terminal.loglevel
+        ),
+    );
     let sock_path = daemon_socket_path()?;
     let pid_path = daemon_pid_path()?;
 
@@ -1245,7 +1353,12 @@ pub async fn run_daemon() -> Result<()> {
                     Ok(msg) => {
                         let stream = client.as_mut().unwrap();
                         match handle_client_message(
-                            msg, &mut agents, &mut subscriptions, stream, &pty_tx,
+                            msg,
+                            &mut agents,
+                            &mut subscriptions,
+                            stream,
+                            &pty_tx,
+                            terminal_backend,
                         ).await {
                             HandleResult::Continue => {}
                             HandleResult::Shutdown => break,
@@ -1290,6 +1403,7 @@ async fn handle_client_message(
     subscriptions: &mut HashSet<String>,
     stream: &mut tokio::net::UnixStream,
     pty_tx: &mpsc::Sender<PtyEvent>,
+    terminal_backend: TerminalBackend,
 ) -> HandleResult {
     match msg {
         ClientMessage::Spawn {
@@ -1300,7 +1414,7 @@ async fn handle_client_message(
             rows,
             cols,
         } => {
-            match spawn_agent_pty(&id, &cwd, &cmd, &env, rows, cols, pty_tx) {
+            match spawn_agent_pty(&id, &cwd, &cmd, &env, rows, cols, pty_tx, terminal_backend) {
                 Ok(slot) => {
                     agents.insert(id, slot);
                     let _ = send_to_client(stream, &DaemonMessage::Ok).await;
@@ -1368,7 +1482,11 @@ async fn handle_client_message(
                     pixel_height: 0,
                 };
                 let _ = slot.master.resize(size);
-                slot.parser.screen_mut().set_size(rows, cols);
+                slot.terminal.resize(rows, cols);
+                terminal_log(
+                    TerminalLogLevel::Info,
+                    format!("daemon resize id={id} rows={rows} cols={cols}"),
+                );
                 let _ = send_to_client(stream, &DaemonMessage::Ok).await;
             } else {
                 let _ = send_to_client(
@@ -1384,6 +1502,13 @@ async fn handle_client_message(
         ClientMessage::Subscribe { id } => {
             if let Some(slot) = agents.get(&id) {
                 let catch_up_data = slot.catch_up_data();
+                terminal_log(
+                    TerminalLogLevel::Info,
+                    format!(
+                        "daemon subscribe id={id} catch_up_bytes={}",
+                        catch_up_data.len()
+                    ),
+                );
                 subscriptions.insert(id.clone());
                 let _ = send_to_client(
                     stream,
@@ -1408,6 +1533,13 @@ async fn handle_client_message(
             if let Some(slot) = agents.get_mut(&id) {
                 slot.rebuild_parser();
                 let catch_up_data = slot.catch_up_data();
+                terminal_log(
+                    TerminalLogLevel::Info,
+                    format!(
+                        "daemon refresh-parser id={id} catch_up_bytes={}",
+                        catch_up_data.len()
+                    ),
+                );
                 subscriptions.insert(id.clone());
                 let _ = send_to_client(
                     stream,
@@ -1436,9 +1568,14 @@ async fn handle_client_message(
         ClientMessage::List => {
             let list: Vec<DaemonAgent> = agents
                 .iter()
-                .map(|(id, slot)| DaemonAgent {
-                    id: id.clone(),
-                    alive: slot.alive,
+                .map(|(id, slot)| {
+                    let (rows, cols) = slot.terminal.size();
+                    DaemonAgent {
+                        id: id.clone(),
+                        alive: slot.alive,
+                        rows,
+                        cols,
+                    }
                 })
                 .collect();
             let _ = send_to_client(stream, &DaemonMessage::AgentList { agents: list }).await;
@@ -1462,6 +1599,7 @@ async fn handle_client_message(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_agent_pty(
     id: &str,
     cwd: &str,
@@ -1470,6 +1608,7 @@ fn spawn_agent_pty(
     rows: u16,
     cols: u16,
     pty_tx: &mpsc::Sender<PtyEvent>,
+    terminal_backend: TerminalBackend,
 ) -> Result<AgentSlot> {
     let pty_system = NativePtySystem::default();
     let pair = pty_system
@@ -1550,9 +1689,10 @@ fn spawn_agent_pty(
         writer,
         child_pid,
         ring_buffer: VecDeque::with_capacity(RING_BUFFER_CAP),
-        parser: vt100::Parser::new(rows, cols, 0),
+        terminal: TerminalModelState::new(terminal_backend, rows, cols, 0)?,
         alive: true,
         sync_buf: SyncOutputBuffer::new(),
         responder: TerminalQueryResponder::new(),
+        trace: TraceRecorder::from_env(id)?,
     })
 }

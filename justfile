@@ -5,20 +5,20 @@ default:
 
 # Build clamor binary (release mode)
 build:
-    cargo build --release
+    nix develop -c cargo build --release
 
 # Build clamor binary (debug mode)
 build-debug:
-    cargo build
+    nix develop -c cargo build
 
 # Install clamor from this checkout
 install:
-    cargo install --path .
+    nix develop -c ./scripts/install.sh
 
 # Run clamor dashboard
 run *FLAGS:
-    cargo run -- "$@"
+    nix develop -c cargo run -- "$@"
 
 # Run tests
 test:
-    cargo test
+    nix develop -c cargo test

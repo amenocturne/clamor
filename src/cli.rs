@@ -1,4 +1,8 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand, ValueEnum};
+
+use crate::config::TerminalBackend;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 #[clap(rename_all = "lowercase")]
@@ -6,6 +10,22 @@ pub enum SetStateArg {
     Working,
     Input,
     Done,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[clap(rename_all = "lowercase")]
+pub enum ReplayTerminalBackendArg {
+    Vt100,
+    Ghostty,
+}
+
+impl From<ReplayTerminalBackendArg> for TerminalBackend {
+    fn from(value: ReplayTerminalBackendArg) -> Self {
+        match value {
+            ReplayTerminalBackendArg::Vt100 => Self::Vt100,
+            ReplayTerminalBackendArg::Ghostty => Self::Ghostty,
+        }
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -124,6 +144,18 @@ pub enum Command {
         /// How long to run in seconds
         #[arg(long, default_value = "30")]
         duration: u64,
+    },
+
+    /// Internal: replay a raw PTY byte trace through a terminal backend
+    #[command(hide = true)]
+    ReplayTrace {
+        path: PathBuf,
+        #[arg(long, value_enum, default_value = "vt100")]
+        backend: ReplayTerminalBackendArg,
+        #[arg(long, default_value_t = 24)]
+        rows: u16,
+        #[arg(long, default_value_t = 80)]
+        cols: u16,
     },
 }
 

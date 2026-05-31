@@ -4,6 +4,7 @@ mod client;
 mod config;
 mod daemon;
 mod dashboard;
+mod diagnostics;
 mod mock_agent;
 mod pane;
 mod picker;
@@ -11,6 +12,8 @@ mod protocol;
 mod set_state;
 mod spawn;
 mod state;
+mod terminal_model;
+mod trace;
 mod watcher;
 
 use anyhow::Result;
@@ -26,6 +29,7 @@ async fn main() -> Result<()> {
         None => {
             let _ = config::prompt_to_migrate_legacy_config()?;
             let config = ClamorConfig::load()?;
+            diagnostics::init_terminal_logging(config.terminal.loglevel, "dashboard")?;
             if config.folders.is_empty() {
                 eprintln!(
                     "Error: No folders configured. Run `clamor config` to edit folders or `clamor config print-example` for a starter template."
@@ -39,6 +43,7 @@ async fn main() -> Result<()> {
         }
         Some(Command::Attach { agent_ref }) => {
             let config = ClamorConfig::load()?;
+            diagnostics::init_terminal_logging(config.terminal.loglevel, "dashboard")?;
             let state = state::ClamorState::load()?;
             let agent = spawn::resolve_agent(&state, &agent_ref)?;
             dashboard::run(&config, Some(agent.id.clone())).await?;
@@ -156,6 +161,25 @@ async fn main() -> Result<()> {
             duration,
         }) => {
             mock_agent::run(&description, duration);
+        }
+        Some(Command::ReplayTrace {
+            path,
+            backend,
+            rows,
+            cols,
+        }) => {
+            let summary = trace::replay_trace(&path, backend.into(), rows, cols)?;
+            println!("backend: {:?}", summary.backend);
+            println!("bytes: {}", summary.bytes);
+            println!("size: {}x{}", summary.size.0, summary.size.1);
+            println!("cursor: {},{}", summary.cursor.row, summary.cursor.col);
+            println!("alternate_screen: {}", summary.modes.alternate_screen);
+            println!("bracketed_paste: {}", summary.modes.bracketed_paste);
+            println!("mouse_mode: {:?}", summary.modes.mouse_mode);
+            println!("mouse_encoding: {:?}", summary.modes.mouse_encoding);
+            println!("scrollback_len: {}", summary.scrollback_len);
+            println!("--- visible text ---");
+            println!("{}", summary.visible_text);
         }
     }
 
