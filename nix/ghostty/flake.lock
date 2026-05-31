@@ -17,23 +17,6 @@
         "type": "github"
       }
     },
-    "libghostty-vt": {
-      "inputs": {
-        "ghostty-src": "ghostty-src",
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "path": "./nix/ghostty",
-        "type": "path"
-      },
-      "original": {
-        "path": "./nix/ghostty",
-        "type": "path"
-      },
-      "parent": []
-    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1780051219,
@@ -52,7 +35,7 @@
     },
     "root": {
       "inputs": {
-        "libghostty-vt": "libghostty-vt",
+        "ghostty-src": "ghostty-src",
         "nixpkgs": "nixpkgs"
       }
     }
