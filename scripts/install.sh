@@ -34,3 +34,12 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 fi
 
 echo "Installed clamor to $bin_path"
+
+pid_file="$HOME/.clamor/clamor.pid"
+if [[ -f "$pid_file" ]]; then
+  pid="$(cat "$pid_file" 2>/dev/null || true)"
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    echo "Note: clamor daemon pid $pid is still running from the previous executable." >&2
+    echo "Run 'clamor pre-upgrade' and then 'clamor resume' before testing the newly installed binary." >&2
+  fi
+fi

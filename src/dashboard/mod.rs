@@ -69,10 +69,7 @@ enum AppMode {
 }
 
 fn ensure_daemon() -> Result<()> {
-    if !daemon::is_daemon_running() {
-        daemon::start_daemon_background()?;
-    }
-    Ok(())
+    daemon::ensure_daemon_current()
 }
 
 async fn reconcile_state(

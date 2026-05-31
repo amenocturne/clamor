@@ -131,6 +131,60 @@ pub fn daemon_pid_path() -> Result<PathBuf> {
     Ok(crate::config::ClamorConfig::runtime_dir()?.join("clamor.pid"))
 }
 
+pub fn daemon_hash_path() -> Result<PathBuf> {
+    Ok(crate::config::ClamorConfig::runtime_dir()?.join("daemon.hash"))
+}
+
+fn current_exe_hash() -> Result<String> {
+    let mut file =
+        std::fs::File::open(std::env::current_exe().context("resolving clamor executable path")?)
+            .context("opening clamor executable")?;
+    let mut buf = [0u8; 8192];
+    let mut hash = 0xcbf29ce484222325u64;
+
+    loop {
+        let read = file.read(&mut buf).context("reading clamor executable")?;
+        if read == 0 {
+            break;
+        }
+        for byte in &buf[..read] {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+    }
+
+    Ok(format!("fnv1a64:{hash:016x}"))
+}
+
+pub fn is_running_daemon_current() -> Result<bool> {
+    if !is_daemon_running() {
+        return Ok(true);
+    }
+
+    let expected = current_exe_hash()?;
+    let actual = match std::fs::read_to_string(daemon_hash_path()?) {
+        Ok(hash) => hash,
+        Err(_) => return Ok(false),
+    };
+
+    Ok(actual.trim() == expected)
+}
+
+pub fn ensure_daemon_current() -> Result<()> {
+    if !is_daemon_running() {
+        start_daemon_background()?;
+        return Ok(());
+    }
+
+    if !is_running_daemon_current()? {
+        bail!(
+            "running Clamor daemon was started by a different build; run `clamor pre-upgrade` to stop it safely, then `clamor resume` after reinstalling"
+        );
+    }
+
+    Ok(())
+}
+
 pub fn is_daemon_running() -> bool {
     let pid_path = match daemon_pid_path() {
         Ok(p) => p,
@@ -1253,6 +1307,7 @@ pub async fn run_daemon() -> Result<()> {
     );
     let sock_path = daemon_socket_path()?;
     let pid_path = daemon_pid_path()?;
+    let hash_path = daemon_hash_path()?;
 
     if let Some(parent) = sock_path.parent() {
         std::fs::create_dir_all(parent).context("creating ~/.clamor directory")?;
@@ -1266,6 +1321,7 @@ pub async fn run_daemon() -> Result<()> {
     }
 
     std::fs::write(&pid_path, std::process::id().to_string()).context("writing PID file")?;
+    std::fs::write(&hash_path, current_exe_hash()?).context("writing daemon hash file")?;
 
     let listener = UnixListener::bind(&sock_path).context("binding Unix domain socket")?;
 
@@ -1388,6 +1444,7 @@ pub async fn run_daemon() -> Result<()> {
 
     let _ = std::fs::remove_file(&sock_path);
     let _ = std::fs::remove_file(&pid_path);
+    let _ = std::fs::remove_file(&hash_path);
 
     Ok(())
 }

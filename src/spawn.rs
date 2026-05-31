@@ -12,10 +12,7 @@ use crate::picker;
 use crate::state::{selected_backend_for_folder, with_state, ClamorState};
 
 fn ensure_daemon() -> anyhow::Result<()> {
-    if !daemon::is_daemon_running() {
-        daemon::start_daemon_background()?;
-    }
-    Ok(())
+    daemon::ensure_daemon_current()
 }
 
 pub fn is_debug_mode() -> bool {

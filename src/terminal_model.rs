@@ -101,7 +101,9 @@ mod ghostty {
                 .unwrap_or_else(|_| self.render_shadow.scrollback_len());
             let target = offset.min(max);
             let delta = target as isize - self.viewport_offset as isize;
-            self.terminal.scroll_viewport(ScrollViewport::Delta(delta));
+            if delta != 0 {
+                self.terminal.scroll_viewport(ScrollViewport::Delta(delta));
+            }
             self.viewport_offset = target;
             self.render_shadow.set_scrollback(offset);
             terminal_log(
@@ -149,13 +151,7 @@ mod ghostty {
         }
 
         fn contents_formatted(&self) -> Vec<u8> {
-            self.format(Format::Vt).unwrap_or_else(|err| {
-                terminal_log(
-                    TerminalLogLevel::Warn,
-                    format!("ghostty VT formatter failed, using vt100 shadow: {err:#}"),
-                );
-                self.render_shadow.contents_formatted()
-            })
+            self.render_shadow.contents_formatted()
         }
 
         fn visible_text(&self) -> String {
@@ -474,5 +470,17 @@ mod tests {
         model.process_output(b"hello\r\nworld");
 
         assert_eq!(model.visible_text(), "hello\nworld");
+    }
+
+    #[test]
+    fn ghostty_catch_up_format_stays_conservative() {
+        let mut vt100 = TerminalModelState::new(TerminalBackend::Vt100, 3, 10, 0).unwrap();
+        let mut ghostty = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
+        let bytes = b"hello\r\nworld";
+
+        vt100.process_output(bytes);
+        ghostty.process_output(bytes);
+
+        assert_eq!(ghostty.contents_formatted(), vt100.contents_formatted());
     }
 }
