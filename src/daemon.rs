@@ -12,11 +12,8 @@ use crate::config::{ClamorConfig, TerminalBackend, TerminalLogLevel};
 use crate::diagnostics::{byte_preview, terminal_log, terminal_log_enabled};
 use crate::protocol::{
     recv_message_async, send_message_async, ClientMessage, DaemonAgent, DaemonMessage,
-    CATCH_UP_ESCAPE_CANCEL, CATCH_UP_MODE_RESET, CATCH_UP_REPAINT_RESET,
 };
-use crate::terminal_model::{
-    MouseEncoding, MouseMode, TerminalModel, TerminalModelState, TerminalModes,
-};
+use crate::terminal_model::{terminal_repair_bytes, TerminalModel, TerminalModelState};
 use crate::trace::TraceRecorder;
 
 /// Buffers output between DEC 2026 synchronized update markers (BSU/ESU).
@@ -993,7 +990,7 @@ impl AgentSlot {
         let mut new_terminal = TerminalModelState::new(self.terminal.backend(), rows, cols, 0)
             .expect("existing terminal backend should remain constructible");
         let buf: Vec<u8> = self.ring_buffer.iter().copied().collect();
-        new_terminal.process_output(&buf);
+        new_terminal.rebuild_from_history(&buf);
         self.terminal = new_terminal;
         terminal_log(
             TerminalLogLevel::Info,
@@ -1022,9 +1019,8 @@ impl AgentSlot {
         // long-running TUIs can reattach looking fine but lose mouse routing.
         // SGR reset + cursor home + screen clear ensure contents_formatted()
         // starts from a known-good state and fully repaints the visible area.
-        data.push(CATCH_UP_ESCAPE_CANCEL);
-        data.extend(catch_up_terminal_mode_prelude(self.terminal.modes()));
-        data.extend_from_slice(CATCH_UP_REPAINT_RESET);
+        let modes = self.terminal.modes();
+        let cursor = self.terminal.cursor();
         let formatted = self.terminal.contents_formatted();
         terminal_log(
             TerminalLogLevel::Debug,
@@ -1033,11 +1029,11 @@ impl AgentSlot {
                 self.terminal.backend(),
                 self.ring_buffer.len(),
                 formatted.len(),
-                self.terminal.modes(),
+                modes,
                 self.terminal.scrollback_len()
             ),
         );
-        data.extend(formatted);
+        data.extend(terminal_repair_bytes(modes, &formatted, cursor));
         data
     }
 
@@ -1145,47 +1141,17 @@ impl AgentSlot {
     }
 }
 
-fn catch_up_terminal_mode_prelude(modes: TerminalModes) -> Vec<u8> {
-    let mut data = Vec::new();
-
-    data.extend_from_slice(CATCH_UP_MODE_RESET);
-
-    if modes.alternate_screen {
-        data.extend_from_slice(b"\x1b[?1049h");
-    }
-
-    match modes.mouse_mode {
-        MouseMode::None => {}
-        MouseMode::Press => data.extend_from_slice(b"\x1b[?9h"),
-        MouseMode::PressRelease => data.extend_from_slice(b"\x1b[?1000h"),
-        MouseMode::ButtonMotion => data.extend_from_slice(b"\x1b[?1002h"),
-        MouseMode::AnyMotion => data.extend_from_slice(b"\x1b[?1003h"),
-    }
-
-    match modes.mouse_encoding {
-        MouseEncoding::Default => {}
-        MouseEncoding::Utf8 => data.extend_from_slice(b"\x1b[?1005h"),
-        MouseEncoding::Sgr => data.extend_from_slice(b"\x1b[?1006h"),
-    }
-
-    if modes.bracketed_paste {
-        data.extend_from_slice(b"\x1b[?2004h");
-    }
-
-    data
-}
-
 #[cfg(test)]
 mod catch_up_mode_tests {
     use super::*;
-    use crate::terminal_model::Vt100TerminalModel;
+    use crate::terminal_model::{terminal_mode_prelude, Vt100TerminalModel};
 
     #[test]
     fn prelude_rehydrates_mouse_bracketed_paste_and_alt_screen() {
         let mut source = Vt100TerminalModel::new(24, 80, 0);
         source.process_output(b"\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?2004h");
 
-        let prelude = catch_up_terminal_mode_prelude(source.modes());
+        let prelude = terminal_mode_prelude(source.modes());
         let mut restored = vt100::Parser::new(24, 80, 0);
         restored.process(&prelude);
 
@@ -1204,7 +1170,7 @@ mod catch_up_mode_tests {
     #[test]
     fn prelude_clears_stale_modes_when_source_has_none() {
         let source = Vt100TerminalModel::new(24, 80, 0);
-        let prelude = catch_up_terminal_mode_prelude(source.modes());
+        let prelude = terminal_mode_prelude(source.modes());
 
         let mut restored = vt100::Parser::new(24, 80, 0);
         restored.process(b"\x1b[?1049h\x1b[?1003h\x1b[?1006h\x1b[?2004h");

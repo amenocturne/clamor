@@ -1,5 +1,6 @@
 use crate::config::TerminalBackend;
 use crate::diagnostics::terminal_log;
+use crate::protocol::{CATCH_UP_ESCAPE_CANCEL, CATCH_UP_MODE_RESET, CATCH_UP_REPAINT_RESET};
 
 mod ghostty {
     use anyhow::Context;
@@ -14,7 +15,8 @@ mod ghostty {
     };
 
     use super::{
-        screen_visible_text, CursorState, MouseEncoding, MouseMode, TerminalModel, TerminalModes,
+        screen_visible_text, terminal_repair_bytes, CursorState, MouseEncoding, MouseMode,
+        TerminalModel, TerminalModes,
     };
     use crate::config::TerminalLogLevel;
     use crate::diagnostics::{terminal_log, with_stderr_suppressed};
@@ -24,6 +26,7 @@ mod ghostty {
     pub struct GhosttyTerminalModel {
         terminal: Terminal<'static, 'static>,
         render_shadow: super::Vt100TerminalModel,
+        max_scrollback: usize,
         viewport_offset: usize,
     }
 
@@ -31,20 +34,29 @@ mod ghostty {
         pub fn new(rows: u16, cols: u16, scrollback: usize) -> anyhow::Result<Self> {
             crate::diagnostics::suppress_embedded_ghostty_logging();
 
-            let terminal = with_stderr_suppressed(|| {
+            let terminal = Self::new_terminal(rows, cols, scrollback)?;
+
+            Ok(Self {
+                terminal,
+                render_shadow: super::Vt100TerminalModel::new(rows, cols, scrollback),
+                max_scrollback: scrollback,
+                viewport_offset: 0,
+            })
+        }
+
+        fn new_terminal(
+            rows: u16,
+            cols: u16,
+            scrollback: usize,
+        ) -> anyhow::Result<Terminal<'static, 'static>> {
+            with_stderr_suppressed(|| {
                 Terminal::new(TerminalOptions {
                     cols,
                     rows,
                     max_scrollback: scrollback,
                 })
             })
-            .context("creating ghostty terminal model")?;
-
-            Ok(Self {
-                terminal,
-                render_shadow: super::Vt100TerminalModel::new(rows, cols, scrollback),
-                viewport_offset: 0,
-            })
+            .context("creating ghostty terminal model")
         }
 
         pub fn screen(&self) -> &vt100::Screen {
@@ -98,6 +110,40 @@ mod ghostty {
                     started.elapsed().as_millis()
                 ),
             );
+        }
+
+        fn rebuild_from_history(&mut self, bytes: &[u8]) {
+            let started = Instant::now();
+            self.render_shadow.process_output(bytes);
+
+            let repair = terminal_repair_bytes(
+                self.render_shadow.modes(),
+                &self.render_shadow.contents_formatted(),
+                self.render_shadow.cursor(),
+            );
+            let (rows, cols) = self.render_shadow.size();
+
+            match Self::new_terminal(rows, cols, self.max_scrollback) {
+                Ok(mut terminal) => {
+                    with_stderr_suppressed(|| terminal.vt_write(&repair));
+                    self.terminal = terminal;
+                    terminal_log(
+                        TerminalLogLevel::Debug,
+                        format!(
+                            "ghostty rebuild optimized history={} repair={} elapsed_ms={}",
+                            bytes.len(),
+                            repair.len(),
+                            started.elapsed().as_millis()
+                        ),
+                    );
+                }
+                Err(err) => {
+                    terminal_log(
+                        TerminalLogLevel::Warn,
+                        format!("ghostty rebuild reset failed: {err:#}"),
+                    );
+                }
+            }
         }
 
         fn resize(&mut self, rows: u16, cols: u16) {
@@ -220,9 +266,63 @@ pub struct TerminalModes {
     pub mouse_encoding: MouseEncoding,
 }
 
+pub fn terminal_mode_prelude(modes: TerminalModes) -> Vec<u8> {
+    let mut data = Vec::new();
+
+    data.extend_from_slice(CATCH_UP_MODE_RESET);
+
+    if modes.alternate_screen {
+        data.extend_from_slice(b"\x1b[?1049h");
+    }
+
+    match modes.mouse_mode {
+        MouseMode::None => {}
+        MouseMode::Press => data.extend_from_slice(b"\x1b[?9h"),
+        MouseMode::PressRelease => data.extend_from_slice(b"\x1b[?1000h"),
+        MouseMode::ButtonMotion => data.extend_from_slice(b"\x1b[?1002h"),
+        MouseMode::AnyMotion => data.extend_from_slice(b"\x1b[?1003h"),
+    }
+
+    match modes.mouse_encoding {
+        MouseEncoding::Default => {}
+        MouseEncoding::Utf8 => data.extend_from_slice(b"\x1b[?1005h"),
+        MouseEncoding::Sgr => data.extend_from_slice(b"\x1b[?1006h"),
+    }
+
+    if modes.bracketed_paste {
+        data.extend_from_slice(b"\x1b[?2004h");
+    }
+
+    data
+}
+
+pub fn terminal_repair_bytes(
+    modes: TerminalModes,
+    formatted: &[u8],
+    cursor: CursorState,
+) -> Vec<u8> {
+    let mut data = Vec::with_capacity(CATCH_UP_MODE_RESET.len() + formatted.len() + 64);
+    data.push(CATCH_UP_ESCAPE_CANCEL);
+    data.extend(terminal_mode_prelude(modes));
+    data.extend_from_slice(CATCH_UP_REPAINT_RESET);
+    data.extend_from_slice(formatted);
+    data.extend_from_slice(
+        format!(
+            "\x1b[{};{}H",
+            cursor.row.saturating_add(1),
+            cursor.col.saturating_add(1)
+        )
+        .as_bytes(),
+    );
+    data
+}
+
 pub trait TerminalModel {
     fn process_output(&mut self, bytes: &[u8]);
     fn process_catch_up(&mut self, bytes: &[u8]) {
+        self.process_output(bytes);
+    }
+    fn rebuild_from_history(&mut self, bytes: &[u8]) {
         self.process_output(bytes);
     }
     fn resize(&mut self, rows: u16, cols: u16);
@@ -303,6 +403,13 @@ impl TerminalModel for TerminalModelState {
         match self {
             Self::Vt100(model) => model.process_catch_up(bytes),
             Self::Ghostty(model) => model.process_catch_up(bytes),
+        }
+    }
+
+    fn rebuild_from_history(&mut self, bytes: &[u8]) {
+        match self {
+            Self::Vt100(model) => model.rebuild_from_history(bytes),
+            Self::Ghostty(model) => model.rebuild_from_history(bytes),
         }
     }
 
@@ -550,5 +657,15 @@ mod tests {
         assert!(ghostty.bracketed_paste_active());
         assert_eq!(ghostty.visible_text(), "repaired");
         assert!(ghostty.scrollback_total() > 0);
+    }
+
+    #[test]
+    fn ghostty_rebuild_from_history_repairs_terminal_from_shadow() {
+        let mut ghostty = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
+
+        ghostty.rebuild_from_history(b"one\r\ntwo\r\nthree\r\nfour\x1b[?2004h");
+
+        assert!(ghostty.bracketed_paste_active());
+        assert_eq!(ghostty.visible_text(), "two\nthree\nfour");
     }
 }
