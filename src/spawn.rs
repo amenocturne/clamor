@@ -130,6 +130,13 @@ fn render_command_config(
     for arg in &command.cmd {
         if let Some(rendered) = render_template(arg, ctx)? {
             cmd.push(rendered);
+        } else if cmd
+            .last()
+            .is_some_and(|previous| {
+                previous.starts_with('-') && previous != "--" && previous.len() > 1
+            })
+        {
+            cmd.pop();
         }
     }
 
@@ -963,6 +970,26 @@ folders:
 
         assert_eq!(launch.backend_id, "claude-code");
         assert_eq!(launch.cmd, vec!["claude"]);
+        assert_eq!(launch.title, "task");
+    }
+
+    #[test]
+    fn removes_option_flag_for_missing_optional_prompt() {
+        let config = test_config();
+        let mut state = ClamorState::default();
+        state.folder_state.insert(
+            "work".to_string(),
+            crate::state::FolderState {
+                selected_backend: Some("open-code".to_string()),
+            },
+        );
+
+        let launch =
+            resolve_spawn_launch(&config, &state, "work", "~/work", "/tmp/work", "task", None)
+                .unwrap();
+
+        assert_eq!(launch.backend_id, "open-code");
+        assert_eq!(launch.cmd, vec!["opencode", "run"]);
         assert_eq!(launch.title, "task");
     }
 

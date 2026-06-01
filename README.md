@@ -141,7 +141,7 @@ backends:
 
 | Variable | Description |
 | --- | --- |
-| `{{prompt}}` | User's description text (optional — omitted if empty) |
+| `{{prompt}}` | User's description text (optional — omitted if empty; an immediately preceding option flag is omitted too) |
 | `{{title}}` | Agent title |
 | `{{folder_id}}` | Folder ID from config |
 | `{{folder_path}}` | Expanded folder path |
