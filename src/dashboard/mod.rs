@@ -83,42 +83,20 @@ async fn reconcile_state(
         daemon_agents.iter().map(|a| a.id.clone()).collect();
 
     let state = ClamorState::load()?;
-    type ResumeEntry = (String, String, Vec<String>, Vec<(String, String)>);
-    let mut to_resume: Vec<ResumeEntry> = Vec::new();
-    let mut to_remove: Vec<String> = Vec::new();
-
-    for (id, agent) in &state.agents {
-        if !daemon_ids.contains(id) {
-            match reconcile_resume_action(config, id, agent) {
-                ResumeReconcileAction::Resume { cwd, cmd, env } => {
-                    to_resume.push((id.clone(), cwd, cmd, env));
-                }
-                ResumeReconcileAction::Remove => {
-                    to_remove.push(id.clone());
-                }
-            }
-        }
-    }
+    let to_resume = startup_resume_entries(config, &daemon_ids, &state);
 
     // Resume agents with session IDs
-    for (id, cwd, cmd, env) in &to_resume {
+    for entry in &to_resume {
         let _ = client
-            .spawn_agent(id, cwd, cmd, env, pty_rows, pty_cols)
+            .spawn_agent(&entry.id, &entry.cwd, &entry.cmd, &entry.env, pty_rows, pty_cols)
             .await;
     }
 
-    // Update state: mark resumed agents as Working, remove non-resumable ones
-    if !to_resume.is_empty() || !to_remove.is_empty() {
+    // Update state: mark resumed agents as Input. Agents whose backend can no
+    // longer resolve a resume command stay persisted for later recovery.
+    if !to_resume.is_empty() {
         with_state(|state| {
-            for (id, _, _, _) in &to_resume {
-                if let Some(agent) = state.agents.get_mut(id) {
-                    agent.state = AgentState::Input;
-                    agent.last_activity_at = chrono::Utc::now();
-                }
-            }
-            for id in &to_remove {
-                state.agents.remove(id);
-            }
+            apply_startup_resume_state(state, &to_resume);
         })?;
     }
 
@@ -132,6 +110,13 @@ enum ResumeReconcileAction {
         env: Vec<(String, String)>,
     },
     Remove,
+}
+
+struct StartupResumeEntry {
+    id: String,
+    cwd: String,
+    cmd: Vec<String>,
+    env: Vec<(String, String)>,
 }
 
 fn reconcile_resume_action(
@@ -161,6 +146,37 @@ fn reconcile_resume_action(
             }
         }
         Err(_) => ResumeReconcileAction::Remove,
+    }
+}
+
+fn startup_resume_entries(
+    config: &ClamorConfig,
+    daemon_ids: &HashSet<String>,
+    state: &ClamorState,
+) -> Vec<StartupResumeEntry> {
+    state
+        .agents
+        .iter()
+        .filter(|(id, _)| !daemon_ids.contains(*id))
+        .filter_map(|(id, agent)| match reconcile_resume_action(config, id, agent) {
+            ResumeReconcileAction::Resume { cwd, cmd, env } => Some(StartupResumeEntry {
+                id: id.clone(),
+                cwd,
+                cmd,
+                env,
+            }),
+            ResumeReconcileAction::Remove => None,
+        })
+        .collect()
+}
+
+fn apply_startup_resume_state(state: &mut ClamorState, resumed: &[StartupResumeEntry]) {
+    let now = chrono::Utc::now();
+    for entry in resumed {
+        if let Some(agent) = state.agents.get_mut(&entry.id) {
+            agent.state = AgentState::Input;
+            agent.last_activity_at = now;
+        }
     }
 }
 
@@ -2539,7 +2555,7 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_removes_agent_when_backend_cannot_resume() {
+    fn reconcile_skips_agent_when_backend_cannot_resume() {
         let config: ClamorConfig = serde_yaml::from_str(
             r#"
 backends:
@@ -2563,7 +2579,7 @@ folders:
     }
 
     #[test]
-    fn reconcile_removes_agent_when_backend_definition_is_missing() {
+    fn reconcile_skips_agent_when_backend_definition_is_missing() {
         let config: ClamorConfig = serde_yaml::from_str(
             r#"
 folders:
@@ -2582,7 +2598,7 @@ folders:
     }
 
     #[test]
-    fn reconcile_removes_agent_when_resume_template_is_invalid() {
+    fn reconcile_skips_agent_when_resume_template_is_invalid() {
         let config: ClamorConfig = serde_yaml::from_str(
             r#"
 backends:
