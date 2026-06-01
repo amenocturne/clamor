@@ -191,6 +191,11 @@ impl DaemonClient {
     }
 
     async fn send(&mut self, msg: ClientMessage) -> Result<()> {
+        if send_message_async(&mut self.stream, &msg).await.is_ok() {
+            return Ok(());
+        }
+
+        *self = Self::connect().await?;
         send_message_async(&mut self.stream, &msg).await
     }
 
