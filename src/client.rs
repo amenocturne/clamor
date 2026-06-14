@@ -10,6 +10,7 @@ use crate::protocol::{
 pub struct SubscribeResult {
     pub catch_up: Vec<u8>,
     pub buffered: Vec<DaemonMessage>,
+    pub terminal_backend: crate::config::TerminalBackend,
 }
 
 pub struct DaemonClient {
@@ -96,10 +97,15 @@ impl DaemonClient {
                     .context("subscribe timed out")??;
 
             match msg {
-                DaemonMessage::CatchUp { data, .. } => {
+                DaemonMessage::CatchUp {
+                    data,
+                    terminal_backend,
+                    ..
+                } => {
                     return Ok(SubscribeResult {
                         catch_up: data,
                         buffered,
+                        terminal_backend,
                     });
                 }
                 DaemonMessage::Error { message } => {
@@ -130,14 +136,56 @@ impl DaemonClient {
                     .context("refresh_parser timed out")??;
 
             match msg {
-                DaemonMessage::CatchUp { data, .. } => {
+                DaemonMessage::CatchUp {
+                    data,
+                    terminal_backend,
+                    ..
+                } => {
                     return Ok(SubscribeResult {
                         catch_up: data,
                         buffered,
+                        terminal_backend,
                     });
                 }
                 DaemonMessage::Error { message } => {
                     anyhow::bail!("refresh_parser failed: {message}")
+                }
+                DaemonMessage::Output { .. } | DaemonMessage::Exited { .. } => {
+                    buffered.push(msg);
+                }
+                DaemonMessage::Heartbeat => continue,
+                other => {
+                    anyhow::bail!("unexpected response: {other:?}")
+                }
+            }
+        }
+    }
+
+    /// Toggle an agent session between vt100 and ghostty parser backends.
+    pub async fn toggle_terminal_backend_buffered(&mut self, id: &str) -> Result<SubscribeResult> {
+        self.send(ClientMessage::ToggleTerminalBackend { id: id.to_string() })
+            .await?;
+        let mut buffered = Vec::new();
+        loop {
+            let msg: DaemonMessage =
+                tokio::time::timeout(Duration::from_secs(5), recv_message_async(&mut self.stream))
+                    .await
+                    .context("toggle_terminal_backend timed out")??;
+
+            match msg {
+                DaemonMessage::CatchUp {
+                    data,
+                    terminal_backend,
+                    ..
+                } => {
+                    return Ok(SubscribeResult {
+                        catch_up: data,
+                        buffered,
+                        terminal_backend,
+                    });
+                }
+                DaemonMessage::Error { message } => {
+                    anyhow::bail!("toggle_terminal_backend failed: {message}")
                 }
                 DaemonMessage::Output { .. } | DaemonMessage::Exited { .. } => {
                     buffered.push(msg);

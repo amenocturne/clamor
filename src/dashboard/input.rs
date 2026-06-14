@@ -18,6 +18,8 @@ pub enum DashboardAction {
     PendingKill,
     ReloadAgent(String),
     PendingReload,
+    ToggleTerminalBackend(String),
+    PendingTerminalBackend,
     EditAgent(String),
     PendingEdit,
     EditInput(PromptEdit),
@@ -80,6 +82,7 @@ pub enum InputMode {
     Normal,
     WaitingKill,
     WaitingReload,
+    WaitingTerminalBackend,
     ConfirmReload {
         agent_id: String,
         title: String,
@@ -164,6 +167,7 @@ pub fn handle_input(
         InputMode::Normal => handle_normal(event, key_map),
         InputMode::WaitingKill => handle_pending_kill(event, key_map),
         InputMode::WaitingReload => handle_pending_reload(event, key_map),
+        InputMode::WaitingTerminalBackend => handle_pending_terminal_backend(event, key_map),
         InputMode::ConfirmReload { .. } => handle_confirm_reload_input(event),
         InputMode::WaitingEdit => handle_pending_edit(event, key_map),
         InputMode::EditingDescription { .. } => handle_edit_input(event),
@@ -193,6 +197,7 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
         KeyCode::Char('x') => DashboardAction::PendingKill,
         KeyCode::Char('e') => DashboardAction::PendingEdit,
         KeyCode::Char('r') => DashboardAction::PendingReload,
+        KeyCode::Char('B') => DashboardAction::PendingTerminalBackend,
         KeyCode::Char('R') => DashboardAction::AdoptStart,
         KeyCode::Char('b') => DashboardAction::RebindStart,
         KeyCode::Char('J') | KeyCode::Down => DashboardAction::SelectNext,
@@ -234,6 +239,20 @@ fn handle_pending_reload(event: KeyEvent, key_map: &HashMap<char, String>) -> Da
     match event.code {
         KeyCode::Char(c) => match key_map.get(&c) {
             Some(agent_id) => DashboardAction::ReloadAgent(agent_id.clone()),
+            None => DashboardAction::Cancel,
+        },
+        KeyCode::Esc => DashboardAction::Cancel,
+        _ => DashboardAction::Cancel,
+    }
+}
+
+fn handle_pending_terminal_backend(
+    event: KeyEvent,
+    key_map: &HashMap<char, String>,
+) -> DashboardAction {
+    match event.code {
+        KeyCode::Char(c) => match key_map.get(&c) {
+            Some(agent_id) => DashboardAction::ToggleTerminalBackend(agent_id.clone()),
             None => DashboardAction::Cancel,
         },
         KeyCode::Esc => DashboardAction::Cancel,

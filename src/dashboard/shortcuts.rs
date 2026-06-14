@@ -140,6 +140,14 @@ pub const DASHBOARD_SHORTCUTS: &[Shortcut] = &[
         }),
     },
     Shortcut {
+        keys: "B + key",
+        description: "toggle terminal backend (vt100 / ghostty)",
+        footer: Some(FooterEntry {
+            key: "B",
+            label: " term",
+        }),
+    },
+    Shortcut {
         keys: "R",
         description: "adopt session",
         footer: None,

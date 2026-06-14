@@ -26,7 +26,7 @@ use ratatui::Terminal;
 
 use crate::agent::{generate_id, next_color_index, Agent, AgentState};
 use crate::client::DaemonClient;
-use crate::config::{resolve_path, ClamorConfig};
+use crate::config::{resolve_path, ClamorConfig, TerminalBackend};
 use crate::daemon;
 use crate::diagnostics::terminal_log;
 use crate::pane::{self, PaneView};
@@ -88,7 +88,9 @@ async fn reconcile_state(
     // Resume agents with session IDs
     for entry in &to_resume {
         let _ = client
-            .spawn_agent(&entry.id, &entry.cwd, &entry.cmd, &entry.env, pty_rows, pty_cols)
+            .spawn_agent(
+                &entry.id, &entry.cwd, &entry.cmd, &entry.env, pty_rows, pty_cols,
+            )
             .await;
     }
 
@@ -158,15 +160,17 @@ fn startup_resume_entries(
         .agents
         .iter()
         .filter(|(id, _)| !daemon_ids.contains(*id))
-        .filter_map(|(id, agent)| match reconcile_resume_action(config, id, agent) {
-            ResumeReconcileAction::Resume { cwd, cmd, env } => Some(StartupResumeEntry {
-                id: id.clone(),
-                cwd,
-                cmd,
-                env,
-            }),
-            ResumeReconcileAction::Remove => None,
-        })
+        .filter_map(
+            |(id, agent)| match reconcile_resume_action(config, id, agent) {
+                ResumeReconcileAction::Resume { cwd, cmd, env } => Some(StartupResumeEntry {
+                    id: id.clone(),
+                    cwd,
+                    cmd,
+                    env,
+                }),
+                ResumeReconcileAction::Remove => None,
+            },
+        )
         .collect()
 }
 
@@ -284,8 +288,12 @@ async fn main_loop(
                 .unwrap_or_default();
             match client.subscribe_buffered(agent_id).await {
                 Ok(result) => {
-                    let pv =
-                        pane_view_from_catch_up(config, content_rows, term_cols, &result.catch_up)?;
+                    let pv = pane_view_from_catch_up(
+                        result.terminal_backend,
+                        content_rows,
+                        term_cols,
+                        &result.catch_up,
+                    )?;
                     pane_views.insert(agent_id.clone(), pv);
                     for msg in resize_msgs.into_iter().chain(result.buffered) {
                         apply_daemon_message(&msg, &mut pane_views, state_source);
@@ -327,7 +335,7 @@ async fn main_loop(
                                 });
                                 state_source.invalidate();
                             }
-                            DaemonMessage::CatchUp { id, data } => {
+                            DaemonMessage::CatchUp { id, data, .. } => {
                                 if let Some(pv) = pane_views.get_mut(&id) {
                                     pv.process_output(&data);
                                 }
@@ -370,6 +378,7 @@ async fn main_loop(
                                 &mut history_stash,
                                 &mut selected_agents,
                                 &mut pending_g,
+                                &mut pane_views,
                                 &mut flash,
                             ).await?
                         }
@@ -411,7 +420,7 @@ async fn main_loop(
                     match result {
                                 Ok(result) => {
                                     let pv = pane_view_from_catch_up(
-                                        config,
+                                        result.terminal_backend,
                                         content_rows,
                                         term_cols,
                                         &result.catch_up,
@@ -489,7 +498,7 @@ async fn main_loop(
                                             };
                                             if let Ok(result) = result {
                                                 let pv = pane_view_from_catch_up(
-                                                    config,
+                                                    result.terminal_backend,
                                                     content_rows,
                                                     term_cols,
                                                     &result.catch_up,
@@ -642,15 +651,15 @@ fn apply_daemon_message(
 }
 
 fn pane_view_from_catch_up(
-    config: &ClamorConfig,
+    backend: TerminalBackend,
     rows: u16,
     cols: u16,
     catch_up: &[u8],
 ) -> Result<PaneView> {
     if catch_up.is_empty() {
-        PaneView::new_with_backend(config.terminal.backend, rows, cols)
+        PaneView::new_with_backend(backend, rows, cols)
     } else {
-        PaneView::from_catch_up_with_backend(config.terminal.backend, rows, cols, catch_up)
+        PaneView::from_catch_up_with_backend(backend, rows, cols, catch_up)
     }
 }
 
@@ -820,6 +829,7 @@ fn build_overlay<'a>(
         }
         InputMode::WaitingKill => render::Overlay::PendingKill,
         InputMode::WaitingReload => render::Overlay::PendingReload,
+        InputMode::WaitingTerminalBackend => render::Overlay::PendingTerminalBackend,
         InputMode::ConfirmReload {
             agent_id, title, ..
         } => render::Overlay::ConfirmReload {
@@ -961,7 +971,8 @@ async fn handle_dashboard_event(
     history_stash: &mut Option<(String, String)>,
     selected_agents: &mut HashSet<String>,
     pending_g: &mut bool,
-    _flash: &mut Option<(String, Instant)>,
+    pane_views: &mut HashMap<String, PaneView>,
+    flash: &mut Option<(String, Instant)>,
 ) -> Result<LoopAction> {
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
     let pty_rows = term_rows.saturating_sub(1);
@@ -1680,6 +1691,42 @@ async fn handle_dashboard_event(
 
             DashboardAction::PendingReload => {
                 *input_mode = InputMode::WaitingReload;
+            }
+
+            DashboardAction::PendingTerminalBackend => {
+                *input_mode = InputMode::WaitingTerminalBackend;
+            }
+
+            DashboardAction::ToggleTerminalBackend(agent_id) => {
+                match client.toggle_terminal_backend_buffered(&agent_id).await {
+                    Ok(result) => {
+                        let pv = pane_view_from_catch_up(
+                            result.terminal_backend,
+                            pty_rows,
+                            pty_cols,
+                            &result.catch_up,
+                        )?;
+                        pane_views.insert(agent_id.clone(), pv);
+                        apply_buffered_after_catch_up(
+                            &agent_id,
+                            true,
+                            result.buffered,
+                            pane_views,
+                            state_source,
+                        );
+                        set_flash(
+                            flash,
+                            &format!("terminal backend: {:?}", result.terminal_backend),
+                        );
+                    }
+                    Err(e) => {
+                        *input_mode = InputMode::ActionFailed {
+                            reason: format!("{e:#}"),
+                        };
+                        return Ok(LoopAction::Continue);
+                    }
+                }
+                *input_mode = InputMode::Normal;
             }
 
             DashboardAction::ReloadAgent(agent_id) => {

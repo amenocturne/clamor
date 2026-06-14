@@ -985,10 +985,18 @@ impl AgentSlot {
     /// Rebuild the parser from scratch by replaying the ring buffer.
     /// Fixes accumulated rendering issues (parser state corruption, etc.).
     fn rebuild_parser(&mut self) {
+        self.rebuild_parser_with_backend(self.terminal.backend());
+    }
+
+    fn toggle_terminal_backend(&mut self) {
+        self.rebuild_parser_with_backend(self.terminal.backend().toggled());
+    }
+
+    fn rebuild_parser_with_backend(&mut self, backend: TerminalBackend) {
         let started = Instant::now();
         let (rows, cols) = self.terminal.size();
-        let mut new_terminal = TerminalModelState::new(self.terminal.backend(), rows, cols, 0)
-            .expect("existing terminal backend should remain constructible");
+        let mut new_terminal = TerminalModelState::new(backend, rows, cols, 0)
+            .expect("terminal backend should remain constructible");
         let buf: Vec<u8> = self.ring_buffer.iter().copied().collect();
         new_terminal.rebuild_from_history(&buf);
         self.terminal = new_terminal;
@@ -1539,6 +1547,7 @@ async fn handle_client_message(
                     &DaemonMessage::CatchUp {
                         id,
                         data: catch_up_data,
+                        terminal_backend: slot.terminal.backend(),
                     },
                 )
                 .await;
@@ -1570,6 +1579,40 @@ async fn handle_client_message(
                     &DaemonMessage::CatchUp {
                         id,
                         data: catch_up_data,
+                        terminal_backend: slot.terminal.backend(),
+                    },
+                )
+                .await;
+            } else {
+                let _ = send_to_client(
+                    stream,
+                    &DaemonMessage::Error {
+                        message: format!("unknown agent: {id}"),
+                    },
+                )
+                .await;
+            }
+            HandleResult::Continue
+        }
+        ClientMessage::ToggleTerminalBackend { id } => {
+            if let Some(slot) = agents.get_mut(&id) {
+                slot.toggle_terminal_backend();
+                let catch_up_data = slot.catch_up_data();
+                terminal_log(
+                    TerminalLogLevel::Info,
+                    format!(
+                        "daemon toggle-terminal-backend id={id} backend={:?} catch_up_bytes={}",
+                        slot.terminal.backend(),
+                        catch_up_data.len()
+                    ),
+                );
+                subscriptions.insert(id.clone());
+                let _ = send_to_client(
+                    stream,
+                    &DaemonMessage::CatchUp {
+                        id,
+                        data: catch_up_data,
+                        terminal_backend: slot.terminal.backend(),
                     },
                 )
                 .await;
@@ -1599,6 +1642,7 @@ async fn handle_client_message(
                         alive: slot.alive,
                         rows,
                         cols,
+                        terminal_backend: slot.terminal.backend(),
                     }
                 })
                 .collect();

@@ -130,12 +130,9 @@ fn render_command_config(
     for arg in &command.cmd {
         if let Some(rendered) = render_template(arg, ctx)? {
             cmd.push(rendered);
-        } else if cmd
-            .last()
-            .is_some_and(|previous| {
-                previous.starts_with('-') && previous != "--" && previous.len() > 1
-            })
-        {
+        } else if cmd.last().is_some_and(|previous| {
+            previous.starts_with('-') && previous != "--" && previous.len() > 1
+        }) {
             cmd.pop();
         }
     }

@@ -2,6 +2,8 @@ use std::io::{Read, Write};
 
 use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+use crate::config::TerminalBackend;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub const CATCH_UP_ESCAPE_CANCEL: u8 = 0x18;
@@ -56,6 +58,8 @@ pub enum ClientMessage {
     /// Rebuild daemon-side parser from ring buffer and send fresh catch-up.
     /// Fixes accumulated rendering issues without restarting the session.
     RefreshParser { id: String },
+    /// Toggle a session's terminal parser backend and send fresh catch-up.
+    ToggleTerminalBackend { id: String },
     /// List all managed PTYs and their status
     List,
     /// Shut down the daemon
@@ -80,7 +84,12 @@ pub enum DaemonMessage {
     /// Error response
     Error { message: String },
     /// Catch-up buffer sent when a client first subscribes to an agent
-    CatchUp { id: String, data: Vec<u8> },
+    CatchUp {
+        id: String,
+        data: Vec<u8>,
+        #[serde(default)]
+        terminal_backend: TerminalBackend,
+    },
     /// Version handshake response
     Hello { version: String },
     /// Liveness check — client should respond with Pong
@@ -96,6 +105,8 @@ pub struct DaemonAgent {
     pub rows: u16,
     #[serde(default)]
     pub cols: u16,
+    #[serde(default)]
+    pub terminal_backend: TerminalBackend,
 }
 
 /// Send a length-prefixed JSON message over a writer.

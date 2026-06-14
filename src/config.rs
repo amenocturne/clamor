@@ -108,6 +108,15 @@ pub enum TerminalBackend {
     Ghostty,
 }
 
+impl TerminalBackend {
+    pub fn toggled(self) -> Self {
+        match self {
+            Self::Vt100 => Self::Ghostty,
+            Self::Ghostty => Self::Vt100,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "kebab-case")]
 pub enum TerminalLogLevel {
