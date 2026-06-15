@@ -752,7 +752,9 @@ mod tests {
             std::process::id(),
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
         );
-        std::env::temp_dir().join(unique).join(name)
+        let root = std::env::temp_dir().join(unique);
+        std::fs::create_dir_all(&root).unwrap();
+        root.join(name)
     }
 
     #[test]

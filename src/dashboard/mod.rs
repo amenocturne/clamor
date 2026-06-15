@@ -631,6 +631,10 @@ async fn main_loop(
     Ok(())
 }
 
+fn invalidate_reloaded_pane(id: &str, pane_views: &mut HashMap<String, PaneView>) {
+    pane_views.remove(id);
+}
+
 fn apply_buffered_after_catch_up(
     target_id: &str,
     refreshed_existing_pane: bool,
@@ -1605,6 +1609,7 @@ async fn handle_dashboard_event(
                                 let _ = client
                                     .spawn_agent(&id, &cwd, &cmd, &env, pty_rows, pty_cols)
                                     .await;
+                                invalidate_reloaded_pane(&id, pane_views);
                                 let _ = with_state(|state| {
                                     if let Some(a) = state.agents.get_mut(&id) {
                                         a.state = AgentState::Input;
@@ -2688,6 +2693,19 @@ mod tests {
         assert!(!pane.has_pending_output());
         assert!(pane.copy_mode.is_none());
         assert!(pane.selection.is_none());
+    }
+
+    #[test]
+    fn reload_invalidation_discards_cached_pane_for_fresh_attach() {
+        let mut pane_views = HashMap::new();
+        let mut existing = PaneView::new_with_backend(TerminalBackend::Vt100, 3, 12).unwrap();
+        existing.process_output(b"old session");
+        existing.scroll_up(1);
+        pane_views.insert("agent-1".to_string(), existing);
+
+        invalidate_reloaded_pane("agent-1", &mut pane_views);
+
+        assert!(!pane_views.contains_key("agent-1"));
     }
 
     #[test]
