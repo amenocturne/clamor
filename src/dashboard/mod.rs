@@ -1606,17 +1606,24 @@ async fn handle_dashboard_event(
                     if let Some(agent) = state.agents.get(&id) {
                         match reconcile_resume_action(config, &id, agent) {
                             ResumeReconcileAction::Resume { cwd, cmd, env } => {
-                                let _ = client
+                                match client
                                     .spawn_agent(&id, &cwd, &cmd, &env, pty_rows, pty_cols)
-                                    .await;
-                                invalidate_reloaded_pane(&id, pane_views);
-                                let _ = with_state(|state| {
-                                    if let Some(a) = state.agents.get_mut(&id) {
-                                        a.state = AgentState::Input;
-                                        a.last_activity_at = chrono::Utc::now();
+                                    .await
+                                {
+                                    Ok(()) => {
+                                        invalidate_reloaded_pane(&id, pane_views);
+                                        let _ = with_state(|state| {
+                                            if let Some(a) = state.agents.get_mut(&id) {
+                                                a.state = AgentState::Input;
+                                                a.last_activity_at = chrono::Utc::now();
+                                            }
+                                        });
+                                        state_source.invalidate();
                                     }
-                                });
-                                state_source.invalidate();
+                                    Err(e) => {
+                                        failure_reason = Some(format!("{e:#}"));
+                                    }
+                                }
                             }
                             ResumeReconcileAction::Remove => {
                                 killed_at.insert(id, Instant::now());
