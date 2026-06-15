@@ -125,6 +125,7 @@ impl DaemonClient {
     /// Ask daemon to rebuild its parser from the ring buffer and send fresh
     /// catch-up data. Fixes accumulated rendering issues. Also ensures the
     /// subscription is active (same as subscribe).
+    #[allow(dead_code)]
     pub async fn refresh_parser_buffered(&mut self, id: &str) -> Result<SubscribeResult> {
         self.send(ClientMessage::RefreshParser { id: id.to_string() })
             .await?;

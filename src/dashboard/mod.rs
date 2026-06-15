@@ -421,32 +421,35 @@ async fn main_loop(
                                 .await
                                 .unwrap_or_default();
 
-                            // On re-attach, rebuild daemon parser to fix rendering drift.
-                    // On first attach, just subscribe normally.
-                    let result = if has_existing {
-                        client.refresh_parser_buffered(&agent_id).await
-                    } else {
-                        client.subscribe_buffered(&agent_id).await
-                    };
-
-                    match result {
-                                Ok(result) => {
-                                    let pv = pane_view_from_catch_up(
-                                        result.terminal_backend,
-                                        content_rows,
-                                        term_cols,
-                                        &result.catch_up,
-                                    )?;
-                                    pane_views.insert(agent_id.clone(), pv);
-                                    apply_buffered_after_catch_up(
-                                        &agent_id,
-                                        has_existing,
-                                        resize_msgs.into_iter().chain(result.buffered),
-                                        &mut pane_views,
-                                        state_source,
-                                    );
+                            if has_existing {
+                                resize_pane_and_apply_buffered(
+                                    &agent_id,
+                                    content_rows,
+                                    term_cols,
+                                    resize_msgs,
+                                    &mut pane_views,
+                                    state_source,
+                                );
+                            } else {
+                                match client.subscribe_buffered(&agent_id).await {
+                                    Ok(result) => {
+                                        let pv = pane_view_from_catch_up(
+                                            result.terminal_backend,
+                                            content_rows,
+                                            term_cols,
+                                            &result.catch_up,
+                                        )?;
+                                        pane_views.insert(agent_id.clone(), pv);
+                                        apply_buffered_after_catch_up(
+                                            &agent_id,
+                                            false,
+                                            resize_msgs.into_iter().chain(result.buffered),
+                                            &mut pane_views,
+                                            state_source,
+                                        );
+                                    }
+                                    Err(_) => continue,
                                 }
-                                Err(_) => continue,
                             }
 
                             terminal.clear()?;
@@ -503,12 +506,20 @@ async fn main_loop(
                                                 )
                                                 .await
                                                 .unwrap_or_default();
-                                            let result = if has_existing {
-                                                client.refresh_parser_buffered(&target).await
-                                            } else {
+                                            if has_existing {
+                                                resize_pane_and_apply_buffered(
+                                                    &target,
+                                                    content_rows,
+                                                    term_cols,
+                                                    resize_msgs,
+                                                    &mut pane_views,
+                                                    state_source,
+                                                );
+                                                terminal.clear()?;
+                                                mode = AppMode::Terminal { agent_id: target };
+                                            } else if let Ok(result) =
                                                 client.subscribe_buffered(&target).await
-                                            };
-                                            if let Ok(result) = result {
+                                            {
                                                 let pv = pane_view_from_catch_up(
                                                     result.terminal_backend,
                                                     content_rows,
@@ -518,7 +529,7 @@ async fn main_loop(
                                                 pane_views.insert(target.clone(), pv);
                                                 apply_buffered_after_catch_up(
                                                     &target,
-                                                    has_existing,
+                                                    false,
                                                     resize_msgs.into_iter().chain(result.buffered),
                                                     &mut pane_views,
                                                     state_source,
@@ -2217,7 +2228,7 @@ async fn handle_terminal_event(
 
             let delegate_mouse = pane_views
                 .get(agent_id)
-                .is_some_and(|pv| pv.mouse_mode_active() || pv.alternate_screen());
+                .is_some_and(|pv| pv.mouse_mode_active());
 
             if delegate_mouse {
                 if let Some(bytes) = pane::encode_mouse_for_pane(*mouse_event, pane_area) {
@@ -2563,7 +2574,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{CATCH_UP_ESCAPE_CANCEL, CATCH_UP_MODE_RESET, CATCH_UP_REPAINT_RESET};
     use chrono::Utc;
 
     fn test_agent(backend_id: &str, resume_token: Option<&str>) -> Agent {
@@ -2593,12 +2603,54 @@ mod tests {
     }
 
     fn catch_up_bytes(text: &[u8]) -> Vec<u8> {
+        use crate::protocol::{
+            CATCH_UP_ESCAPE_CANCEL, CATCH_UP_MODE_RESET, CATCH_UP_REPAINT_RESET,
+        };
+
         let mut catch_up = Vec::new();
         catch_up.push(CATCH_UP_ESCAPE_CANCEL);
         catch_up.extend_from_slice(CATCH_UP_MODE_RESET);
         catch_up.extend_from_slice(CATCH_UP_REPAINT_RESET);
         catch_up.extend_from_slice(text);
         catch_up
+    }
+
+    #[test]
+    fn ordinary_reattach_resize_reuses_existing_pane_state() {
+        let mut pane_views = HashMap::new();
+        let mut existing = PaneView::new_with_backend(TerminalBackend::Vt100, 3, 12).unwrap();
+        existing.process_output(b"\x1b[?1049h\x1b[?1006h\x1b[?1000happ");
+        existing.scroll_up(1);
+        existing.enter_copy_mode(3, 12);
+        existing.selection = Some(pane::Selection {
+            start: (0, 0),
+            end: (1, 0),
+            active: true,
+        });
+        existing.process_output(b"pending");
+        assert!(existing.alternate_screen());
+        assert!(existing.mouse_mode_active());
+        assert!(existing.copy_mode.is_some());
+        assert!(existing.selection.is_some());
+        assert!(existing.has_pending_output());
+        pane_views.insert("agent-1".to_string(), existing);
+
+        resize_pane_and_apply_buffered(
+            "agent-1",
+            4,
+            20,
+            std::iter::empty(),
+            &mut pane_views,
+            &StateSource::Direct,
+        );
+
+        let pane = pane_views.get("agent-1").unwrap();
+        assert_eq!(pane.terminal.size(), (4, 20));
+        assert!(pane.alternate_screen());
+        assert!(pane.mouse_mode_active());
+        assert!(pane.copy_mode.is_some());
+        assert!(pane.selection.is_some());
+        assert!(pane.has_pending_output());
     }
 
     #[test]

@@ -261,6 +261,7 @@ impl PaneView {
         self.scroll_offset = self.scroll_offset.saturating_sub(n);
         if self.scroll_offset == 0 && !self.pending_output.is_empty() {
             let data = std::mem::take(&mut self.pending_output);
+            self.terminal.set_scrollback(0);
             self.terminal.process_output(&data);
             terminal_log(
                 TerminalLogLevel::Debug,
@@ -288,6 +289,7 @@ impl PaneView {
         self.clear_selection();
         if !self.pending_output.is_empty() {
             let data = std::mem::take(&mut self.pending_output);
+            self.terminal.set_scrollback(0);
             self.terminal.process_output(&data);
             terminal_log(
                 TerminalLogLevel::Debug,
@@ -854,6 +856,50 @@ mod tests {
         }
     }
 
+    fn wheel_input_for_modes(
+        alternate_screen: bool,
+        mouse_mode: bool,
+        scroll_up: bool,
+    ) -> Option<Vec<u8>> {
+        if mouse_mode {
+            let kind = if scroll_up {
+                MouseEventKind::ScrollUp
+            } else {
+                MouseEventKind::ScrollDown
+            };
+            return encode_mouse_for_pane(mouse(kind, 1, 2), Rect::new(0, 1, 20, 5));
+        }
+        if alternate_screen {
+            return Some(if scroll_up {
+                b"\x1b[A\x1b[A\x1b[A".to_vec()
+            } else {
+                b"\x1b[B\x1b[B\x1b[B".to_vec()
+            });
+        }
+        None
+    }
+
+    #[test]
+    fn alt_screen_without_mouse_wheel_uses_arrow_fallback() {
+        assert_eq!(
+            wheel_input_for_modes(true, false, true),
+            Some(b"\x1b[A\x1b[A\x1b[A".to_vec())
+        );
+        assert_eq!(wheel_input_for_modes(false, false, true), None);
+    }
+
+    #[test]
+    fn mouse_mode_wheel_delegates_sgr_mouse_input() {
+        assert_eq!(
+            wheel_input_for_modes(true, true, true),
+            Some(b"\x1b[<64;2;2M".to_vec())
+        );
+        assert_eq!(
+            wheel_input_for_modes(false, true, false),
+            Some(b"\x1b[<65;2;2M".to_vec())
+        );
+    }
+
     #[test]
     fn encodes_left_drag_as_sgr_button_motion() {
         let area = Rect::new(10, 5, 20, 10);
@@ -894,6 +940,27 @@ mod tests {
             bytes.extend_from_slice(format!("\x1b[{};1H{}", row + 1, line).as_bytes());
         }
         bytes
+    }
+
+    #[test]
+    fn flush_pending_output_resets_parser_viewport_to_bottom() {
+        let mut pane = PaneView::new_with_backend(TerminalBackend::Vt100, 3, 12).unwrap();
+        pane.process_output(b"one\r\ntwo\r\nthree\r\nfour");
+        pane.scroll_up(1);
+        assert_eq!(pane.scroll_offset, 1);
+
+        pane.process_output(b"\r\nfive");
+        assert!(pane.has_pending_output());
+        assert_eq!(pane.terminal.scrollback_len(), 0);
+
+        pane.terminal.set_scrollback(1);
+        assert_eq!(pane.terminal.scrollback_len(), 1);
+        pane.snap_to_bottom();
+
+        assert!(!pane.has_pending_output());
+        assert_eq!(pane.scroll_offset, 0);
+        assert_eq!(pane.terminal.scrollback_len(), 0);
+        assert_eq!(pane.terminal.visible_text(), "three\nfour\nfive");
     }
 
     #[test]
