@@ -921,7 +921,6 @@ mod tests {
         assert!(pane.copy_mode.is_none());
     }
 
-
     #[test]
     fn vt100_catch_up_full_screen_history_uses_final_repair_frame() {
         use crate::protocol::{
