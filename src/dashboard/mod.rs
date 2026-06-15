@@ -2546,6 +2546,9 @@ where
 mod tests {
     use super::*;
     use chrono::Utc;
+    use crate::protocol::{
+        CATCH_UP_ESCAPE_CANCEL, CATCH_UP_MODE_RESET, CATCH_UP_REPAINT_RESET,
+    };
 
     fn test_agent(backend_id: &str, resume_token: Option<&str>) -> Agent {
         Agent {
@@ -2571,6 +2574,52 @@ mod tests {
         a.id = id.to_string();
         a.state = state;
         (id.to_string(), a)
+    }
+
+    fn catch_up_bytes(text: &[u8]) -> Vec<u8> {
+        let mut catch_up = Vec::new();
+        catch_up.push(CATCH_UP_ESCAPE_CANCEL);
+        catch_up.extend_from_slice(CATCH_UP_MODE_RESET);
+        catch_up.extend_from_slice(CATCH_UP_REPAINT_RESET);
+        catch_up.extend_from_slice(text);
+        catch_up
+    }
+
+    #[test]
+    fn catch_up_daemon_message_replaces_existing_pane() {
+        let mut pane_views = HashMap::new();
+        let mut existing = PaneView::new_with_backend(TerminalBackend::Vt100, 3, 12).unwrap();
+        existing.process_output(b"old-1\r\nold-2\r\nold-3\r\nold-4");
+        assert!(existing.scrollback_len() > 0);
+        existing.scroll_up(1);
+        existing.enter_copy_mode(3, 12);
+        existing.selection = Some(pane::Selection {
+            start: (0, 0),
+            end: (3, 0),
+            active: true,
+        });
+        existing.process_output(b"stale pending");
+        assert!(existing.has_pending_output());
+        assert!(existing.copy_mode.is_some());
+        assert!(existing.selection.is_some());
+        pane_views.insert("agent-1".to_string(), existing);
+
+        let msg = DaemonMessage::CatchUp {
+            id: "agent-1".to_string(),
+            data: catch_up_bytes(b"new frame"),
+            terminal_backend: TerminalBackend::Vt100,
+        };
+        apply_daemon_message(&msg, &mut pane_views, &StateSource::Direct);
+
+        let pane = pane_views.get_mut("agent-1").unwrap();
+        assert_eq!(pane.terminal.size(), (3, 12));
+        assert_eq!(pane.terminal.visible_text(), "new frame");
+        assert!(!pane.terminal.visible_text().contains("old"));
+        assert_eq!(pane.scrollback_len(), 0);
+        assert_eq!(pane.scroll_offset, 0);
+        assert!(!pane.has_pending_output());
+        assert!(pane.copy_mode.is_none());
+        assert!(pane.selection.is_none());
     }
 
     #[test]
