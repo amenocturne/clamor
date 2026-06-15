@@ -190,7 +190,8 @@ pub async fn run(config: &ClamorConfig, attach_to: Option<String>) -> Result<()>
     let mut client = DaemonClient::connect().await?;
 
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
-    reconcile_state(config, &mut client, term_rows, term_cols).await?;
+    let content_rows = term_rows.saturating_sub(1);
+    reconcile_state(config, &mut client, content_rows, term_cols).await?;
 
     let state_source = StateSource::new(config);
 
@@ -335,10 +336,21 @@ async fn main_loop(
                                 });
                                 state_source.invalidate();
                             }
-                            DaemonMessage::CatchUp { id, data, .. } => {
-                                if let Some(pv) = pane_views.get_mut(&id) {
-                                    pv.process_output(&data);
-                                }
+                            DaemonMessage::CatchUp {
+                                id,
+                                data,
+                                terminal_backend,
+                            } => {
+                                let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((80, 24));
+                                let content_rows = term_rows.saturating_sub(1);
+                                replace_pane_from_catch_up(
+                                    &id,
+                                    terminal_backend,
+                                    content_rows,
+                                    term_cols,
+                                    &data,
+                                    &mut pane_views,
+                                )?;
                             }
                             DaemonMessage::Heartbeat => {
                                 let _ = client.pong().await;
@@ -646,8 +658,38 @@ fn apply_daemon_message(
             });
             state_source.invalidate();
         }
+        DaemonMessage::CatchUp {
+            id,
+            data,
+            terminal_backend,
+        } => {
+            let (rows, cols) = pane_views
+                .get(id)
+                .map(|pv| pv.terminal.size())
+                .unwrap_or((24, 80));
+            let _ = replace_pane_from_catch_up(id, *terminal_backend, rows, cols, data, pane_views);
+        }
         _ => {}
     }
+}
+
+fn replace_pane_from_catch_up(
+    id: &str,
+    backend: TerminalBackend,
+    rows: u16,
+    cols: u16,
+    catch_up: &[u8],
+    pane_views: &mut HashMap<String, PaneView>,
+) -> Result<()> {
+    if let Some(pv) = pane_views.get_mut(id) {
+        pv.replace_with_catch_up(backend, rows, cols, catch_up)?;
+    } else {
+        pane_views.insert(
+            id.to_string(),
+            pane_view_from_catch_up(backend, rows, cols, catch_up)?,
+        );
+    }
+    Ok(())
 }
 
 fn pane_view_from_catch_up(
@@ -2320,11 +2362,11 @@ async fn handle_terminal_event(
         Event::Resize(cols, rows) => {
             let content_rows = rows.saturating_sub(1);
             if let Ok(buffered) = client.resize_buffered(agent_id, content_rows, *cols).await {
-                for msg in buffered {
-                    apply_daemon_message(&msg, pane_views, state_source);
-                }
                 if let Some(pv) = pane_views.get_mut(agent_id) {
                     pv.resize(content_rows, *cols);
+                }
+                for msg in buffered {
+                    apply_daemon_message(&msg, pane_views, state_source);
                 }
             }
         }

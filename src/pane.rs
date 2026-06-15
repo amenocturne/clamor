@@ -100,13 +100,35 @@ impl PaneView {
                 started.elapsed().as_millis()
             ),
         );
-        Ok(Self {
+        Ok(Self::from_terminal_state(terminal))
+    }
+
+    fn from_terminal_state(terminal: TerminalModelState) -> Self {
+        Self {
             terminal,
             scroll_offset: 0,
             selection: None,
             copy_mode: None,
             pending_output: Vec::new(),
-        })
+        }
+    }
+
+    /// Replace this view with a clean catch-up snapshot.
+    ///
+    /// Unlike ordinary output, catch-up snapshots include daemon-side history
+    /// followed by a repair repaint of the visible screen. Replaying that into
+    /// an existing pane compounds old full-screen TUI frames in scrollback; use
+    /// a fresh terminal model instead while preserving the PaneView allocation.
+    pub fn replace_with_catch_up(
+        &mut self,
+        backend: TerminalBackend,
+        rows: u16,
+        cols: u16,
+        catch_up: &[u8],
+    ) -> anyhow::Result<()> {
+        let replacement = Self::from_catch_up_with_backend(backend, rows, cols, catch_up)?;
+        *self = replacement;
+        Ok(())
     }
 
     /// Feed output bytes (received from daemon) into the vt100 parser.
@@ -864,5 +886,30 @@ mod tests {
         assert_eq!(fit_to_width("abcdef", 4), "abc~");
         assert_eq!(fit_to_width("abcdef", 1), "~");
         assert_eq!(fit_to_width("abcdef", 0), "");
+    }
+
+    #[test]
+    fn replace_with_catch_up_drops_existing_pane_scrollback() {
+        use crate::protocol::{
+            CATCH_UP_ESCAPE_CANCEL, CATCH_UP_MODE_RESET, CATCH_UP_REPAINT_RESET,
+        };
+
+        let mut pane = PaneView::new_with_backend(TerminalBackend::Vt100, 3, 12).unwrap();
+        pane.process_output(b"old-1\r\nold-2\r\nold-3\r\nold-4");
+        assert!(pane.scrollback_len() > 0);
+
+        let mut catch_up = Vec::new();
+        catch_up.push(CATCH_UP_ESCAPE_CANCEL);
+        catch_up.extend_from_slice(CATCH_UP_MODE_RESET);
+        catch_up.extend_from_slice(CATCH_UP_REPAINT_RESET);
+        catch_up.extend_from_slice(b"new frame");
+
+        pane.replace_with_catch_up(TerminalBackend::Vt100, 3, 12, &catch_up)
+            .unwrap();
+
+        assert_eq!(pane.terminal.visible_text(), "new frame");
+        assert_eq!(pane.scrollback_len(), 0);
+        assert!(!pane.has_pending_output());
+        assert!(pane.copy_mode.is_none());
     }
 }
