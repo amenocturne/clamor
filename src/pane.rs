@@ -888,6 +888,14 @@ mod tests {
         assert_eq!(fit_to_width("abcdef", 0), "");
     }
 
+    fn catch_up_frame(lines: &[&str]) -> Vec<u8> {
+        let mut bytes = b"\x1b[H\x1b[2J".to_vec();
+        for (row, line) in lines.iter().enumerate() {
+            bytes.extend_from_slice(format!("\x1b[{};1H{}", row + 1, line).as_bytes());
+        }
+        bytes
+    }
+
     #[test]
     fn replace_with_catch_up_drops_existing_pane_scrollback() {
         use crate::protocol::{
@@ -911,5 +919,55 @@ mod tests {
         assert_eq!(pane.scrollback_len(), 0);
         assert!(!pane.has_pending_output());
         assert!(pane.copy_mode.is_none());
+    }
+
+
+    #[test]
+    fn vt100_catch_up_full_screen_history_uses_final_repair_frame() {
+        use crate::protocol::{
+            CATCH_UP_ESCAPE_CANCEL, CATCH_UP_MODE_RESET, CATCH_UP_REPAINT_RESET,
+        };
+
+        let repaired = [
+            "Claude Code",
+            "assistant: final",
+            "tool: done",
+            "",
+            "> fixed prompt",
+            "status: idle",
+        ];
+        let mut catch_up = Vec::new();
+        catch_up.extend_from_slice(&catch_up_frame(&[
+            "Claude Code",
+            "assistant: drafting",
+            "tool: read",
+            "",
+            "> old prompt",
+            "status: thinking",
+        ]));
+        catch_up.extend_from_slice(&catch_up_frame(&[
+            "Claude Code",
+            "assistant: editing",
+            "tool: write",
+            "",
+            "> stale prompt",
+            "status: working",
+        ]));
+        catch_up.push(CATCH_UP_ESCAPE_CANCEL);
+        catch_up.extend_from_slice(CATCH_UP_MODE_RESET);
+        catch_up.extend_from_slice(CATCH_UP_REPAINT_RESET);
+        catch_up.extend_from_slice(&catch_up_frame(&repaired));
+
+        let pane =
+            PaneView::from_catch_up_with_backend(TerminalBackend::Vt100, 6, 40, &catch_up).unwrap();
+        let visible = pane.terminal.visible_text();
+
+        assert_eq!(visible, repaired.join("\n"));
+        assert!(!visible.contains("old prompt"));
+        assert!(!visible.contains("stale prompt"));
+        assert!(!visible.contains("status: thinking"));
+        assert!(!visible.contains("status: working"));
+        assert_eq!(visible.matches("> ").count(), 1);
+        assert_eq!(visible.matches("status:").count(), 1);
     }
 }
