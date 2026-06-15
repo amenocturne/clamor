@@ -637,6 +637,22 @@ fn apply_buffered_after_catch_up(
     }
 }
 
+fn resize_pane_and_apply_buffered(
+    agent_id: &str,
+    rows: u16,
+    cols: u16,
+    buffered: impl IntoIterator<Item = DaemonMessage>,
+    pane_views: &mut HashMap<String, PaneView>,
+    state_source: &StateSource,
+) {
+    if let Some(pv) = pane_views.get_mut(agent_id) {
+        pv.resize(rows, cols);
+    }
+    for msg in buffered {
+        apply_daemon_message(&msg, pane_views, state_source);
+    }
+}
+
 /// Apply a buffered daemon message (Output/Exited) to the appropriate pane view.
 /// Used to replay messages that were in-flight during resize/subscribe calls.
 fn apply_daemon_message(
@@ -2362,12 +2378,14 @@ async fn handle_terminal_event(
         Event::Resize(cols, rows) => {
             let content_rows = rows.saturating_sub(1);
             if let Ok(buffered) = client.resize_buffered(agent_id, content_rows, *cols).await {
-                if let Some(pv) = pane_views.get_mut(agent_id) {
-                    pv.resize(content_rows, *cols);
-                }
-                for msg in buffered {
-                    apply_daemon_message(&msg, pane_views, state_source);
-                }
+                resize_pane_and_apply_buffered(
+                    agent_id,
+                    content_rows,
+                    *cols,
+                    buffered,
+                    pane_views,
+                    state_source,
+                );
             }
         }
 
@@ -2545,10 +2563,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::{CATCH_UP_ESCAPE_CANCEL, CATCH_UP_MODE_RESET, CATCH_UP_REPAINT_RESET};
     use chrono::Utc;
-    use crate::protocol::{
-        CATCH_UP_ESCAPE_CANCEL, CATCH_UP_MODE_RESET, CATCH_UP_REPAINT_RESET,
-    };
 
     fn test_agent(backend_id: &str, resume_token: Option<&str>) -> Agent {
         Agent {
@@ -2620,6 +2636,31 @@ mod tests {
         assert!(!pane.has_pending_output());
         assert!(pane.copy_mode.is_none());
         assert!(pane.selection.is_none());
+    }
+
+    #[test]
+    fn resize_replays_buffered_output_after_local_pane_resize() {
+        let mut pane_views = HashMap::new();
+        pane_views.insert(
+            "agent-1".to_string(),
+            PaneView::new_with_backend(TerminalBackend::Vt100, 2, 10).unwrap(),
+        );
+
+        resize_pane_and_apply_buffered(
+            "agent-1",
+            2,
+            5,
+            [DaemonMessage::Output {
+                id: "agent-1".to_string(),
+                data: b"\x1b[999CX".to_vec(),
+            }],
+            &mut pane_views,
+            &StateSource::Direct,
+        );
+
+        let pane = pane_views.get("agent-1").unwrap();
+        assert_eq!(pane.terminal.size(), (2, 5));
+        assert_eq!(pane.terminal.visible_text(), "    X");
     }
 
     #[test]
