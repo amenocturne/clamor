@@ -11,8 +11,12 @@ build:
 build-debug:
     nix develop -c cargo build
 
-# Install clamor from this checkout
+# Install clamor from this checkout using the local Rust toolchain
 install:
+    ./scripts/install.sh
+
+# Install clamor from this checkout inside the Nix dev shell
+install-nix:
     nix develop -c ./scripts/install.sh
 
 # Run clamor dashboard
