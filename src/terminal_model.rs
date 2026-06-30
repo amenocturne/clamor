@@ -783,4 +783,58 @@ mod tests {
         model.process_output(b"hello");
         assert!(model.is_dirty(), "vt100 should remain dirty");
     }
+
+    // ── DEC 2026 sync output mode ──────────────────────────────────────
+
+    #[test]
+    fn ghostty_sync_output_active_after_bsu() {
+        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
+        assert!(!model.sync_output_active(), "should start inactive");
+
+        model.process_output(b"\x1b[?2026h");
+        assert!(model.sync_output_active(), "should be active after BSU");
+    }
+
+    #[test]
+    fn ghostty_sync_output_inactive_after_esu() {
+        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
+
+        model.process_output(b"\x1b[?2026h");
+        assert!(model.sync_output_active());
+
+        model.process_output(b"\x1b[?2026l");
+        assert!(!model.sync_output_active(), "should be inactive after ESU");
+    }
+
+    #[test]
+    fn ghostty_sync_output_with_content_between_markers() {
+        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
+
+        // BSU + content in one write
+        model.process_output(b"\x1b[?2026hsome content");
+        assert!(model.sync_output_active());
+
+        // ESU ends the sync frame
+        model.process_output(b"\x1b[?2026l");
+        assert!(!model.sync_output_active());
+    }
+
+    #[test]
+    fn ghostty_sync_output_bsu_esu_in_single_write() {
+        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
+
+        // Complete BSU/ESU frame in a single write
+        model.process_output(b"\x1b[?2026hframe content\x1b[?2026l");
+        assert!(!model.sync_output_active(), "should be inactive after complete frame");
+    }
+
+    #[test]
+    fn vt100_sync_output_always_inactive() {
+        let mut model = TerminalModelState::new(TerminalBackend::Vt100, 3, 10, 0).unwrap();
+        assert!(!model.sync_output_active());
+
+        // vt100 doesn't recognize mode 2026 — always returns false
+        model.process_output(b"\x1b[?2026h");
+        assert!(!model.sync_output_active());
+    }
 }
