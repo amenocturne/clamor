@@ -17,111 +17,6 @@ use crate::render_prof::{RenderProfiler, Stage};
 use crate::terminal_model::{terminal_repair_bytes, TerminalModel, TerminalModelState};
 use crate::trace::TraceRecorder;
 
-/// Buffers output between DEC 2026 synchronized update markers (BSU/ESU).
-///
-/// vt100 0.16.x doesn't support mode 2026. Claude Code (Ink) wraps each render
-/// in `\x1b[?2026h` (BSU) and `\x1b[?2026l` (ESU). Instead of stripping them
-/// and forwarding partial frames (which causes prompt jumping), we buffer all
-/// output between BSU and ESU and forward the complete render atomically.
-///
-/// Handles markers split across PTY read boundaries: trailing bytes that could
-/// be the start of a marker are saved and prepended to the next call.
-struct SyncOutputBuffer {
-    buf: Vec<u8>,
-    syncing: bool,
-    /// Trailing bytes from the previous read that could be a marker prefix.
-    trail: Vec<u8>,
-}
-
-/// The 7-byte prefix shared by BSU (`\x1b[?2026h`) and ESU (`\x1b[?2026l`).
-const SYNC_MARKER_PREFIX: &[u8] = b"\x1b[?2026";
-
-impl SyncOutputBuffer {
-    fn new() -> Self {
-        Self {
-            buf: Vec::new(),
-            syncing: false,
-            trail: Vec::new(),
-        }
-    }
-
-    /// Process incoming PTY data. Returns output chunks to forward.
-    ///
-    /// Outside BSU/ESU: passes through immediately.
-    /// Inside BSU/ESU: buffers until ESU, then emits the complete frame.
-    fn process(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
-        // Prepend any trailing bytes from the previous call.
-        let mut combined_buf;
-        let input = if self.trail.is_empty() {
-            data
-        } else {
-            combined_buf = std::mem::take(&mut self.trail);
-            combined_buf.extend_from_slice(data);
-            &combined_buf
-        };
-
-        let mut outputs = Vec::new();
-        let mut passthrough = Vec::new();
-        let mut i = 0;
-
-        while i < input.len() {
-            if i + 8 <= input.len() {
-                let window = &input[i..i + 8];
-                if window == b"\x1b[?2026h" {
-                    // BSU: flush any passthrough, start buffering
-                    if !self.syncing && !passthrough.is_empty() {
-                        outputs.push(std::mem::take(&mut passthrough));
-                    }
-                    self.syncing = true;
-                    i += 8;
-                    continue;
-                }
-                if window == b"\x1b[?2026l" {
-                    // ESU: flush the synchronized frame
-                    if self.syncing {
-                        self.buf.extend_from_slice(&passthrough);
-                        passthrough.clear();
-                        if !self.buf.is_empty() {
-                            outputs.push(std::mem::take(&mut self.buf));
-                        }
-                        self.syncing = false;
-                    }
-                    i += 8;
-                    continue;
-                }
-            } else if input[i] == 0x1b {
-                // Fewer than 8 bytes remaining, starting with ESC.
-                // Check if they could be the start of a BSU/ESU marker.
-                let remaining = &input[i..];
-                if SYNC_MARKER_PREFIX.starts_with(remaining) {
-                    // Potential marker prefix — save for next call.
-                    if !passthrough.is_empty() {
-                        if self.syncing {
-                            self.buf.extend(std::mem::take(&mut passthrough));
-                        } else {
-                            outputs.push(std::mem::take(&mut passthrough));
-                        }
-                    }
-                    self.trail = remaining.to_vec();
-                    return outputs;
-                }
-            }
-            passthrough.push(input[i]);
-            i += 1;
-        }
-
-        if !passthrough.is_empty() {
-            if self.syncing {
-                self.buf.extend(passthrough);
-            } else {
-                outputs.push(passthrough);
-            }
-        }
-
-        outputs
-    }
-}
-
 pub fn daemon_socket_path() -> Result<PathBuf> {
     Ok(crate::config::ClamorConfig::runtime_dir()?.join("clamor.sock"))
 }
@@ -601,307 +496,6 @@ mod query_tests {
 }
 
 #[cfg(test)]
-mod sync_buf_tests {
-    use super::*;
-
-    fn buf() -> SyncOutputBuffer {
-        SyncOutputBuffer::new()
-    }
-
-    fn concat(chunks: &[Vec<u8>]) -> Vec<u8> {
-        chunks.iter().flatten().copied().collect()
-    }
-
-    const BSU: &[u8] = b"\x1b[?2026h";
-    const ESU: &[u8] = b"\x1b[?2026l";
-
-    // ── Basic framing ──────────────────────────────────────────────────
-
-    #[test]
-    fn passthrough_without_markers() {
-        let mut b = buf();
-        let out = b.process(b"Hello world");
-        assert_eq!(concat(&out), b"Hello world");
-    }
-
-    #[test]
-    fn single_frame() {
-        let mut b = buf();
-        let mut data = Vec::new();
-        data.extend(BSU);
-        data.extend(b"content");
-        data.extend(ESU);
-        let out = b.process(&data);
-        assert_eq!(concat(&out), b"content");
-    }
-
-    #[test]
-    fn content_before_frame() {
-        let mut b = buf();
-        let mut data = Vec::new();
-        data.extend(b"before ");
-        data.extend(BSU);
-        data.extend(b"inside");
-        data.extend(ESU);
-        let out = b.process(&data);
-        // Two chunks: passthrough "before " + synced "inside"
-        assert_eq!(out.len(), 2);
-        assert_eq!(out[0], b"before ");
-        assert_eq!(out[1], b"inside");
-    }
-
-    #[test]
-    fn content_after_frame() {
-        let mut b = buf();
-        let mut data = Vec::new();
-        data.extend(BSU);
-        data.extend(b"inside");
-        data.extend(ESU);
-        data.extend(b" after");
-        let out = b.process(&data);
-        assert_eq!(out.len(), 2);
-        assert_eq!(out[0], b"inside");
-        assert_eq!(out[1], b" after");
-    }
-
-    #[test]
-    fn multiple_frames() {
-        let mut b = buf();
-        let mut data = Vec::new();
-        data.extend(BSU);
-        data.extend(b"frame1");
-        data.extend(ESU);
-        data.extend(BSU);
-        data.extend(b"frame2");
-        data.extend(ESU);
-        let out = b.process(&data);
-        assert_eq!(out.len(), 2);
-        assert_eq!(out[0], b"frame1");
-        assert_eq!(out[1], b"frame2");
-    }
-
-    #[test]
-    fn empty_frame() {
-        let mut b = buf();
-        let mut data = Vec::new();
-        data.extend(BSU);
-        data.extend(ESU);
-        let out = b.process(&data);
-        // Empty frame produces no output
-        assert!(out.is_empty() || concat(&out).is_empty());
-    }
-
-    // ── Split markers across reads ─────────────────────────────────────
-
-    #[test]
-    fn bsu_split_at_every_byte() {
-        // Split BSU (\x1b[?2026h) at each of the 7 internal boundaries
-        let bsu = b"\x1b[?2026h";
-        for split in 1..8 {
-            let mut b = buf();
-            let mut read1: Vec<u8> = Vec::new();
-            read1.extend(b"before");
-            read1.extend(&bsu[..split]);
-
-            let mut read2: Vec<u8> = Vec::new();
-            read2.extend(&bsu[split..]);
-            read2.extend(b"inside");
-
-            let out1 = b.process(&read1);
-            // "before" should be emitted (or trail saved)
-            let out2 = b.process(&read2);
-
-            // After both reads, we should be in syncing mode (BSU detected)
-            // and "inside" should be buffered (no ESU yet)
-            let total = concat(&out1).len() + concat(&out2).len();
-            // "before" is 6 bytes; "inside" should be buffered
-            assert!(
-                total <= 6,
-                "split={split}: 'inside' should be buffered, got total={total}"
-            );
-            assert!(
-                b.syncing,
-                "split={split}: should be in syncing mode after BSU"
-            );
-        }
-    }
-
-    #[test]
-    fn esu_split_at_every_byte() {
-        // Start with BSU, buffer content, then split ESU
-        let esu = b"\x1b[?2026l";
-        for split in 1..8 {
-            let mut b = buf();
-            // First: BSU + content
-            let mut read1: Vec<u8> = Vec::new();
-            read1.extend(BSU);
-            read1.extend(b"content");
-            read1.extend(&esu[..split]);
-
-            let out1 = b.process(&read1);
-
-            // Content should still be buffered (ESU incomplete)
-            assert!(
-                concat(&out1).is_empty(),
-                "split={split}: content should be buffered until ESU completes"
-            );
-
-            // Second: rest of ESU
-            let out2 = b.process(&esu[split..]);
-            assert_eq!(
-                concat(&out2),
-                b"content",
-                "split={split}: content should be emitted after ESU completes"
-            );
-        }
-    }
-
-    // ── Trail false positives ──────────────────────────────────────────
-
-    #[test]
-    fn trail_esc_followed_by_non_marker() {
-        // \x1b at end, next read is [31m (SGR, not BSU/ESU)
-        let mut b = buf();
-        let out1 = b.process(b"text\x1b");
-        // "text" emitted, \x1b saved as trail
-        let out2 = b.process(b"[31m more");
-        // Trail combined: \x1b[31m → not BSU/ESU → passthrough
-        let total: Vec<u8> = [concat(&out1), concat(&out2)].concat();
-        assert_eq!(total, b"text\x1b[31m more");
-    }
-
-    #[test]
-    fn trail_esc_bracket_followed_by_non_marker() {
-        // \x1b[ at end, next read starts with 2004h (bracketed paste, not 2026)
-        let mut b = buf();
-        let out1 = b.process(b"text\x1b[");
-        let out2 = b.process(b"?2004h more");
-        let total: Vec<u8> = [concat(&out1), concat(&out2)].concat();
-        assert_eq!(total, b"text\x1b[?2004h more");
-    }
-
-    #[test]
-    fn trail_esc_bracket_question_not_2026() {
-        // \x1b[? at end, next read is 1049h (alternate screen)
-        let mut b = buf();
-        let out1 = b.process(b"text\x1b[?");
-        let out2 = b.process(b"1049h");
-        let total: Vec<u8> = [concat(&out1), concat(&out2)].concat();
-        assert_eq!(total, b"text\x1b[?1049h");
-    }
-
-    // ── Orphan ESU ─────────────────────────────────────────────────────
-
-    #[test]
-    fn orphan_esu_stripped() {
-        // ESU without preceding BSU — ESU bytes stripped, content passes through
-        let mut b = buf();
-        let mut data = Vec::new();
-        data.extend(b"before");
-        data.extend(ESU);
-        data.extend(b"after");
-        let out = b.process(&data);
-        assert_eq!(concat(&out), b"beforeafter");
-    }
-
-    // ── Nested BSU ─────────────────────────────────────────────────────
-
-    #[test]
-    fn nested_bsu_content_not_lost() {
-        // BSU content1 BSU content2 ESU — content1 must not be dropped
-        let mut b = buf();
-        let mut data = Vec::new();
-        data.extend(BSU);
-        data.extend(b"content1");
-        data.extend(BSU);
-        data.extend(b"content2");
-        data.extend(ESU);
-        let out = b.process(&data);
-        assert_eq!(concat(&out), b"content1content2");
-    }
-
-    // ── BSU without ESU ────────────────────────────────────────────────
-
-    #[test]
-    fn bsu_without_esu_buffers_indefinitely() {
-        let mut b = buf();
-        let mut data = Vec::new();
-        data.extend(BSU);
-        data.extend(b"still waiting");
-        let out1 = b.process(&data);
-        assert!(concat(&out1).is_empty(), "content buffered until ESU");
-        assert!(b.syncing);
-
-        // More data without ESU
-        let out2 = b.process(b" more data");
-        assert!(concat(&out2).is_empty());
-        assert!(b.syncing);
-
-        // Finally ESU
-        let out3 = b.process(ESU);
-        assert_eq!(concat(&out3), b"still waiting more data");
-        assert!(!b.syncing);
-    }
-
-    // ── Data integrity ─────────────────────────────────────────────────
-
-    #[test]
-    fn markers_stripped_content_preserved() {
-        // All BSU/ESU bytes must be stripped; all other bytes preserved
-        let mut b = buf();
-        let mut data = Vec::new();
-        data.extend(b"A");
-        data.extend(BSU);
-        data.extend(b"B");
-        data.extend(ESU);
-        data.extend(b"C");
-        data.extend(BSU);
-        data.extend(b"D");
-        data.extend(ESU);
-        data.extend(b"E");
-        let out = b.process(&data);
-        assert_eq!(concat(&out), b"ABCDE");
-    }
-
-    #[test]
-    fn empty_data() {
-        let mut b = buf();
-        let out = b.process(b"");
-        assert!(out.is_empty());
-    }
-
-    #[test]
-    fn frame_split_across_three_reads() {
-        // BSU in read 1, content in read 2, ESU in read 3
-        let mut b = buf();
-        let out1 = b.process(BSU);
-        assert!(concat(&out1).is_empty());
-        let out2 = b.process(b"the content");
-        assert!(concat(&out2).is_empty());
-        let out3 = b.process(ESU);
-        assert_eq!(concat(&out3), b"the content");
-    }
-
-    #[test]
-    fn passthrough_between_frames() {
-        let mut b = buf();
-        let mut data = Vec::new();
-        data.extend(BSU);
-        data.extend(b"F1");
-        data.extend(ESU);
-        data.extend(b"GAP");
-        data.extend(BSU);
-        data.extend(b"F2");
-        data.extend(ESU);
-        let out = b.process(&data);
-        assert_eq!(out.len(), 3);
-        assert_eq!(out[0], b"F1");
-        assert_eq!(out[1], b"GAP");
-        assert_eq!(out[2], b"F2");
-    }
-}
-
-#[cfg(test)]
 mod find_cpr_tests {
     use super::*;
 
@@ -955,8 +549,9 @@ struct AgentSlot {
     /// Appended after ring buffer in catch-up to fix the visible area.
     terminal: TerminalModelState,
     alive: bool,
-    /// Per-agent sync output buffer (moved from reader thread for CPR accuracy).
-    sync_buf: SyncOutputBuffer,
+    /// Raw data accumulated during DEC 2026 sync mode (BSU received, waiting
+    /// for ESU). Forwarded to client when ESU arrives and sync mode ends.
+    sync_pending: Vec<u8>,
     /// Per-agent terminal query responder.
     responder: TerminalQueryResponder,
     /// Optional raw PTY trace recorder for replay-based backend comparison.
@@ -1119,11 +714,48 @@ impl AgentSlot {
             self.terminal.process_output(raw);
         }
 
-        // 3. Sync-buffer the raw data for ring buffer + client (strips BSU/ESU)
-        let chunks = self.sync_buf.process(raw);
-        for chunk in &chunks {
-            self.push_ring_buffer(chunk);
+        // 3. Push raw data to ring buffer (always, regardless of sync state).
+        //    Raw BSU/ESU markers are included — ghostty-vt handles them
+        //    correctly on ring buffer replay, and vt100 ignores them.
+        self.push_ring_buffer(raw);
+
+        // 4. Check DEC 2026 sync state via ghostty-vt and manage client forwarding.
+        //    The parser already processed BSU/ESU markers in step 2, so mode
+        //    state reflects whether we're inside a synchronized frame.
+        let chunks = if self.terminal.sync_output_active() {
+            // In sync mode (BSU received, ESU pending) — accumulate for
+            // later forwarding, suppress output to client.
+            self.sync_pending.extend_from_slice(raw);
+            Vec::new()
+        } else if !self.sync_pending.is_empty() {
+            // Sync just ended (ESU processed) — forward accumulated data
+            // plus this chunk as a single atomic frame.
+            self.sync_pending.extend_from_slice(raw);
+            let data = std::mem::take(&mut self.sync_pending);
+            vec![data]
+        } else {
+            // Normal passthrough (no sync active, no pending data).
+            vec![raw.to_vec()]
+        };
+
+        // 5. Check if screen actually changed — skip client forwarding if not.
+        //    Ring buffer already has the data (step 3), so history is preserved
+        //    regardless. This suppresses no-op output (cursor queries, escape
+        //    sequences that don't change visible content) from triggering
+        //    unnecessary client redraws.
+        if chunks.is_empty() || !self.terminal.is_dirty() {
+            terminal_log(
+                TerminalLogLevel::Trace,
+                format!(
+                    "daemon skipping unchanged output raw={} chunks={}",
+                    raw.len(),
+                    chunks.len()
+                ),
+            );
+            return Vec::new();
         }
+        self.terminal.clear_dirty();
+
         terminal_log(
             TerminalLogLevel::Debug,
             format!(
@@ -1784,7 +1416,7 @@ fn spawn_agent_pty(
         ring_buffer: VecDeque::with_capacity(RING_BUFFER_CAP),
         terminal: TerminalModelState::new(terminal_backend, rows, cols, 0)?,
         alive: true,
-        sync_buf: SyncOutputBuffer::new(),
+        sync_pending: Vec::new(),
         responder: TerminalQueryResponder::new(),
         trace: TraceRecorder::from_env(id)?,
     })

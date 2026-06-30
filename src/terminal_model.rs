@@ -10,8 +10,9 @@ mod ghostty {
             GhosttyTerminalScreen_GHOSTTY_TERMINAL_SCREEN_PRIMARY,
         },
         fmt::{Format, Formatter, FormatterOptions},
+        render::Dirty,
         terminal::{Mode, ScrollViewport},
-        Terminal, TerminalOptions,
+        RenderState, Terminal, TerminalOptions,
     };
 
     use super::{CursorState, MouseEncoding, MouseMode, TerminalModel, TerminalModes};
@@ -22,8 +23,10 @@ mod ghostty {
 
     pub struct GhosttyTerminalModel {
         terminal: Terminal<'static, 'static>,
+        render_state: RenderState<'static>,
         max_scrollback: usize,
         viewport_offset: usize,
+        screen_dirty: bool,
     }
 
     impl GhosttyTerminalModel {
@@ -31,12 +34,30 @@ mod ghostty {
             crate::diagnostics::suppress_embedded_ghostty_logging();
 
             let terminal = Self::new_terminal(rows, cols, scrollback)?;
+            let render_state = with_stderr_suppressed(|| RenderState::new())
+                .context("creating ghostty render state")?;
 
             Ok(Self {
                 terminal,
+                render_state,
                 max_scrollback: scrollback,
                 viewport_offset: 0,
+                screen_dirty: false,
             })
+        }
+
+        /// Update render state from terminal and accumulate dirty flag.
+        fn update_dirty(&mut self) {
+            if let Ok(snapshot) =
+                with_stderr_suppressed(|| self.render_state.update(&self.terminal))
+            {
+                if let Ok(dirty) = snapshot.dirty() {
+                    if dirty != Dirty::Clean {
+                        self.screen_dirty = true;
+                        let _ = snapshot.set_dirty(Dirty::Clean);
+                    }
+                }
+            }
         }
 
         fn new_terminal(
@@ -80,6 +101,15 @@ mod ghostty {
     impl TerminalModel for GhosttyTerminalModel {
         fn process_output(&mut self, bytes: &[u8]) {
             with_stderr_suppressed(|| self.terminal.vt_write(bytes));
+            self.update_dirty();
+        }
+
+        fn is_dirty(&self) -> bool {
+            self.screen_dirty
+        }
+
+        fn clear_dirty(&mut self) {
+            self.screen_dirty = false;
         }
 
         fn process_catch_up(&mut self, bytes: &[u8]) {
@@ -223,6 +253,10 @@ mod ghostty {
                     String::new()
                 })
         }
+
+        fn sync_output_active(&self) -> bool {
+            self.mode(Mode::SYNC_OUTPUT)
+        }
     }
 }
 
@@ -312,6 +346,15 @@ pub trait TerminalModel {
     fn process_catch_up(&mut self, bytes: &[u8]) {
         self.process_output(bytes);
     }
+
+    /// Whether the visible screen changed since the last `clear_dirty()`.
+    /// Returns true by default (always dirty) for backends without tracking.
+    fn is_dirty(&self) -> bool {
+        true
+    }
+
+    /// Reset dirty state after rendering/forwarding.
+    fn clear_dirty(&mut self) {}
     fn rebuild_from_history(&mut self, bytes: &[u8]) {
         self.process_output(bytes);
     }
@@ -341,6 +384,13 @@ pub trait TerminalModel {
 
     fn mouse_mode_active(&self) -> bool {
         self.modes().mouse_mode != MouseMode::None
+    }
+
+    /// Returns true when DEC mode 2026 (synchronized output) is active.
+    /// ghostty-vt tracks this natively; vt100 doesn't support mode 2026
+    /// and always returns false.
+    fn sync_output_active(&self) -> bool {
+        false
     }
 }
 
@@ -398,6 +448,20 @@ impl TerminalModel for TerminalModelState {
         match self {
             Self::Vt100(model) => model.process_catch_up(bytes),
             Self::Ghostty(model) => model.process_catch_up(bytes),
+        }
+    }
+
+    fn is_dirty(&self) -> bool {
+        match self {
+            Self::Vt100(model) => model.is_dirty(),
+            Self::Ghostty(model) => model.is_dirty(),
+        }
+    }
+
+    fn clear_dirty(&mut self) {
+        match self {
+            Self::Vt100(model) => model.clear_dirty(),
+            Self::Ghostty(model) => model.clear_dirty(),
         }
     }
 
@@ -475,6 +539,13 @@ impl TerminalModel for TerminalModelState {
         match self {
             Self::Vt100(model) => model.visible_text(),
             Self::Ghostty(model) => model.visible_text(),
+        }
+    }
+
+    fn sync_output_active(&self) -> bool {
+        match self {
+            Self::Vt100(model) => model.sync_output_active(),
+            Self::Ghostty(model) => model.sync_output_active(),
         }
     }
 }
@@ -669,5 +740,47 @@ mod tests {
 
         assert!(ghostty.bracketed_paste_active());
         assert_eq!(ghostty.visible_text(), "two\nthree\nfour");
+    }
+
+    #[test]
+    fn ghostty_dirty_after_visible_output() {
+        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
+        model.clear_dirty();
+        assert!(!model.is_dirty());
+
+        model.process_output(b"hello");
+        assert!(model.is_dirty(), "screen should be dirty after visible output");
+    }
+
+    #[test]
+    fn ghostty_clean_after_clear_dirty() {
+        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
+        model.process_output(b"hello");
+        assert!(model.is_dirty());
+
+        model.clear_dirty();
+        assert!(!model.is_dirty(), "screen should be clean after clear_dirty");
+    }
+
+    #[test]
+    fn ghostty_stays_clean_without_new_output() {
+        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
+        model.process_output(b"hello");
+        model.clear_dirty();
+
+        // No new output — should remain clean
+        assert!(!model.is_dirty());
+    }
+
+    #[test]
+    fn vt100_always_dirty() {
+        let mut model = TerminalModelState::new(TerminalBackend::Vt100, 3, 10, 0).unwrap();
+        assert!(model.is_dirty(), "vt100 should always report dirty");
+
+        model.clear_dirty();
+        assert!(model.is_dirty(), "vt100 should still report dirty after clear");
+
+        model.process_output(b"hello");
+        assert!(model.is_dirty(), "vt100 should remain dirty");
     }
 }
