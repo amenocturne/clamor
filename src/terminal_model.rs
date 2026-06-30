@@ -10,14 +10,11 @@ mod ghostty {
             GhosttyTerminalScreen_GHOSTTY_TERMINAL_SCREEN_PRIMARY,
         },
         fmt::{Format, Formatter, FormatterOptions},
-        terminal::Mode,
+        terminal::{Mode, ScrollViewport},
         Terminal, TerminalOptions,
     };
 
-    use super::{
-        screen_visible_text, terminal_repair_bytes, CursorState, MouseEncoding, MouseMode,
-        TerminalModel, TerminalModes,
-    };
+    use super::{CursorState, MouseEncoding, MouseMode, TerminalModel, TerminalModes};
     use crate::config::TerminalLogLevel;
     use crate::diagnostics::{terminal_log, with_stderr_suppressed};
     use crate::protocol::catch_up_repair_start;
@@ -25,7 +22,6 @@ mod ghostty {
 
     pub struct GhosttyTerminalModel {
         terminal: Terminal<'static, 'static>,
-        render_shadow: super::Vt100TerminalModel,
         max_scrollback: usize,
         viewport_offset: usize,
     }
@@ -38,7 +34,6 @@ mod ghostty {
 
             Ok(Self {
                 terminal,
-                render_shadow: super::Vt100TerminalModel::new(rows, cols, scrollback),
                 max_scrollback: scrollback,
                 viewport_offset: 0,
             })
@@ -57,10 +52,6 @@ mod ghostty {
                 })
             })
             .context("creating ghostty terminal model")
-        }
-
-        pub fn screen(&self) -> &vt100::Screen {
-            self.render_shadow.screen()
         }
 
         fn mode(&self, mode: Mode) -> bool {
@@ -89,12 +80,10 @@ mod ghostty {
     impl TerminalModel for GhosttyTerminalModel {
         fn process_output(&mut self, bytes: &[u8]) {
             with_stderr_suppressed(|| self.terminal.vt_write(bytes));
-            self.render_shadow.process_output(bytes);
         }
 
         fn process_catch_up(&mut self, bytes: &[u8]) {
             let started = Instant::now();
-            self.render_shadow.process_output(bytes);
 
             let ghostty_bytes = catch_up_repair_start(bytes)
                 .map(|start| &bytes[start..])
@@ -114,25 +103,18 @@ mod ghostty {
 
         fn rebuild_from_history(&mut self, bytes: &[u8]) {
             let started = Instant::now();
-            self.render_shadow.process_output(bytes);
-
-            let repair = terminal_repair_bytes(
-                self.render_shadow.modes(),
-                &self.render_shadow.contents_formatted(),
-                self.render_shadow.cursor(),
-            );
-            let (rows, cols) = self.render_shadow.size();
+            let (rows, cols) = self.size();
 
             match Self::new_terminal(rows, cols, self.max_scrollback) {
                 Ok(mut terminal) => {
-                    with_stderr_suppressed(|| terminal.vt_write(&repair));
+                    with_stderr_suppressed(|| terminal.vt_write(bytes));
                     self.terminal = terminal;
+                    self.viewport_offset = 0;
                     terminal_log(
                         TerminalLogLevel::Debug,
                         format!(
-                            "ghostty rebuild optimized history={} repair={} elapsed_ms={}",
+                            "ghostty rebuild bytes={} elapsed_ms={}",
                             bytes.len(),
-                            repair.len(),
                             started.elapsed().as_millis()
                         ),
                     );
@@ -140,7 +122,7 @@ mod ghostty {
                 Err(err) => {
                     terminal_log(
                         TerminalLogLevel::Warn,
-                        format!("ghostty rebuild reset failed: {err:#}"),
+                        format!("ghostty rebuild failed: {err:#}"),
                     );
                 }
             }
@@ -148,41 +130,45 @@ mod ghostty {
 
         fn resize(&mut self, rows: u16, cols: u16) {
             let _ = with_stderr_suppressed(|| self.terminal.resize(cols, rows, 0, 0));
-            self.render_shadow.resize(rows, cols);
         }
 
         fn size(&self) -> (u16, u16) {
-            self.render_shadow.size()
+            let rows = with_stderr_suppressed(|| self.terminal.rows()).unwrap_or(24);
+            let cols = with_stderr_suppressed(|| self.terminal.cols()).unwrap_or(80);
+            (rows, cols)
         }
 
         fn cursor(&self) -> CursorState {
-            let shadow_cursor = self.render_shadow.cursor();
             CursorState {
-                row: with_stderr_suppressed(|| self.terminal.cursor_y())
-                    .unwrap_or(shadow_cursor.row),
-                col: with_stderr_suppressed(|| self.terminal.cursor_x())
-                    .unwrap_or(shadow_cursor.col),
+                row: with_stderr_suppressed(|| self.terminal.cursor_y()).unwrap_or(0),
+                col: with_stderr_suppressed(|| self.terminal.cursor_x()).unwrap_or(0),
             }
         }
 
         fn set_scrollback(&mut self, offset: usize) {
-            self.render_shadow.set_scrollback(offset);
-            self.viewport_offset = self.render_shadow.scrollback_len();
+            let total =
+                with_stderr_suppressed(|| self.terminal.scrollback_rows()).unwrap_or(0);
+            let clamped = offset.min(total);
+            with_stderr_suppressed(|| {
+                self.terminal.scroll_viewport(ScrollViewport::Bottom);
+                if clamped > 0 {
+                    self.terminal
+                        .scroll_viewport(ScrollViewport::Delta(-(clamped as isize)));
+                }
+            });
+            self.viewport_offset = clamped;
             terminal_log(
                 TerminalLogLevel::Trace,
-                format!(
-                    "ghostty shadow set_scrollback requested={offset} actual={}",
-                    self.viewport_offset
-                ),
+                format!("ghostty set_scrollback requested={offset} actual={clamped}"),
             );
         }
 
         fn scrollback_len(&self) -> usize {
-            self.render_shadow.scrollback_len()
+            self.viewport_offset
         }
 
         fn scrollback_total(&mut self) -> usize {
-            self.render_shadow.scrollback_total()
+            with_stderr_suppressed(|| self.terminal.scrollback_rows()).unwrap_or(0)
         }
 
         fn modes(&self) -> TerminalModes {
@@ -190,7 +176,8 @@ mod ghostty {
             TerminalModes {
                 alternate_screen: active_screen
                     == Some(GhosttyTerminalScreen_GHOSTTY_TERMINAL_SCREEN_ALTERNATE)
-                    && active_screen != Some(GhosttyTerminalScreen_GHOSTTY_TERMINAL_SCREEN_PRIMARY),
+                    && active_screen
+                        != Some(GhosttyTerminalScreen_GHOSTTY_TERMINAL_SCREEN_PRIMARY),
                 bracketed_paste: self.mode(Mode::BRACKETED_PASTE),
                 mouse_mode: if self.mode(Mode::ANY_MOUSE) {
                     MouseMode::AnyMotion
@@ -214,7 +201,13 @@ mod ghostty {
         }
 
         fn contents_formatted(&self) -> Vec<u8> {
-            self.render_shadow.contents_formatted()
+            self.format(Format::Vt).unwrap_or_else(|err| {
+                terminal_log(
+                    TerminalLogLevel::Warn,
+                    format!("ghostty VT formatter failed: {err:#}"),
+                );
+                Vec::new()
+            })
         }
 
         fn visible_text(&self) -> String {
@@ -225,9 +218,9 @@ mod ghostty {
                 .unwrap_or_else(|| {
                     terminal_log(
                         TerminalLogLevel::Warn,
-                        "ghostty plain formatter failed, using vt100 shadow",
+                        "ghostty plain formatter failed, returning empty",
                     );
-                    screen_visible_text(self.render_shadow.screen())
+                    String::new()
                 })
         }
     }
@@ -383,7 +376,12 @@ impl TerminalModelState {
     pub fn screen(&self) -> &vt100::Screen {
         match self {
             Self::Vt100(model) => model.screen(),
-            Self::Ghostty(model) => model.screen(),
+            Self::Ghostty(_) => {
+                panic!(
+                    "screen() is not available on the ghostty backend; \
+                     use contents_formatted() or visible_text()"
+                )
+            }
         }
     }
 }
@@ -608,37 +606,45 @@ mod tests {
     }
 
     #[test]
-    fn ghostty_catch_up_format_stays_conservative() {
-        let mut vt100 = TerminalModelState::new(TerminalBackend::Vt100, 3, 10, 0).unwrap();
+    fn ghostty_contents_formatted_produces_valid_vt() {
         let mut ghostty = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
-        let bytes = b"hello\r\nworld";
+        ghostty.process_output(b"hello\r\nworld");
 
-        vt100.process_output(bytes);
-        ghostty.process_output(bytes);
+        let formatted = ghostty.contents_formatted();
+        assert!(!formatted.is_empty());
 
-        assert_eq!(ghostty.contents_formatted(), vt100.contents_formatted());
+        // Formatted VT output should be parseable by a vt100 parser
+        // and produce equivalent visible text.
+        let mut parser = vt100::Parser::new(3, 10, 0);
+        parser.process(&formatted);
+
+        assert_eq!(
+            screen_visible_text(parser.screen()),
+            ghostty.visible_text()
+        );
     }
 
     #[test]
-    fn ghostty_render_scrollback_tracks_vt100_shadow() {
-        let mut vt100 = TerminalModelState::new(TerminalBackend::Vt100, 3, 10, 50).unwrap();
+    fn ghostty_scrollback_tracks_correctly() {
         let mut ghostty = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 50).unwrap();
-        let bytes = b"one\r\ntwo\r\nthree\r\nfour\r\nfive";
+        ghostty.process_output(b"one\r\ntwo\r\nthree\r\nfour\r\nfive");
 
-        vt100.process_output(bytes);
-        ghostty.process_output(bytes);
+        let total = ghostty.scrollback_total();
+        assert!(total > 0, "should have scrollback after overflow");
 
-        assert_eq!(ghostty.scrollback_total(), vt100.scrollback_total());
-
-        vt100.set_scrollback(1);
         ghostty.set_scrollback(1);
+        assert_eq!(ghostty.scrollback_len(), 1);
 
-        assert_eq!(ghostty.scrollback_len(), vt100.scrollback_len());
-        assert_eq!(ghostty.contents_formatted(), vt100.contents_formatted());
+        ghostty.set_scrollback(0);
+        assert_eq!(ghostty.scrollback_len(), 0);
+
+        // Setting beyond total clamps
+        ghostty.set_scrollback(usize::MAX);
+        assert_eq!(ghostty.scrollback_len(), total);
     }
 
     #[test]
-    fn ghostty_optimized_catch_up_replays_shadow_and_repairs_modes() {
+    fn ghostty_catch_up_processes_repair_and_modes() {
         let mut ghostty = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 50).unwrap();
         let mut catch_up = b"one\r\ntwo\r\nthree\r\nfour\r\nfive".to_vec();
 
@@ -653,11 +659,10 @@ mod tests {
         assert!(!ghostty.alternate_screen());
         assert!(ghostty.bracketed_paste_active());
         assert_eq!(ghostty.visible_text(), "repaired");
-        assert!(ghostty.scrollback_total() > 0);
     }
 
     #[test]
-    fn ghostty_rebuild_from_history_repairs_terminal_from_shadow() {
+    fn ghostty_rebuild_from_history_restores_state() {
         let mut ghostty = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
 
         ghostty.rebuild_from_history(b"one\r\ntwo\r\nthree\r\nfour\x1b[?2004h");
