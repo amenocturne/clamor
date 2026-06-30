@@ -13,9 +13,8 @@ use crate::diagnostics::{byte_preview, terminal_log, terminal_log_enabled};
 use crate::protocol::{
     recv_message_async, send_message_async, ClientMessage, DaemonAgent, DaemonMessage,
 };
-use crate::terminal_model::{
-    terminal_repair_bytes, CursorState, TerminalModel, TerminalModelState, TerminalModes,
-};
+use crate::render_prof::{RenderProfiler, Stage};
+use crate::terminal_model::{terminal_repair_bytes, TerminalModel, TerminalModelState};
 use crate::trace::TraceRecorder;
 
 /// Buffers output between DEC 2026 synchronized update markers (BSU/ESU).
@@ -1016,9 +1015,11 @@ impl AgentSlot {
         );
     }
 
-    /// Ring buffer (scrollback) + contents_formatted (clean visible screen).
-    /// Client processes both: ring buffer creates scrollback, then
-    /// contents_formatted clears and repaints the visible area cleanly.
+    /// Snapshot catch-up: send only the terminal repair bytes (mode prelude +
+    /// screen clear + contents_formatted + cursor position). The client gets
+    /// the current visible screen state without re-parsing raw PTY history.
+    /// Scrollback history is not included — the client starts fresh and
+    /// builds scrollback from live output going forward.
     fn catch_up_data(&self) -> Vec<u8> {
         let modes = self.terminal.modes();
         let cursor = self.terminal.cursor();
@@ -1026,15 +1027,13 @@ impl AgentSlot {
         terminal_log(
             TerminalLogLevel::Debug,
             format!(
-                "daemon catch-up backend={:?} ring={} formatted={} modes={:?} scrollback={}",
+                "daemon catch-up snapshot backend={:?} formatted={} modes={:?}",
                 self.terminal.backend(),
-                self.ring_buffer.len(),
                 formatted.len(),
                 modes,
-                self.terminal.scrollback_len()
             ),
         );
-        compose_catch_up_data(self.ring_buffer.iter().copied(), modes, &formatted, cursor)
+        terminal_repair_bytes(modes, &formatted, cursor)
     }
 
     /// Process raw PTY data: detect queries, update parser (with CPR-aware
@@ -1144,9 +1143,9 @@ impl AgentSlot {
 #[cfg(test)]
 mod catch_up_mode_tests {
     use super::*;
-    use crate::protocol::catch_up_repair_start;
     use crate::terminal_model::{
-        terminal_mode_prelude, MouseEncoding, MouseMode, Vt100TerminalModel,
+        terminal_mode_prelude, CursorState, MouseEncoding, MouseMode, TerminalModes,
+        Vt100TerminalModel,
     };
 
     #[test]
@@ -1171,7 +1170,7 @@ mod catch_up_mode_tests {
     }
 
     #[test]
-    fn catch_up_composition_appends_repair_after_ring_buffer() {
+    fn snapshot_catch_up_contains_only_repair_bytes() {
         let modes = TerminalModes {
             alternate_screen: false,
             bracketed_paste: false,
@@ -1181,40 +1180,16 @@ mod catch_up_mode_tests {
         let formatted = b"visible frame";
         let cursor = CursorState { row: 2, col: 3 };
 
-        let data = compose_catch_up_data(b"history".iter().copied(), modes, formatted, cursor);
-        let repair_start = catch_up_repair_start(&data).expect("repair marker should be present");
+        let data = terminal_repair_bytes(modes, formatted, cursor);
 
-        assert_eq!(&data[..repair_start], b"history");
-        assert!(data[repair_start..].ends_with(b"\x1b[3;4H"));
-        assert!(data[repair_start..]
-            .windows(formatted.len())
-            .any(|w| w == formatted));
-    }
-
-    #[test]
-    fn catch_up_repair_start_finds_last_repair_when_history_contains_old_marker() {
-        let modes = TerminalModes {
-            alternate_screen: true,
-            bracketed_paste: true,
-            mouse_mode: MouseMode::ButtonMotion,
-            mouse_encoding: MouseEncoding::Sgr,
-        };
-        let old_repair = terminal_repair_bytes(modes, b"old frame", CursorState { row: 0, col: 0 });
-        let ring = [b"history".as_slice(), old_repair.as_slice(), b"tail"].concat();
-
-        let data = compose_catch_up_data(
-            ring.iter().copied(),
-            modes,
-            b"new frame",
-            CursorState { row: 1, col: 1 },
-        );
-        let repair_start = catch_up_repair_start(&data).expect("repair marker should be present");
-
-        assert_eq!(repair_start, ring.len());
-        assert_eq!(&data[..repair_start], ring.as_slice());
-        assert!(data[repair_start..]
-            .windows(b"new frame".len())
-            .any(|w| w == b"new frame"));
+        // Starts with CAN (escape cancel)
+        assert_eq!(data[0], 0x18);
+        // Contains the formatted screen content
+        assert!(data.windows(formatted.len()).any(|w| w == formatted));
+        // Ends with cursor positioning
+        assert!(data.ends_with(b"\x1b[3;4H"));
+        // Does NOT contain raw ring buffer history
+        assert!(!data.windows(b"history".len()).any(|w| w == b"history"));
     }
 
     #[test]
@@ -1239,27 +1214,6 @@ mod catch_up_mode_tests {
     }
 }
 
-fn compose_catch_up_data(
-    ring_buffer: impl IntoIterator<Item = u8>,
-    modes: TerminalModes,
-    formatted: &[u8],
-    cursor: CursorState,
-) -> Vec<u8> {
-    let ring_buffer = ring_buffer.into_iter();
-    let (lower_bound, _) = ring_buffer.size_hint();
-    let repair = terminal_repair_bytes(modes, formatted, cursor);
-    let mut data = Vec::with_capacity(lower_bound + repair.len());
-    data.extend(ring_buffer);
-    // CAN (0x18) aborts any in-progress escape sequence left at the end
-    // of the ring buffer (from PTY read splitting mid-sequence).
-    // The mode prelude rehydrates terminal modes that may have been
-    // established before the retained ring-buffer window. Without it,
-    // long-running TUIs can reattach looking fine but lose mouse routing.
-    // SGR reset + cursor home + screen clear ensure contents_formatted()
-    // starts from a known-good state and fully repaints the visible area.
-    data.extend(repair);
-    data
-}
 
 /// After byte-level drain, skip past any partial escape sequence at the front.
 ///
@@ -1370,6 +1324,8 @@ pub async fn run_daemon() -> Result<()> {
     let mut client: Option<tokio::net::UnixStream> = None;
     let mut subscriptions: HashSet<String> = HashSet::new();
     let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(30));
+    #[allow(unused_mut)]
+    let mut profiler = RenderProfiler::from_env();
 
     loop {
         // Build a future that reads one client message, or pends forever if no client
@@ -1399,11 +1355,16 @@ pub async fn run_daemon() -> Result<()> {
                         // All output processing happens here: query detection,
                         // parser update (split at CPR offset), sync buffering,
                         // ring buffer, and client forwarding.
+                        let prof_t0 = profiler.as_ref().map(|_| Instant::now());
                         let chunks = if let Some(slot) = agents.get_mut(&id) {
                             slot.process_raw_data(&data)
                         } else {
                             Vec::new()
                         };
+                        if let (Some(ref mut prof), Some(t0)) = (&mut profiler, prof_t0) {
+                            prof.record(Stage::Parse, t0.elapsed());
+                            prof.maybe_flush();
+                        }
                         if subscriptions.contains(&id) {
                             let mut disconnect = false;
                             for chunk in chunks {

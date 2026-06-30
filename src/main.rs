@@ -9,6 +9,7 @@ mod mock_agent;
 mod pane;
 mod picker;
 mod protocol;
+mod render_prof;
 mod set_state;
 mod spawn;
 mod state;

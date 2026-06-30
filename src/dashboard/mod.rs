@@ -35,6 +35,7 @@ use crate::state::{
     cycle_backend_for_folder, selected_backend_for_folder, with_state, ClamorState,
     PromptHistoryEntry,
 };
+use crate::render_prof::{RenderProfiler, Stage};
 use crate::terminal_model::TerminalModel;
 use crate::watcher::StateSource;
 
@@ -315,6 +316,7 @@ async fn main_loop(
     let mut event_stream = EventStream::new();
     let mut frame_interval = tokio::time::interval(Duration::from_millis(16));
     let mut needs_render = true;
+    let mut profiler = RenderProfiler::from_env();
 
     loop {
         tokio::select! {
@@ -552,6 +554,8 @@ async fn main_loop(
             }
 
             _ = frame_interval.tick() => {
+                let prof_tick_t0 = profiler.as_ref().map(|_| Instant::now());
+
                 // Expire killed agents
                 let expired: Vec<String> = killed_at
                     .iter()
@@ -580,6 +584,7 @@ async fn main_loop(
                 }
 
                 if needs_render {
+                    let prof_render_t0 = profiler.as_ref().map(|_| Instant::now());
                     let flash_text = active_flash(&flash).map(|s| s.to_string());
                     match mode {
                         AppMode::Dashboard => {
@@ -617,12 +622,20 @@ async fn main_loop(
                             )?;
                         }
                     }
+                    if let (Some(ref mut prof), Some(t0)) = (&mut profiler, prof_render_t0) {
+                        prof.record(Stage::Render, t0.elapsed());
+                    }
                     if flash.is_some() {
                         // Re-render next tick so the flash can expire visually.
                         needs_render = true;
                     } else {
                         needs_render = false;
                     }
+                }
+
+                if let (Some(ref mut prof), Some(t0)) = (&mut profiler, prof_tick_t0) {
+                    prof.record(Stage::Frame, t0.elapsed());
+                    prof.maybe_flush();
                 }
             }
         }
