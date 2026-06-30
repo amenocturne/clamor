@@ -573,7 +573,11 @@ fn find_cpr_offset(data: &[u8]) -> Option<usize> {
     data.windows(4).position(|w| w == b"\x1b[6n")
 }
 
-const RING_BUFFER_CAP: usize = 4 * 1024 * 1024; // 4MB for scrollback history
+const RING_BUFFER_CAP: usize = 4 * 1024 * 1024; // 4MB raw PTY history
+
+/// Scrollback lines for the daemon's terminal model. This determines how
+/// much scrollback the client gets on attach via catch-up repair bytes.
+const DAEMON_SCROLLBACK: usize = 10_000;
 
 /// Max bytes to replay through the terminal parser during sync_terminal.
 /// When the backlog exceeds this, a fresh parser is rebuilt from the tail
@@ -635,7 +639,7 @@ impl AgentSlot {
     fn rebuild_parser_with_backend(&mut self, backend: TerminalBackend) {
         let started = Instant::now();
         let (rows, cols) = self.terminal.size();
-        let mut new_terminal = TerminalModelState::new(backend, rows, cols, 0)
+        let mut new_terminal = TerminalModelState::new(backend, rows, cols, DAEMON_SCROLLBACK)
             .expect("terminal backend should remain constructible");
         let buf: Vec<u8> = self.ring_buffer.iter().copied().collect();
         new_terminal.rebuild_from_history(&buf);
@@ -676,7 +680,7 @@ impl AgentSlot {
             let cap = total.min(SYNC_REPLAY_CAP);
             let (rows, cols) = self.terminal.size();
             if let Ok(mut fresh) =
-                TerminalModelState::new(self.terminal.backend(), rows, cols, 0)
+                TerminalModelState::new(self.terminal.backend(), rows, cols, DAEMON_SCROLLBACK)
             {
                 let buf: Vec<u8> = self
                     .ring_buffer
@@ -714,23 +718,34 @@ impl AgentSlot {
         self.terminal_behind = 0;
     }
 
-    /// Catch-up: repair bytes only. Syncs terminal model lazily before
-    /// generating the snapshot.
+    /// Catch-up: ring buffer history + repair bytes. The client processes
+    /// the ring buffer first (building scrollback from raw PTY history),
+    /// then the repair bytes fix the final screen state.
     fn catch_up_data(&mut self) -> Vec<u8> {
         self.sync_terminal();
         let modes = self.terminal.modes();
         let cursor = self.terminal.cursor();
         let formatted = self.terminal.contents_formatted();
+        let repair = terminal_repair_bytes(modes, &formatted, cursor);
+
+        // Prepend ring buffer so the client's parser builds scrollback
+        // from the raw PTY history before the repair bytes fix the screen.
+        let ring_len = self.ring_buffer.len();
+        let mut data = Vec::with_capacity(ring_len + repair.len());
+        data.extend(self.ring_buffer.iter());
+        data.extend_from_slice(&repair);
+
         terminal_log(
             TerminalLogLevel::Debug,
             format!(
-                "daemon catch-up backend={:?} formatted={} modes={:?}",
+                "daemon catch-up backend={:?} ring={ring_len} repair={} total={} modes={:?}",
                 self.terminal.backend(),
-                formatted.len(),
+                repair.len(),
+                data.len(),
                 modes,
             ),
         );
-        terminal_repair_bytes(modes, &formatted, cursor)
+        data
     }
 
     /// Process raw PTY data on the hot path. Skips ghostty-vt parsing —
@@ -1437,7 +1452,7 @@ fn spawn_agent_pty(
         writer,
         child_pid,
         ring_buffer: VecDeque::with_capacity(RING_BUFFER_CAP),
-        terminal: TerminalModelState::new(terminal_backend, rows, cols, 0)?,
+        terminal: TerminalModelState::new(terminal_backend, rows, cols, DAEMON_SCROLLBACK)?,
         alive: true,
         terminal_behind: 0,
         responder: TerminalQueryResponder::new(),

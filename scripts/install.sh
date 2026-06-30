@@ -11,6 +11,12 @@ mkdir -p "$bin_dir" "$lib_dir"
 
 install -m 0755 target/release/clamor "$bin_path"
 
+# Remove stale cargo-installed copy to prevent daemon spawning from wrong path
+cargo_bin="$HOME/.cargo/bin/clamor"
+if [[ -f "$cargo_bin" ]]; then
+  rm -f "$cargo_bin"
+fi
+
 if [[ "$(uname -s)" == "Darwin" ]]; then
   dylib_path=""
   while IFS= read -r candidate; do

@@ -200,14 +200,39 @@ mod ghostty {
             }
         }
 
-        fn contents_formatted(&self) -> Vec<u8> {
-            self.format(Format::Vt).unwrap_or_else(|err| {
+        fn contents_formatted(&mut self) -> Vec<u8> {
+            // Scroll viewport to include all scrollback, format, then restore.
+            // The TerminalFormatter only emits the current viewport — scrolling
+            // to the top makes it include scrollback history in the output.
+            let saved_offset = self.viewport_offset;
+            let total = with_stderr_suppressed(|| self.terminal.scrollback_rows())
+                .unwrap_or(0);
+
+            if total > 0 {
+                with_stderr_suppressed(|| {
+                    self.terminal
+                        .scroll_viewport(ScrollViewport::Delta(-(total as isize)));
+                });
+            }
+
+            let result = self.format(Format::Vt).unwrap_or_else(|err| {
                 terminal_log(
                     TerminalLogLevel::Warn,
                     format!("ghostty VT formatter failed: {err:#}"),
                 );
                 Vec::new()
-            })
+            });
+
+            // Restore viewport position
+            with_stderr_suppressed(|| {
+                self.terminal.scroll_viewport(ScrollViewport::Bottom);
+                if saved_offset > 0 {
+                    self.terminal
+                        .scroll_viewport(ScrollViewport::Delta(-(saved_offset as isize)));
+                }
+            });
+
+            result
         }
 
         fn visible_text(&self) -> String {
@@ -330,7 +355,7 @@ pub trait TerminalModel {
         total
     }
     fn modes(&self) -> TerminalModes;
-    fn contents_formatted(&self) -> Vec<u8>;
+    fn contents_formatted(&mut self) -> Vec<u8>;
     fn visible_text(&self) -> String;
 
     fn alternate_screen(&self) -> bool {
@@ -467,7 +492,7 @@ impl TerminalModel for TerminalModelState {
         }
     }
 
-    fn contents_formatted(&self) -> Vec<u8> {
+    fn contents_formatted(&mut self) -> Vec<u8> {
         match self {
             Self::Vt100(model) => model.contents_formatted(),
             Self::Ghostty(model) => model.contents_formatted(),
@@ -505,11 +530,9 @@ impl TerminalModel for Vt100TerminalModel {
     }
 
     fn process_catch_up(&mut self, bytes: &[u8]) {
-        use crate::protocol::catch_up_repair_start;
-        let repair_bytes = catch_up_repair_start(bytes)
-            .map(|start| &bytes[start..])
-            .unwrap_or(bytes);
-        self.parser.process(repair_bytes);
+        // Process everything: ring buffer history (builds scrollback)
+        // followed by repair bytes (fixes visible screen).
+        self.parser.process(bytes);
     }
 
     fn resize(&mut self, rows: u16, cols: u16) {
@@ -553,7 +576,7 @@ impl TerminalModel for Vt100TerminalModel {
         }
     }
 
-    fn contents_formatted(&self) -> Vec<u8> {
+    fn contents_formatted(&mut self) -> Vec<u8> {
         self.parser.screen().contents_formatted()
     }
 
@@ -803,5 +826,93 @@ mod vt_perf_bench {
             let ratio = if vt100_ms > 0.001 { ghostty_ms / vt100_ms } else { f64::NAN };
             eprintln!("{:>8} {:>12.2} {:>12.2} {:>7.1}x", size, ghostty_ms, vt100_ms, ratio);
         }
+    }
+}
+
+#[cfg(test)]
+mod scrollback_catch_up_test {
+    use super::*;
+
+    #[test]
+    fn ghostty_formatted_includes_scrollback() {
+        let mut term = TerminalModelState::new(
+            crate::config::TerminalBackend::Ghostty, 5, 40, 100,
+        ).unwrap();
+        // Write enough lines to push content into scrollback
+        for i in 0..20 {
+            term.process_output(format!("line {i}\r\n").as_bytes());
+        }
+        let formatted = term.contents_formatted();
+        let text = String::from_utf8_lossy(&formatted);
+        // Should contain early lines that scrolled off screen
+        assert!(text.contains("line 0"), "scrollback line 0 missing from formatted output");
+        assert!(text.contains("line 19"), "last line missing from formatted output");
+        eprintln!("formatted len={} contains lines 0..19", formatted.len());
+    }
+}
+
+#[cfg(test)]
+mod scrollback_vt100_catchup_test {
+    use super::*;
+
+    #[test]
+    fn vt100_scrollback_from_ghostty_repair() {
+        // Simulate daemon: ghostty with scrollback
+        let mut daemon = TerminalModelState::new(
+            crate::config::TerminalBackend::Ghostty, 5, 40, 100,
+        ).unwrap();
+        for i in 0..30 {
+            daemon.process_output(format!("line {i}\r\n").as_bytes());
+        }
+
+        // Generate repair bytes (what catch_up_data does)
+        let modes = daemon.modes();
+        let cursor = daemon.cursor();
+        let formatted = daemon.contents_formatted();
+        let repair = terminal_repair_bytes(modes, &formatted, cursor);
+
+        // Simulate client: vt100 processing catch-up
+        let mut client = TerminalModelState::new(
+            crate::config::TerminalBackend::Vt100, 5, 40, 50000,
+        ).unwrap();
+        client.process_catch_up(&repair);
+
+        let scrollback = client.scrollback_total();
+        eprintln!("repair bytes={}, client scrollback_total={scrollback}", repair.len());
+        assert!(scrollback > 0, "expected scrollback > 0 after catch-up");
+    }
+}
+
+#[cfg(test)]
+mod scrollback_repaint_test {
+    use super::*;
+
+    #[test]
+    fn ghostty_scrollback_survives_screen_repaint() {
+        let mut term = TerminalModelState::new(
+            crate::config::TerminalBackend::Ghostty, 5, 40, 1000,
+        ).unwrap();
+        // Write initial content that should end up in scrollback
+        for i in 0..20 {
+            term.process_output(format!("history line {i}\r\n").as_bytes());
+        }
+        // Simulate Claude Code full-screen repaint (clear + redraw)
+        term.process_output(b"\x1b[2J\x1b[H"); // clear screen + home
+        for i in 0..5 {
+            term.process_output(format!("visible line {i}\r\n").as_bytes());
+        }
+
+        let formatted = term.contents_formatted();
+        let text = String::from_utf8_lossy(&formatted);
+        let has_history = text.contains("history line 0");
+        let has_visible = text.contains("visible line 0");
+        let scrollback = term.scrollback_total();
+        eprintln!(
+            "formatted len={} scrollback_total={scrollback} has_history={has_history} has_visible={has_visible}",
+            formatted.len()
+        );
+        eprintln!("first 200 chars: {:?}", &text[..text.len().min(200)]);
+        assert!(has_visible, "visible content missing");
+        assert!(has_history, "scrollback history missing from formatted output");
     }
 }
