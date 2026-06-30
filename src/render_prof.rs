@@ -58,6 +58,14 @@ impl RenderProfiler {
         })
     }
 
+    #[cfg(test)]
+    fn new_for_test() -> Self {
+        Self {
+            window_start: Instant::now(),
+            stages: std::array::from_fn(|_| StageStats::new()),
+        }
+    }
+
     /// Record a duration for the given pipeline stage.
     pub fn record(&mut self, stage: Stage, duration: Duration) {
         self.stages[stage as usize].record(duration);
@@ -97,39 +105,32 @@ impl RenderProfiler {
 mod tests {
     use super::*;
 
+    // from_env tests use set_var/remove_var which is not thread-safe.
+    // Run them sequentially in a single test to avoid races.
     #[test]
-    fn from_env_returns_none_when_unset() {
-        // CLAMOR_RENDER_PROF is not set in test environment
+    fn from_env_respects_env_var() {
+        // Unset -> None
         std::env::remove_var(RENDER_PROF_ENV);
         assert!(RenderProfiler::from_env().is_none());
-    }
 
-    #[test]
-    fn from_env_returns_none_for_zero() {
+        // "0" -> None
         std::env::set_var(RENDER_PROF_ENV, "0");
         assert!(RenderProfiler::from_env().is_none());
-        std::env::remove_var(RENDER_PROF_ENV);
-    }
 
-    #[test]
-    fn from_env_returns_none_for_empty() {
+        // "" -> None
         std::env::set_var(RENDER_PROF_ENV, "");
         assert!(RenderProfiler::from_env().is_none());
-        std::env::remove_var(RENDER_PROF_ENV);
-    }
 
-    #[test]
-    fn from_env_returns_some_for_truthy() {
+        // "1" -> Some
         std::env::set_var(RENDER_PROF_ENV, "1");
         assert!(RenderProfiler::from_env().is_some());
+
         std::env::remove_var(RENDER_PROF_ENV);
     }
 
     #[test]
     fn record_accumulates_stats() {
-        std::env::set_var(RENDER_PROF_ENV, "1");
-        let mut prof = RenderProfiler::from_env().unwrap();
-        std::env::remove_var(RENDER_PROF_ENV);
+        let mut prof = RenderProfiler::new_for_test();
 
         prof.record(Stage::Parse, Duration::from_micros(100));
         prof.record(Stage::Parse, Duration::from_micros(300));
@@ -150,9 +151,7 @@ mod tests {
 
     #[test]
     fn maybe_flush_resets_after_window() {
-        std::env::set_var(RENDER_PROF_ENV, "1");
-        let mut prof = RenderProfiler::from_env().unwrap();
-        std::env::remove_var(RENDER_PROF_ENV);
+        let mut prof = RenderProfiler::new_for_test();
 
         prof.record(Stage::Parse, Duration::from_micros(100));
 
@@ -165,9 +164,7 @@ mod tests {
 
     #[test]
     fn maybe_flush_does_not_reset_within_window() {
-        std::env::set_var(RENDER_PROF_ENV, "1");
-        let mut prof = RenderProfiler::from_env().unwrap();
-        std::env::remove_var(RENDER_PROF_ENV);
+        let mut prof = RenderProfiler::new_for_test();
 
         prof.record(Stage::Parse, Duration::from_micros(100));
         prof.maybe_flush();
