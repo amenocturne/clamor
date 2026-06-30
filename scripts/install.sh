@@ -3,7 +3,7 @@ set -euo pipefail
 
 cargo build --release
 
-bin_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
+bin_dir="$HOME/.local/bin"
 lib_dir="${XDG_DATA_HOME:-$HOME/.local/share}/clamor/lib"
 bin_path="$bin_dir/clamor"
 

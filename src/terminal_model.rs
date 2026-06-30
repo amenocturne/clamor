@@ -10,9 +10,8 @@ mod ghostty {
             GhosttyTerminalScreen_GHOSTTY_TERMINAL_SCREEN_PRIMARY,
         },
         fmt::{Format, Formatter, FormatterOptions},
-        render::Dirty,
         terminal::{Mode, ScrollViewport},
-        RenderState, Terminal, TerminalOptions,
+        Terminal, TerminalOptions,
     };
 
     use super::{CursorState, MouseEncoding, MouseMode, TerminalModel, TerminalModes};
@@ -23,10 +22,8 @@ mod ghostty {
 
     pub struct GhosttyTerminalModel {
         terminal: Terminal<'static, 'static>,
-        render_state: RenderState<'static>,
         max_scrollback: usize,
         viewport_offset: usize,
-        screen_dirty: bool,
     }
 
     impl GhosttyTerminalModel {
@@ -34,30 +31,12 @@ mod ghostty {
             crate::diagnostics::suppress_embedded_ghostty_logging();
 
             let terminal = Self::new_terminal(rows, cols, scrollback)?;
-            let render_state = with_stderr_suppressed(|| RenderState::new())
-                .context("creating ghostty render state")?;
 
             Ok(Self {
                 terminal,
-                render_state,
                 max_scrollback: scrollback,
                 viewport_offset: 0,
-                screen_dirty: false,
             })
-        }
-
-        /// Update render state from terminal and accumulate dirty flag.
-        fn update_dirty(&mut self) {
-            if let Ok(snapshot) =
-                with_stderr_suppressed(|| self.render_state.update(&self.terminal))
-            {
-                if let Ok(dirty) = snapshot.dirty() {
-                    if dirty != Dirty::Clean {
-                        self.screen_dirty = true;
-                        let _ = snapshot.set_dirty(Dirty::Clean);
-                    }
-                }
-            }
         }
 
         fn new_terminal(
@@ -101,15 +80,6 @@ mod ghostty {
     impl TerminalModel for GhosttyTerminalModel {
         fn process_output(&mut self, bytes: &[u8]) {
             with_stderr_suppressed(|| self.terminal.vt_write(bytes));
-            self.update_dirty();
-        }
-
-        fn is_dirty(&self) -> bool {
-            self.screen_dirty
-        }
-
-        fn clear_dirty(&mut self) {
-            self.screen_dirty = false;
         }
 
         fn process_catch_up(&mut self, bytes: &[u8]) {
@@ -254,9 +224,6 @@ mod ghostty {
                 })
         }
 
-        fn sync_output_active(&self) -> bool {
-            self.mode(Mode::SYNC_OUTPUT)
-        }
     }
 }
 
@@ -347,14 +314,6 @@ pub trait TerminalModel {
         self.process_output(bytes);
     }
 
-    /// Whether the visible screen changed since the last `clear_dirty()`.
-    /// Returns true by default (always dirty) for backends without tracking.
-    fn is_dirty(&self) -> bool {
-        true
-    }
-
-    /// Reset dirty state after rendering/forwarding.
-    fn clear_dirty(&mut self) {}
     fn rebuild_from_history(&mut self, bytes: &[u8]) {
         self.process_output(bytes);
     }
@@ -385,15 +344,9 @@ pub trait TerminalModel {
     fn mouse_mode_active(&self) -> bool {
         self.modes().mouse_mode != MouseMode::None
     }
-
-    /// Returns true when DEC mode 2026 (synchronized output) is active.
-    /// ghostty-vt tracks this natively; vt100 doesn't support mode 2026
-    /// and always returns false.
-    fn sync_output_active(&self) -> bool {
-        false
-    }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum TerminalModelState {
     Vt100(Vt100TerminalModel),
     Ghostty(ghostty::GhosttyTerminalModel),
@@ -448,20 +401,6 @@ impl TerminalModel for TerminalModelState {
         match self {
             Self::Vt100(model) => model.process_catch_up(bytes),
             Self::Ghostty(model) => model.process_catch_up(bytes),
-        }
-    }
-
-    fn is_dirty(&self) -> bool {
-        match self {
-            Self::Vt100(model) => model.is_dirty(),
-            Self::Ghostty(model) => model.is_dirty(),
-        }
-    }
-
-    fn clear_dirty(&mut self) {
-        match self {
-            Self::Vt100(model) => model.clear_dirty(),
-            Self::Ghostty(model) => model.clear_dirty(),
         }
     }
 
@@ -542,12 +481,6 @@ impl TerminalModel for TerminalModelState {
         }
     }
 
-    fn sync_output_active(&self) -> bool {
-        match self {
-            Self::Vt100(model) => model.sync_output_active(),
-            Self::Ghostty(model) => model.sync_output_active(),
-        }
-    }
 }
 
 pub struct Vt100TerminalModel {
@@ -569,6 +502,14 @@ impl Vt100TerminalModel {
 impl TerminalModel for Vt100TerminalModel {
     fn process_output(&mut self, bytes: &[u8]) {
         self.parser.process(bytes);
+    }
+
+    fn process_catch_up(&mut self, bytes: &[u8]) {
+        use crate::protocol::catch_up_repair_start;
+        let repair_bytes = catch_up_repair_start(bytes)
+            .map(|start| &bytes[start..])
+            .unwrap_or(bytes);
+        self.parser.process(repair_bytes);
     }
 
     fn resize(&mut self, rows: u16, cols: u16) {
@@ -742,144 +683,31 @@ mod tests {
         assert_eq!(ghostty.visible_text(), "two\nthree\nfour");
     }
 
-    #[test]
-    fn ghostty_dirty_after_visible_output() {
-        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
-        model.clear_dirty();
-        assert!(!model.is_dirty());
-
-        model.process_output(b"hello");
-        assert!(model.is_dirty(), "screen should be dirty after visible output");
-    }
-
-    #[test]
-    fn ghostty_clean_after_clear_dirty() {
-        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
-        model.process_output(b"hello");
-        assert!(model.is_dirty());
-
-        model.clear_dirty();
-        assert!(!model.is_dirty(), "screen should be clean after clear_dirty");
-    }
-
-    #[test]
-    fn ghostty_stays_clean_without_new_output() {
-        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
-        model.process_output(b"hello");
-        model.clear_dirty();
-
-        // No new output — should remain clean
-        assert!(!model.is_dirty());
-    }
-
-    #[test]
-    fn vt100_always_dirty() {
-        let mut model = TerminalModelState::new(TerminalBackend::Vt100, 3, 10, 0).unwrap();
-        assert!(model.is_dirty(), "vt100 should always report dirty");
-
-        model.clear_dirty();
-        assert!(model.is_dirty(), "vt100 should still report dirty after clear");
-
-        model.process_output(b"hello");
-        assert!(model.is_dirty(), "vt100 should remain dirty");
-    }
 
     // ── DEC 2026 sync output mode ──────────────────────────────────────
 
-    #[test]
-    fn ghostty_sync_output_active_after_bsu() {
-        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
-        assert!(!model.sync_output_active(), "should start inactive");
-
-        model.process_output(b"\x1b[?2026h");
-        assert!(model.sync_output_active(), "should be active after BSU");
-    }
+    // ── CPR accuracy during DEC 2026 frames ────────────────────────
 
     #[test]
-    fn ghostty_sync_output_inactive_after_esu() {
-        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
-
-        model.process_output(b"\x1b[?2026h");
-        assert!(model.sync_output_active());
-
-        model.process_output(b"\x1b[?2026l");
-        assert!(!model.sync_output_active(), "should be inactive after ESU");
-    }
-
-    #[test]
-    fn ghostty_sync_output_with_content_between_markers() {
-        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
-
-        // BSU + content in one write
-        model.process_output(b"\x1b[?2026hsome content");
-        assert!(model.sync_output_active());
-
-        // ESU ends the sync frame
-        model.process_output(b"\x1b[?2026l");
-        assert!(!model.sync_output_active());
-    }
-
-    #[test]
-    fn ghostty_sync_output_bsu_esu_in_single_write() {
-        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 3, 10, 0).unwrap();
-
-        // Complete BSU/ESU frame in a single write
-        model.process_output(b"\x1b[?2026hframe content\x1b[?2026l");
-        assert!(!model.sync_output_active(), "should be inactive after complete frame");
-    }
-
-    #[test]
-    fn vt100_sync_output_always_inactive() {
-        let mut model = TerminalModelState::new(TerminalBackend::Vt100, 3, 10, 0).unwrap();
-        assert!(!model.sync_output_active());
-
-        // vt100 doesn't recognize mode 2026 — always returns false
-        model.process_output(b"\x1b[?2026h");
-        assert!(!model.sync_output_active());
-    }
-
-    // ── CPR accuracy during sync mode ────────────────────────────────
-    //
-    // These tests verify that the parser's cursor position is accurate
-    // during DEC 2026 sync mode. The old SyncOutputBuffer used to hold
-    // back bytes from the parser, causing stale cursor positions. The
-    // current architecture feeds ALL bytes to the parser before sync
-    // buffering, so cursor position reflects reality regardless of sync
-    // state. These tests document that guarantee.
-
-    #[test]
-    fn ghostty_cursor_accurate_during_sync_mode() {
-        // Parser processes BSU + content and reflects correct cursor
-        // position even while sync mode is active.
+    fn ghostty_cursor_accurate_during_sync_frame() {
         let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 24, 80, 0).unwrap();
+        model.process_output(b"\x1b[5;1H");
+        model.process_output(b"\x1b[?2026h");
+        model.process_output(b"Hello");
 
-        // Move to a known position, then enter sync mode and write content
-        model.process_output(b"\x1b[5;1H"); // row 5, col 1
-        model.process_output(b"\x1b[?2026h"); // BSU — enter sync mode
-        assert!(model.sync_output_active());
-
-        model.process_output(b"Hello"); // 5 chars → cursor at row 5, col 6
-
-        // Cursor reflects content written DURING sync mode
         let cursor = model.cursor();
-        assert_eq!(cursor.row, 4, "row should be 4 (0-indexed from row 5)");
-        assert_eq!(cursor.col, 5, "col should be 5 (after writing 'Hello')");
-        assert!(model.sync_output_active(), "still in sync mode");
+        assert_eq!(cursor.row, 4);
+        assert_eq!(cursor.col, 5);
     }
 
     #[test]
     fn ghostty_cursor_matches_with_and_without_sync() {
-        // Cursor position after the same content is identical regardless
-        // of whether it was written inside a sync frame or not.
         let mut with_sync =
             TerminalModelState::new(TerminalBackend::Ghostty, 24, 80, 0).unwrap();
         let mut without_sync =
             TerminalModelState::new(TerminalBackend::Ghostty, 24, 80, 0).unwrap();
 
-        // With sync: BSU + content + ESU
         with_sync.process_output(b"\x1b[?2026h\x1b[10;1HSync content\x1b[?2026l");
-
-        // Without sync: same content, no BSU/ESU
         without_sync.process_output(b"\x1b[10;1HSync content");
 
         assert_eq!(with_sync.cursor(), without_sync.cursor());
@@ -887,38 +715,24 @@ mod tests {
 
     #[test]
     fn ghostty_cursor_correct_at_cpr_offset_during_sync() {
-        // Simulates what process_raw_data does: feed bytes up to the CPR
-        // query offset, then read cursor. The cursor should reflect all
-        // content processed before the CPR, even during sync mode.
         let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 24, 80, 0).unwrap();
-
-        // Construct data: BSU + cursor-move + content + CPR query
         let data = b"\x1b[?2026h\x1b[3;1HABCDEF\x1b[6n";
 
-        // Find CPR offset (same function process_raw_data uses)
         let cpr_off = data
             .windows(4)
             .position(|w| w == b"\x1b[6n")
             .expect("CPR should be found");
 
-        // Feed only bytes before the CPR query (simulating the split)
         model.process_output(&data[..cpr_off]);
 
-        // Cursor should reflect BSU + cursor move + "ABCDEF"
         let cursor = model.cursor();
-        assert_eq!(cursor.row, 2, "row 3 → 0-indexed row 2");
-        assert_eq!(cursor.col, 6, "after 'ABCDEF' → col 6");
-        assert!(model.sync_output_active(), "sync mode active during CPR");
+        assert_eq!(cursor.row, 2);
+        assert_eq!(cursor.col, 6);
     }
 
     #[test]
     fn ghostty_cursor_correct_multiple_cprs_in_sync_frame() {
-        // Two CPR queries within a single sync frame. find_cpr_offset
-        // returns the first one; the split at that offset still gives
-        // the correct cursor position for the first query.
         let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 24, 80, 0).unwrap();
-
-        // BSU + content1 + CPR1 + content2 + CPR2 + ESU
         let data = b"\x1b[?2026h\x1b[1;1HAB\x1b[6nCD\x1b[6n\x1b[?2026l";
 
         let cpr_off = data
@@ -926,18 +740,68 @@ mod tests {
             .position(|w| w == b"\x1b[6n")
             .expect("first CPR");
 
-        // Feed up to first CPR
         model.process_output(&data[..cpr_off]);
+        assert_eq!(model.cursor().col, 2);
 
-        let cursor = model.cursor();
-        assert_eq!(cursor.row, 0, "row 1 → 0-indexed 0");
-        assert_eq!(cursor.col, 2, "after 'AB' → col 2");
-
-        // Feed rest (includes CPR bytes, more content, second CPR, ESU)
         model.process_output(&data[cpr_off..]);
+        assert_eq!(model.cursor().col, 4);
+    }
+}
 
-        let cursor_after = model.cursor();
-        assert_eq!(cursor_after.col, 4, "after 'ABCD' → col 4");
-        assert!(!model.sync_output_active(), "ESU ended sync");
+#[cfg(test)]
+mod vt_perf_bench {
+    use super::*;
+    use std::time::Instant;
+
+    fn claude_code_output(size: usize) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(size);
+        let patterns: &[&[u8]] = &[
+            b"\x1b[?2026h",
+            b"\x1b[2J\x1b[H",
+            b"\x1b[38;2;126;156;216m",
+            b"\x1b[48;2;30;30;46m",
+            b"Hello, this is a line of output from Claude Code with some content\r\n",
+            b"\x1b[1m\x1b[3m",
+            b"Another line with \x1b[4munderline\x1b[24m text\r\n",
+            b"\x1b[0m",
+            b"\x1b[10;1H",
+            b"\x1b[K",
+            b"\x1b[?2026l",
+        ];
+        let mut i = 0;
+        while buf.len() < size {
+            buf.extend_from_slice(patterns[i % patterns.len()]);
+            i += 1;
+        }
+        buf.truncate(size);
+        buf
+    }
+
+    #[test]
+    fn bench_vt_backends() {
+        let sizes = [1024, 4096, 16384, 65536];
+        eprintln!("\n{:>8} {:>12} {:>12} {:>8}", "bytes", "ghostty_ms", "vt100_ms", "ratio");
+        eprintln!("{}", "-".repeat(48));
+
+        for &size in &sizes {
+            let data = claude_code_output(size);
+
+            let mut ghostty = TerminalModelState::new(
+                crate::config::TerminalBackend::Ghostty, 24, 80, 0,
+            ).unwrap();
+            let t0 = Instant::now();
+            ghostty.process_output(&data);
+            let ghostty_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+            let mut vt = TerminalModelState::new(
+                crate::config::TerminalBackend::Vt100, 24, 80, 0,
+            ).unwrap();
+            let t0 = Instant::now();
+            vt.process_output(&data);
+            let vt100_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+            let ratio = if vt100_ms > 0.001 { ghostty_ms / vt100_ms } else { f64::NAN };
+            eprintln!("{:>8} {:>12.2} {:>12.2} {:>7.1}x", size, ghostty_ms, vt100_ms, ratio);
+        }
     }
 }

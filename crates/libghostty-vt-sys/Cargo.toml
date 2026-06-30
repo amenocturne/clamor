@@ -1,0 +1,17 @@
+[package]
+name = "libghostty-vt-sys"
+version = "0.1.1"
+edition = "2024"
+rust-version = "1.93"
+build = "build.rs"
+links = "ghostty-vt"
+description = "Raw FFI bindings for libghostty-vt (patched build for ReleaseFast)"
+license = "MIT OR Apache-2.0"
+
+[features]
+default = ["vendored"]
+vendored = []
+
+[lib]
+name = "libghostty_vt_sys"
+path = "src/lib.rs"

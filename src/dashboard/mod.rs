@@ -324,10 +324,22 @@ async fn main_loop(
                 match msg_result {
                     Ok(msg) => {
                         daemon_connected = true;
+                        let msg_t0 = Instant::now();
                         match msg {
-                            DaemonMessage::Output { id, data } => {
-                                if let Some(pv) = pane_views.get_mut(&id) {
-                                    pv.process_output(&data);
+                            DaemonMessage::Output { ref id, ref data } => {
+                                if let Some(pv) = pane_views.get_mut(id.as_str()) {
+                                    pv.process_output(data);
+                                }
+                                let elapsed = msg_t0.elapsed();
+                                if elapsed.as_millis() > 5 {
+                                    terminal_log(
+                                        crate::config::TerminalLogLevel::Warn,
+                                        format!(
+                                            "client SLOW output processing bytes={} elapsed_ms={}",
+                                            data.len(),
+                                            elapsed.as_millis()
+                                        ),
+                                    );
                                 }
                             }
                             DaemonMessage::Exited { id } => {
@@ -414,8 +426,6 @@ async fn main_loop(
                             let (term_cols, term_rows) = crossterm::terminal::size()?;
                             let content_rows = term_rows.saturating_sub(1);
 
-                            let has_existing = pane_views.contains_key(&agent_id);
-
                             // Use buffered variants so in-flight Output messages
                             // aren't silently discarded (causes parser state drift)
                             let resize_msgs = client
@@ -423,35 +433,27 @@ async fn main_loop(
                                 .await
                                 .unwrap_or_default();
 
-                            if has_existing {
-                                resize_pane_and_apply_buffered(
-                                    &agent_id,
-                                    content_rows,
-                                    term_cols,
-                                    resize_msgs,
-                                    &mut pane_views,
-                                    state_source,
-                                );
-                            } else {
-                                match client.subscribe_buffered(&agent_id).await {
-                                    Ok(result) => {
-                                        let pv = pane_view_from_catch_up(
-                                            result.terminal_backend,
-                                            content_rows,
-                                            term_cols,
-                                            &result.catch_up,
-                                        )?;
-                                        pane_views.insert(agent_id.clone(), pv);
-                                        apply_buffered_after_catch_up(
-                                            &agent_id,
-                                            false,
-                                            resize_msgs.into_iter().chain(result.buffered),
-                                            &mut pane_views,
-                                            state_source,
-                                        );
-                                    }
-                                    Err(_) => continue,
+                            // Always subscribe — daemon keeps a single active
+                            // subscription, so re-attach needs a fresh subscribe
+                            // even if we have a cached pane_view.
+                            match client.subscribe_buffered(&agent_id).await {
+                                Ok(result) => {
+                                    let pv = pane_view_from_catch_up(
+                                        result.terminal_backend,
+                                        content_rows,
+                                        term_cols,
+                                        &result.catch_up,
+                                    )?;
+                                    pane_views.insert(agent_id.clone(), pv);
+                                    apply_buffered_after_catch_up(
+                                        &agent_id,
+                                        false,
+                                        resize_msgs.into_iter().chain(result.buffered),
+                                        &mut pane_views,
+                                        state_source,
+                                    );
                                 }
+                                Err(_) => continue,
                             }
 
                             terminal.clear()?;
@@ -499,7 +501,6 @@ async fn main_loop(
                                             let (term_cols, term_rows) =
                                                 crossterm::terminal::size()?;
                                             let content_rows = term_rows.saturating_sub(1);
-                                            let has_existing = pane_views.contains_key(&target);
                                             let resize_msgs = client
                                                 .resize_buffered(
                                                     &target,
@@ -508,18 +509,7 @@ async fn main_loop(
                                                 )
                                                 .await
                                                 .unwrap_or_default();
-                                            if has_existing {
-                                                resize_pane_and_apply_buffered(
-                                                    &target,
-                                                    content_rows,
-                                                    term_cols,
-                                                    resize_msgs,
-                                                    &mut pane_views,
-                                                    state_source,
-                                                );
-                                                terminal.clear()?;
-                                                mode = AppMode::Terminal { agent_id: target };
-                                            } else if let Ok(result) =
+                                            if let Ok(result) =
                                                 client.subscribe_buffered(&target).await
                                             {
                                                 let pv = pane_view_from_catch_up(
@@ -719,33 +709,36 @@ fn apply_daemon_message(
 
 fn replace_pane_from_catch_up(
     id: &str,
-    backend: TerminalBackend,
+    _backend: TerminalBackend,
     rows: u16,
     cols: u16,
     catch_up: &[u8],
     pane_views: &mut HashMap<String, PaneView>,
 ) -> Result<()> {
     if let Some(pv) = pane_views.get_mut(id) {
-        pv.replace_with_catch_up(backend, rows, cols, catch_up)?;
+        pv.replace_with_catch_up(TerminalBackend::Vt100, rows, cols, catch_up)?;
     } else {
         pane_views.insert(
             id.to_string(),
-            pane_view_from_catch_up(backend, rows, cols, catch_up)?,
+            pane_view_from_catch_up(_backend, rows, cols, catch_up)?,
         );
     }
     Ok(())
 }
 
+// Client-side PaneView always uses Vt100 — tui_term::PseudoTerminal requires
+// vt100::Screen. The daemon's backend choice only affects daemon-side parsing;
+// catch-up bytes are valid VT sequences either way.
 fn pane_view_from_catch_up(
-    backend: TerminalBackend,
+    _backend: TerminalBackend,
     rows: u16,
     cols: u16,
     catch_up: &[u8],
 ) -> Result<PaneView> {
     if catch_up.is_empty() {
-        PaneView::new_with_backend(backend, rows, cols)
+        PaneView::new_with_backend(TerminalBackend::Vt100, rows, cols)
     } else {
-        PaneView::from_catch_up_with_backend(backend, rows, cols, catch_up)
+        PaneView::from_catch_up_with_backend(TerminalBackend::Vt100, rows, cols, catch_up)
     }
 }
 

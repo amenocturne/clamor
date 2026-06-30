@@ -9,7 +9,7 @@ use tokio::net::UnixListener;
 use tokio::sync::mpsc;
 
 use crate::config::{ClamorConfig, TerminalBackend, TerminalLogLevel};
-use crate::diagnostics::{byte_preview, terminal_log, terminal_log_enabled};
+use crate::diagnostics::terminal_log;
 use crate::protocol::{
     recv_message_async, send_message_async, ClientMessage, DaemonAgent, DaemonMessage,
 };
@@ -575,6 +575,13 @@ fn find_cpr_offset(data: &[u8]) -> Option<usize> {
 
 const RING_BUFFER_CAP: usize = 4 * 1024 * 1024; // 4MB for scrollback history
 
+/// Max bytes to replay through the terminal parser during sync_terminal.
+/// When the backlog exceeds this, a fresh parser is rebuilt from the tail
+/// of the ring buffer instead. With an optimized ghostty backend (~1ms/64KB),
+/// the full ring buffer would take ~60ms — but rebuild-from-tail is still
+/// faster for very large backlogs since it starts from a clean parser state.
+const SYNC_REPLAY_CAP: usize = 512 * 1024;
+
 struct AgentSlot {
     #[allow(dead_code)]
     master: Box<dyn portable_pty::MasterPty + Send>,
@@ -586,9 +593,9 @@ struct AgentSlot {
     /// Appended after ring buffer in catch-up to fix the visible area.
     terminal: TerminalModelState,
     alive: bool,
-    /// Raw data accumulated during DEC 2026 sync mode (BSU received, waiting
-    /// for ESU). Forwarded to client when ESU arrives and sync mode ends.
-    sync_pending: Vec<u8>,
+    /// Bytes in ring buffer not yet processed by the terminal model.
+    /// The terminal model is synced lazily before catch-up or CPR.
+    terminal_behind: usize,
     /// Per-agent terminal query responder.
     responder: TerminalQueryResponder,
     /// Optional raw PTY trace recorder for replay-based backend comparison.
@@ -633,6 +640,7 @@ impl AgentSlot {
         let buf: Vec<u8> = self.ring_buffer.iter().copied().collect();
         new_terminal.rebuild_from_history(&buf);
         self.terminal = new_terminal;
+        self.terminal_behind = 0;
         terminal_log(
             TerminalLogLevel::Info,
             format!(
@@ -647,19 +655,76 @@ impl AgentSlot {
         );
     }
 
-    /// Snapshot catch-up: send only the terminal repair bytes (mode prelude +
-    /// screen clear + contents_formatted + cursor position). The client gets
-    /// the current visible screen state without re-parsing raw PTY history.
-    /// Scrollback history is not included — the client starts fresh and
-    /// builds scrollback from live output going forward.
-    fn catch_up_data(&self) -> Vec<u8> {
+    /// Bring the terminal model up to date by replaying unprocessed ring
+    /// buffer bytes. Called lazily before catch-up or CPR — not on the hot path.
+    ///
+    /// When the backlog exceeds SYNC_REPLAY_CAP, rebuilds from a tail slice
+    /// of the ring buffer instead of replaying everything — keeps subscribe
+    /// responsive even with a slow terminal backend (e.g. debug-built ghostty).
+    fn sync_terminal(&mut self) {
+        if self.terminal_behind == 0 {
+            return;
+        }
+        let started = Instant::now();
+        let total = self.ring_buffer.len();
+
+        if self.terminal_behind > total || self.terminal_behind > SYNC_REPLAY_CAP {
+            // Large backlog — rebuild from the tail of the ring buffer.
+            // The last SYNC_REPLAY_CAP bytes are enough to capture the most
+            // recent full-screen repaint; modes/cursor will be correct for
+            // catch-up repair bytes.
+            let cap = total.min(SYNC_REPLAY_CAP);
+            let (rows, cols) = self.terminal.size();
+            if let Ok(mut fresh) =
+                TerminalModelState::new(self.terminal.backend(), rows, cols, 0)
+            {
+                let buf: Vec<u8> = self
+                    .ring_buffer
+                    .iter()
+                    .skip(total.saturating_sub(cap))
+                    .copied()
+                    .collect();
+                fresh.rebuild_from_history(&buf);
+                self.terminal = fresh;
+            }
+            self.terminal_behind = 0;
+            terminal_log(
+                TerminalLogLevel::Info,
+                format!(
+                    "daemon sync_terminal tail-rebuild cap={cap} behind={} ring={total} elapsed_ms={}",
+                    self.terminal_behind,
+                    started.elapsed().as_millis()
+                ),
+            );
+            return;
+        }
+
+        let replay_start = total - self.terminal_behind;
+        let replay: Vec<u8> = self.ring_buffer.iter().skip(replay_start).copied().collect();
+        self.terminal.process_output(&replay);
+        terminal_log(
+            TerminalLogLevel::Debug,
+            format!(
+                "daemon sync_terminal replayed={} total_ring={} elapsed_ms={}",
+                replay.len(),
+                total,
+                started.elapsed().as_millis()
+            ),
+        );
+        self.terminal_behind = 0;
+    }
+
+    /// Catch-up: repair bytes only. Syncs terminal model lazily before
+    /// generating the snapshot.
+    fn catch_up_data(&mut self) -> Vec<u8> {
+        self.sync_terminal();
         let modes = self.terminal.modes();
         let cursor = self.terminal.cursor();
         let formatted = self.terminal.contents_formatted();
         terminal_log(
             TerminalLogLevel::Debug,
             format!(
-                "daemon catch-up snapshot backend={:?} formatted={} modes={:?}",
+                "daemon catch-up backend={:?} formatted={} modes={:?}",
                 self.terminal.backend(),
                 formatted.len(),
                 modes,
@@ -668,22 +733,10 @@ impl AgentSlot {
         terminal_repair_bytes(modes, &formatted, cursor)
     }
 
-    /// Process raw PTY data: detect queries, update parser (with CPR-aware
-    /// splitting), sync-buffer for ring buffer + client output.
-    ///
-    /// Returns sync-buffered output chunks to forward to the client.
+    /// Process raw PTY data on the hot path. Skips ghostty-vt parsing —
+    /// only scans for queries, pushes to ring buffer, and forwards to client.
+    /// The terminal model is synced lazily when catch-up or CPR is needed.
     fn process_raw_data(&mut self, raw: &[u8]) -> Vec<Vec<u8>> {
-        if terminal_log_enabled(TerminalLogLevel::Trace) {
-            terminal_log(
-                TerminalLogLevel::Trace,
-                format!(
-                    "daemon raw bytes={} preview={}",
-                    raw.len(),
-                    byte_preview(raw)
-                ),
-            );
-        }
-
         if let Some(trace) = self.trace.as_mut() {
             if let Err(err) = trace.record(raw) {
                 eprintln!(
@@ -699,113 +752,36 @@ impl AgentSlot {
         if !responses.is_empty() {
             let _ = self.writer.write_all(&responses);
             let _ = self.writer.flush();
-            terminal_log(
-                TerminalLogLevel::Debug,
-                format!(
-                    "daemon query responses bytes={} preview={}",
-                    responses.len(),
-                    byte_preview(&responses)
-                ),
-            );
         }
 
-        // 2. Update parser — split at CPR offset for accurate cursor position
+        // 2. Handle CPR: sync terminal and respond with accurate cursor
         if self.responder.cpr_requested {
+            self.sync_terminal();
             if let Some(cpr_off) = find_cpr_offset(raw) {
-                // Feed data up to the CPR query into the parser
                 self.terminal.process_output(&raw[..cpr_off]);
-                // Respond with cursor position at the CPR query point
                 let cursor = self.terminal.cursor();
-                let (row, col) = (cursor.row, cursor.col);
-                let response = format!("\x1b[{};{}R", row + 1, col + 1);
+                let response = format!("\x1b[{};{}R", cursor.row + 1, cursor.col + 1);
                 let _ = self.writer.write_all(response.as_bytes());
                 let _ = self.writer.flush();
-                terminal_log(
-                    TerminalLogLevel::Debug,
-                    format!(
-                        "daemon CPR response row={} col={} split_at={}",
-                        row, col, cpr_off
-                    ),
-                );
-                // Feed remaining data (CPR bytes are harmless — DSR is ignored)
                 self.terminal.process_output(&raw[cpr_off..]);
             } else {
-                // CPR sequence spans reads — respond with current parser state
-                // (parser was already updated by previous RawData events)
+                self.terminal.process_output(raw);
                 let cursor = self.terminal.cursor();
-                let (row, col) = (cursor.row, cursor.col);
-                let response = format!("\x1b[{};{}R", row + 1, col + 1);
+                let response = format!("\x1b[{};{}R", cursor.row + 1, cursor.col + 1);
                 let _ = self.writer.write_all(response.as_bytes());
                 let _ = self.writer.flush();
-                terminal_log(
-                    TerminalLogLevel::Debug,
-                    format!(
-                        "daemon CPR response row={} col={} split_across_reads",
-                        row, col
-                    ),
-                );
-                // Then process this read's data
-                self.terminal.process_output(raw);
             }
+            // Terminal is now up to date — no behind bytes for this chunk
         } else {
-            self.terminal.process_output(raw);
+            // Skip ghostty-vt parsing on the hot path
+            self.terminal_behind += raw.len();
         }
 
-        // 3. Push raw data to ring buffer (always, regardless of sync state).
-        //    Raw BSU/ESU markers are included — ghostty-vt handles them
-        //    correctly on ring buffer replay, and vt100 ignores them.
+        // 3. Push raw data to ring buffer
         self.push_ring_buffer(raw);
 
-        // 4. Check DEC 2026 sync state via ghostty-vt and manage client forwarding.
-        //    The parser already processed BSU/ESU markers in step 2, so mode
-        //    state reflects whether we're inside a synchronized frame.
-        let chunks = if self.terminal.sync_output_active() {
-            // In sync mode (BSU received, ESU pending) — accumulate for
-            // later forwarding, suppress output to client.
-            self.sync_pending.extend_from_slice(raw);
-            Vec::new()
-        } else if !self.sync_pending.is_empty() {
-            // Sync just ended (ESU processed) — forward accumulated data
-            // plus this chunk as a single atomic frame.
-            self.sync_pending.extend_from_slice(raw);
-            let data = std::mem::take(&mut self.sync_pending);
-            vec![data]
-        } else {
-            // Normal passthrough (no sync active, no pending data).
-            vec![raw.to_vec()]
-        };
-
-        // 5. Check if screen actually changed — skip client forwarding if not.
-        //    Ring buffer already has the data (step 3), so history is preserved
-        //    regardless. This suppresses no-op output (cursor queries, escape
-        //    sequences that don't change visible content) from triggering
-        //    unnecessary client redraws.
-        if chunks.is_empty() || !self.terminal.is_dirty() {
-            terminal_log(
-                TerminalLogLevel::Trace,
-                format!(
-                    "daemon skipping unchanged output raw={} chunks={}",
-                    raw.len(),
-                    chunks.len()
-                ),
-            );
-            return Vec::new();
-        }
-        self.terminal.clear_dirty();
-
-        terminal_log(
-            TerminalLogLevel::Debug,
-            format!(
-                "daemon processed raw={} chunks={} forwarded={} cursor={:?} modes={:?} scrollback={}",
-                raw.len(),
-                chunks.len(),
-                chunks.iter().map(Vec::len).sum::<usize>(),
-                self.terminal.cursor(),
-                self.terminal.modes(),
-                self.terminal.scrollback_len()
-            ),
-        );
-        chunks
+        // 4. Forward raw bytes to client
+        vec![raw.to_vec()]
     }
 }
 
@@ -1019,57 +995,66 @@ pub async fn run_daemon() -> Result<()> {
             }
 
             Some(evt) = pty_rx.recv() => {
-                match evt {
-                    PtyEvent::RawData { id, data } => {
-                        // All output processing happens here: query detection,
-                        // parser update (split at CPR offset), sync buffering,
-                        // ring buffer, and client forwarding.
-                        let prof_t0 = profiler.as_ref().map(|_| Instant::now());
-                        let chunks = if let Some(slot) = agents.get_mut(&id) {
-                            slot.process_raw_data(&data)
-                        } else {
-                            Vec::new()
-                        };
-                        if let (Some(ref mut prof), Some(t0)) = (&mut profiler, prof_t0) {
-                            prof.record(Stage::Parse, t0.elapsed());
-                            prof.maybe_flush();
+                // Drain a bounded batch of pending PTY events and coalesce
+                // output per agent. Bounded to keep the select loop responsive
+                // to client messages (subscribe, input) between batches.
+                let mut pending = vec![evt];
+                for _ in 0..31 {
+                    match pty_rx.try_recv() {
+                        Ok(more) => pending.push(more),
+                        Err(_) => break,
+                    }
+                }
+
+                let mut coalesced: HashMap<String, Vec<u8>> = HashMap::new();
+                let mut exited: Vec<String> = Vec::new();
+
+                let prof_t0 = profiler.as_ref().map(|_| Instant::now());
+                for evt in pending {
+                    match evt {
+                        PtyEvent::RawData { id, data } => {
+                            if let Some(slot) = agents.get_mut(&id) {
+                                slot.process_raw_data(&data);
+                            }
+                            if subscriptions.contains(&id) {
+                                coalesced.entry(id).or_default().extend_from_slice(&data);
+                            }
                         }
-                        if subscriptions.contains(&id) {
-                            let mut disconnect = false;
-                            for chunk in chunks {
-                                if let Some(ref mut stream) = client {
-                                    let msg = DaemonMessage::Output {
-                                        id: id.clone(),
-                                        data: chunk,
-                                    };
-                                    if !send_to_client(stream, &msg).await {
-                                        disconnect = true;
-                                        break;
-                                    }
-                                }
+                        PtyEvent::Exited { id } => {
+                            if let Some(slot) = agents.get_mut(&id) {
+                                slot.alive = false;
                             }
-                            if disconnect {
-                                client = None;
-                                subscriptions.clear();
-                            }
+                            exited.push(id);
                         }
                     }
-                    PtyEvent::Exited { id } => {
-                        if let Some(slot) = agents.get_mut(&id) {
-                            slot.alive = false;
-                        }
-                        let mut disconnect = false;
-                        if let Some(ref mut stream) = client {
-                            let msg = DaemonMessage::Exited { id };
-                            if !send_to_client(stream, &msg).await {
-                                disconnect = true;
-                            }
-                        }
-                        if disconnect {
-                            client = None;
-                            subscriptions.clear();
+                }
+                if let (Some(ref mut prof), Some(t0)) = (&mut profiler, prof_t0) {
+                    prof.record(Stage::Parse, t0.elapsed());
+                    prof.maybe_flush();
+                }
+
+                let mut disconnect = false;
+                for (id, data) in coalesced {
+                    if let Some(ref mut stream) = client {
+                        let msg = DaemonMessage::Output { id, data };
+                        if !send_to_client(stream, &msg).await {
+                            disconnect = true;
+                            break;
                         }
                     }
+                }
+                for id in exited {
+                    if let Some(ref mut stream) = client {
+                        let msg = DaemonMessage::Exited { id };
+                        if !send_to_client(stream, &msg).await {
+                            disconnect = true;
+                            break;
+                        }
+                    }
+                }
+                if disconnect {
+                    client = None;
+                    subscriptions.clear();
                 }
             }
 
@@ -1226,7 +1211,7 @@ async fn handle_client_message(
             HandleResult::Continue
         }
         ClientMessage::Subscribe { id } => {
-            if let Some(slot) = agents.get(&id) {
+            if let Some(slot) = agents.get_mut(&id) {
                 let catch_up_data = slot.catch_up_data();
                 terminal_log(
                     TerminalLogLevel::Info,
@@ -1235,6 +1220,7 @@ async fn handle_client_message(
                         catch_up_data.len()
                     ),
                 );
+                subscriptions.clear();
                 subscriptions.insert(id.clone());
                 let _ = send_to_client(
                     stream,
@@ -1453,7 +1439,7 @@ fn spawn_agent_pty(
         ring_buffer: VecDeque::with_capacity(RING_BUFFER_CAP),
         terminal: TerminalModelState::new(terminal_backend, rows, cols, 0)?,
         alive: true,
-        sync_pending: Vec::new(),
+        terminal_behind: 0,
         responder: TerminalQueryResponder::new(),
         trace: TraceRecorder::from_env(id)?,
     })
