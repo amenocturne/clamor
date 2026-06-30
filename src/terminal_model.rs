@@ -837,4 +837,107 @@ mod tests {
         model.process_output(b"\x1b[?2026h");
         assert!(!model.sync_output_active());
     }
+
+    // ── CPR accuracy during sync mode ────────────────────────────────
+    //
+    // These tests verify that the parser's cursor position is accurate
+    // during DEC 2026 sync mode. The old SyncOutputBuffer used to hold
+    // back bytes from the parser, causing stale cursor positions. The
+    // current architecture feeds ALL bytes to the parser before sync
+    // buffering, so cursor position reflects reality regardless of sync
+    // state. These tests document that guarantee.
+
+    #[test]
+    fn ghostty_cursor_accurate_during_sync_mode() {
+        // Parser processes BSU + content and reflects correct cursor
+        // position even while sync mode is active.
+        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 24, 80, 0).unwrap();
+
+        // Move to a known position, then enter sync mode and write content
+        model.process_output(b"\x1b[5;1H"); // row 5, col 1
+        model.process_output(b"\x1b[?2026h"); // BSU — enter sync mode
+        assert!(model.sync_output_active());
+
+        model.process_output(b"Hello"); // 5 chars → cursor at row 5, col 6
+
+        // Cursor reflects content written DURING sync mode
+        let cursor = model.cursor();
+        assert_eq!(cursor.row, 4, "row should be 4 (0-indexed from row 5)");
+        assert_eq!(cursor.col, 5, "col should be 5 (after writing 'Hello')");
+        assert!(model.sync_output_active(), "still in sync mode");
+    }
+
+    #[test]
+    fn ghostty_cursor_matches_with_and_without_sync() {
+        // Cursor position after the same content is identical regardless
+        // of whether it was written inside a sync frame or not.
+        let mut with_sync =
+            TerminalModelState::new(TerminalBackend::Ghostty, 24, 80, 0).unwrap();
+        let mut without_sync =
+            TerminalModelState::new(TerminalBackend::Ghostty, 24, 80, 0).unwrap();
+
+        // With sync: BSU + content + ESU
+        with_sync.process_output(b"\x1b[?2026h\x1b[10;1HSync content\x1b[?2026l");
+
+        // Without sync: same content, no BSU/ESU
+        without_sync.process_output(b"\x1b[10;1HSync content");
+
+        assert_eq!(with_sync.cursor(), without_sync.cursor());
+    }
+
+    #[test]
+    fn ghostty_cursor_correct_at_cpr_offset_during_sync() {
+        // Simulates what process_raw_data does: feed bytes up to the CPR
+        // query offset, then read cursor. The cursor should reflect all
+        // content processed before the CPR, even during sync mode.
+        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 24, 80, 0).unwrap();
+
+        // Construct data: BSU + cursor-move + content + CPR query
+        let data = b"\x1b[?2026h\x1b[3;1HABCDEF\x1b[6n";
+
+        // Find CPR offset (same function process_raw_data uses)
+        let cpr_off = data
+            .windows(4)
+            .position(|w| w == b"\x1b[6n")
+            .expect("CPR should be found");
+
+        // Feed only bytes before the CPR query (simulating the split)
+        model.process_output(&data[..cpr_off]);
+
+        // Cursor should reflect BSU + cursor move + "ABCDEF"
+        let cursor = model.cursor();
+        assert_eq!(cursor.row, 2, "row 3 → 0-indexed row 2");
+        assert_eq!(cursor.col, 6, "after 'ABCDEF' → col 6");
+        assert!(model.sync_output_active(), "sync mode active during CPR");
+    }
+
+    #[test]
+    fn ghostty_cursor_correct_multiple_cprs_in_sync_frame() {
+        // Two CPR queries within a single sync frame. find_cpr_offset
+        // returns the first one; the split at that offset still gives
+        // the correct cursor position for the first query.
+        let mut model = TerminalModelState::new(TerminalBackend::Ghostty, 24, 80, 0).unwrap();
+
+        // BSU + content1 + CPR1 + content2 + CPR2 + ESU
+        let data = b"\x1b[?2026h\x1b[1;1HAB\x1b[6nCD\x1b[6n\x1b[?2026l";
+
+        let cpr_off = data
+            .windows(4)
+            .position(|w| w == b"\x1b[6n")
+            .expect("first CPR");
+
+        // Feed up to first CPR
+        model.process_output(&data[..cpr_off]);
+
+        let cursor = model.cursor();
+        assert_eq!(cursor.row, 0, "row 1 → 0-indexed 0");
+        assert_eq!(cursor.col, 2, "after 'AB' → col 2");
+
+        // Feed rest (includes CPR bytes, more content, second CPR, ESU)
+        model.process_output(&data[cpr_off..]);
+
+        let cursor_after = model.cursor();
+        assert_eq!(cursor_after.col, 4, "after 'ABCD' → col 4");
+        assert!(!model.sync_output_active(), "ESU ended sync");
+    }
 }

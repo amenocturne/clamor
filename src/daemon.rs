@@ -493,6 +493,26 @@ mod query_tests {
         let _ = r.scan_for_queries(b"\x1b[?2026h content \x1b[?2026l");
         assert!(!r.cpr_requested);
     }
+
+    #[test]
+    fn cpr_detected_inside_sync_frame() {
+        // CPR query between BSU and ESU markers — correctly detected
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"\x1b[?2026h\x1b[3;1Hcontent\x1b[6n\x1b[?2026l");
+        assert!(r.cpr_requested, "CPR inside sync frame must be detected");
+    }
+
+    #[test]
+    fn cpr_detected_when_bsu_split_across_reads() {
+        // Read 1: BSU + content, Read 2: CPR + ESU
+        // CPR in second read should be detected normally
+        let mut r = responder();
+        let _ = r.scan_for_queries(b"\x1b[?2026hcontent");
+        assert!(!r.cpr_requested, "no CPR in first read");
+
+        let _ = r.scan_for_queries(b"\x1b[6n\x1b[?2026l");
+        assert!(r.cpr_requested, "CPR in second read must be detected");
+    }
 }
 
 #[cfg(test)]
@@ -525,6 +545,23 @@ mod find_cpr_tests {
     #[test]
     fn finds_first_occurrence() {
         assert_eq!(find_cpr_offset(b"\x1b[6n\x1b[6n"), Some(0));
+    }
+
+    #[test]
+    fn finds_cpr_between_bsu_and_esu() {
+        // CPR query between DEC 2026 sync markers — detected at correct offset
+        let data = b"\x1b[?2026hcontent\x1b[6n\x1b[?2026l";
+        assert_eq!(find_cpr_offset(data), Some(15)); // after BSU (8) + "content" (7)
+    }
+
+    #[test]
+    fn finds_cpr_after_cursor_move_in_sync_frame() {
+        // Realistic scenario: BSU + cursor positioning + content + CPR
+        let data = b"\x1b[?2026h\x1b[3;1HABCDEF\x1b[6n";
+        let offset = find_cpr_offset(data).expect("CPR should be found");
+        // BSU (8) + CUP (6) + "ABCDEF" (6) = 20
+        assert_eq!(offset, 20);
+        assert_eq!(&data[offset..offset + 4], b"\x1b[6n");
     }
 }
 
