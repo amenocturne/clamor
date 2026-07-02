@@ -1,10 +1,20 @@
 {
   description = "clamor - terminal multiplexer for managing multiple coding agents";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    ghostty-src = {
+      url = "github:ghostty-org/ghostty/bebca84668947bfc92b9a30ed58712e1c34eee1d";
+      flake = false;
+    };
+  };
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      ghostty-src,
+    }:
     let
       systems = [
         "x86_64-linux"
@@ -17,9 +27,10 @@
       cargoToml = nixpkgs.lib.importTOML ./Cargo.toml;
 
       mkClamor =
-        pkgs:
+        pkgs: ghosttyLib:
         let
           inherit (pkgs) lib stdenv;
+          rustTarget = stdenv.hostPlatform.rust.rustcTarget;
         in
         pkgs.rustPlatform.buildRustPackage {
           pname = cargoToml.package.name;
@@ -32,19 +43,27 @@
               let
                 base = baseNameOf (toString path);
               in
-              !(lib.hasSuffix ".png" base)
-              && base != "target"
-              && base != "tmp"
-              && base != "TODO.md";
+              !(lib.hasSuffix ".png" base) && base != "target" && base != "tmp" && base != "TODO.md";
           };
 
           cargoLock.lockFile = ./Cargo.lock;
 
           nativeBuildInputs = [ pkgs.pkg-config ];
-          buildInputs = lib.optionals stdenv.isDarwin [
-            pkgs.apple-sdk
-            pkgs.libiconv
-          ];
+          buildInputs =
+            [ ghosttyLib ]
+            ++ lib.optionals stdenv.isDarwin [
+              pkgs.apple-sdk
+              pkgs.libiconv
+            ];
+
+          postPatch = ''
+            mkdir -p .cargo
+            cat >> .cargo/config.toml <<EOF
+            [target."${rustTarget}".ghostty-vt]
+            rustc-link-lib = ["dylib=ghostty-vt"]
+            rustc-link-search = ["native=${ghosttyLib}/lib"]
+            EOF
+          '';
 
           # The integration tests spawn real PTYs and rely on a writable HOME;
           # they are not hermetic enough for the sandboxed build. Run them
@@ -64,7 +83,9 @@
       packages = forAllSystems (
         system:
         let
-          clamor = mkClamor nixpkgs.legacyPackages.${system};
+          pkgs = nixpkgs.legacyPackages.${system};
+          ghosttyLib = import ./nix/ghostty/package.nix { inherit pkgs ghostty-src; };
+          clamor = mkClamor pkgs ghosttyLib;
         in
         {
           default = clamor;
@@ -90,7 +111,7 @@
               pkgs.pkg-config
               pkgs.rustup
               pkgs.rust-analyzer
-              pkgs.zig
+              pkgs.zig_0_15
             ]
             ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
               pkgs.apple-sdk
