@@ -297,9 +297,12 @@ async fn main_loop(
                         &result.catch_up,
                     )?;
                     pane_views.insert(agent_id.clone(), pv);
-                    for msg in resize_msgs.into_iter().chain(result.buffered) {
-                        apply_daemon_message(&msg, &mut pane_views, state_source);
-                    }
+                    apply_messages_after_catch_up(
+                        agent_id,
+                        resize_msgs.into_iter().chain(result.buffered),
+                        &mut pane_views,
+                        state_source,
+                    );
                     AppMode::Terminal {
                         agent_id: agent_id.clone(),
                     }
@@ -445,9 +448,8 @@ async fn main_loop(
                                         &result.catch_up,
                                     )?;
                                     pane_views.insert(agent_id.clone(), pv);
-                                    apply_buffered_after_catch_up(
+                                    apply_messages_after_catch_up(
                                         &agent_id,
-                                        false,
                                         resize_msgs.into_iter().chain(result.buffered),
                                         &mut pane_views,
                                         state_source,
@@ -519,9 +521,8 @@ async fn main_loop(
                                                     &result.catch_up,
                                                 )?;
                                                 pane_views.insert(target.clone(), pv);
-                                                apply_buffered_after_catch_up(
+                                                apply_messages_after_catch_up(
                                                     &target,
-                                                    false,
                                                     resize_msgs.into_iter().chain(result.buffered),
                                                     &mut pane_views,
                                                     state_source,
@@ -638,24 +639,26 @@ fn invalidate_reloaded_pane(id: &str, pane_views: &mut HashMap<String, PaneView>
     pane_views.remove(id);
 }
 
-fn apply_buffered_after_catch_up(
+fn apply_messages_after_catch_up(
     target_id: &str,
-    refreshed_existing_pane: bool,
     messages: impl IntoIterator<Item = DaemonMessage>,
     pane_views: &mut HashMap<String, PaneView>,
     state_source: &StateSource,
 ) {
     for msg in messages {
-        if refreshed_existing_pane
-            && matches!(&msg, DaemonMessage::Output { id, .. } if id == target_id)
-        {
+        // CatchUp is generated after all earlier output has entered the
+        // daemon's ring buffer, so target output received before CatchUp is
+        // already represented by the snapshot. Replaying it would apply
+        // relative cursor movement twice. Lifecycle messages and output for
+        // other cached panes still need to be observed.
+        if matches!(&msg, DaemonMessage::Output { id, .. } if id == target_id) {
             continue;
         }
         apply_daemon_message(&msg, pane_views, state_source);
     }
 }
 
-fn resize_pane_and_apply_buffered(
+fn apply_buffered_and_resize_pane(
     agent_id: &str,
     rows: u16,
     cols: u16,
@@ -663,11 +666,13 @@ fn resize_pane_and_apply_buffered(
     pane_views: &mut HashMap<String, PaneView>,
     state_source: &StateSource,
 ) {
-    if let Some(pv) = pane_views.get_mut(agent_id) {
-        pv.resize(rows, cols);
-    }
+    // Messages received before the Resize acknowledgement were emitted under
+    // the old geometry. Apply them before resizing the local terminal model.
     for msg in buffered {
         apply_daemon_message(&msg, pane_views, state_source);
+    }
+    if let Some(pv) = pane_views.get_mut(agent_id) {
+        pv.resize(rows, cols);
     }
 }
 
@@ -1794,9 +1799,8 @@ async fn handle_dashboard_event(
                             &result.catch_up,
                         )?;
                         pane_views.insert(agent_id.clone(), pv);
-                        apply_buffered_after_catch_up(
+                        apply_messages_after_catch_up(
                             &agent_id,
-                            true,
                             result.buffered,
                             pane_views,
                             state_source,
@@ -2407,7 +2411,7 @@ async fn handle_terminal_event(
         Event::Resize(cols, rows) => {
             let content_rows = rows.saturating_sub(1);
             if let Ok(buffered) = client.resize_buffered(agent_id, content_rows, *cols).await {
-                resize_pane_and_apply_buffered(
+                apply_buffered_and_resize_pane(
                     agent_id,
                     content_rows,
                     *cols,
@@ -2653,7 +2657,7 @@ mod tests {
         assert!(existing.has_pending_output());
         pane_views.insert("agent-1".to_string(), existing);
 
-        resize_pane_and_apply_buffered(
+        apply_buffered_and_resize_pane(
             "agent-1",
             4,
             20,
@@ -2722,14 +2726,14 @@ mod tests {
     }
 
     #[test]
-    fn resize_replays_buffered_output_after_local_pane_resize() {
+    fn resize_replays_old_geometry_output_before_local_pane_resize() {
         let mut pane_views = HashMap::new();
         pane_views.insert(
             "agent-1".to_string(),
             PaneView::new_with_backend(TerminalBackend::Vt100, 2, 10).unwrap(),
         );
 
-        resize_pane_and_apply_buffered(
+        apply_buffered_and_resize_pane(
             "agent-1",
             2,
             5,
@@ -2743,7 +2747,51 @@ mod tests {
 
         let pane = pane_views.get("agent-1").unwrap();
         assert_eq!(pane.terminal.size(), (2, 5));
-        assert_eq!(pane.terminal.visible_text(), "    X");
+        assert_eq!(pane.terminal.visible_text(), "");
+    }
+
+    #[test]
+    fn catch_up_does_not_replay_target_output_already_in_snapshot() {
+        let mut pane_views = HashMap::new();
+        pane_views.insert(
+            "agent-1".to_string(),
+            PaneView::from_catch_up_with_backend(
+                TerminalBackend::Vt100,
+                2,
+                20,
+                &catch_up_bytes(b"snapshot"),
+            )
+            .unwrap(),
+        );
+        pane_views.insert(
+            "agent-2".to_string(),
+            PaneView::new_with_backend(TerminalBackend::Vt100, 2, 20).unwrap(),
+        );
+
+        apply_messages_after_catch_up(
+            "agent-1",
+            [
+                DaemonMessage::Output {
+                    id: "agent-1".to_string(),
+                    data: b" duplicated".to_vec(),
+                },
+                DaemonMessage::Output {
+                    id: "agent-2".to_string(),
+                    data: b"live".to_vec(),
+                },
+            ],
+            &mut pane_views,
+            &StateSource::Direct,
+        );
+
+        assert_eq!(
+            pane_views.get("agent-1").unwrap().terminal.visible_text(),
+            "snapshot"
+        );
+        assert_eq!(
+            pane_views.get("agent-2").unwrap().terminal.visible_text(),
+            "live"
+        );
     }
 
     #[test]

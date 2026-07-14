@@ -1201,6 +1201,10 @@ async fn handle_client_message(
         }
         ClientMessage::Resize { id, rows, cols } => {
             if let Some(slot) = agents.get_mut(&id) {
+                // Output already accepted into the ring buffer belongs to the
+                // old terminal geometry. Parse it before changing the model's
+                // size so relative cursor movement keeps its original meaning.
+                slot.sync_terminal();
                 let size = PtySize {
                     rows,
                     cols,

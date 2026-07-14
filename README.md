@@ -94,7 +94,7 @@ terminal:
 
 `ghostty` is reserved for the libghostty-vt investigation and should stay opt-in until it has proven stable in daily use. The normal runtime default remains `vt100`; set `terminal.backend: ghostty` explicitly to test the Ghostty terminal model.
 
-Set `terminal.loglevel: debug` while investigating rendering bugs. Logs are appended to `~/.clamor/terminal.log` so they do not corrupt the TUI; `trace` also includes escaped byte previews and can grow quickly.
+Set `terminal.loglevel: debug` while investigating rendering bugs. Logs are appended to daily `~/.clamor/terminal-YYYY-MM-DD.log` files so they do not corrupt the TUI; files older than seven days are removed at startup. `trace` also includes escaped byte previews and can grow quickly.
 
 #### Terminal Traces
 

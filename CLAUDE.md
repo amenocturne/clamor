@@ -20,7 +20,7 @@ cargo fmt                    # Format
 - **protocol** (`protocol.rs`) — wire format (4-byte BE length + JSON), both sync and async variants
 - **terminal_model** (`terminal_model.rs`) — terminal emulation boundary; `vt100` is the default backend, `ghostty` is experimental and must stay opt-in
 - **trace** (`trace.rs`) — opt-in raw PTY trace recording via `CLAMOR_TRACE_DIR` plus hidden replay harness for backend comparisons
-- **diagnostics** (`diagnostics.rs`) — opt-in terminal diagnostics via `terminal.loglevel`; writes to `~/.clamor/terminal.log` to avoid corrupting the TUI
+- **diagnostics** (`diagnostics.rs`) — opt-in terminal diagnostics via `terminal.loglevel`; writes daily `~/.clamor/terminal-YYYY-MM-DD.log` files and prunes files older than seven days at startup
 - **pane** (`pane.rs`) — client-side terminal model view with scrollback, selection, clipboard
 - **state** (`state.rs`) — file-locked JSON persistence (`~/.clamor/state.json`); three states: Working, Input, Done (Lost was removed — daemon auto-resumes sessions on restart)
 - **config** (`config.rs`) — YAML config at `~/.config/clamor/config.yaml`, backend registry with built-in templates, folder-to-backend mapping, legacy JSON migration
