@@ -18,6 +18,8 @@ pub enum DashboardAction {
     PendingKill,
     ReloadAgent(String),
     PendingReload,
+    ReparseAgent(String),
+    PendingReparse,
     ToggleTerminalBackend(String),
     PendingTerminalBackend,
     EditAgent(String),
@@ -82,6 +84,7 @@ pub enum InputMode {
     Normal,
     WaitingKill,
     WaitingReload,
+    WaitingReparse,
     WaitingTerminalBackend,
     ConfirmReload {
         agent_id: String,
@@ -167,6 +170,7 @@ pub fn handle_input(
         InputMode::Normal => handle_normal(event, key_map),
         InputMode::WaitingKill => handle_pending_kill(event, key_map),
         InputMode::WaitingReload => handle_pending_reload(event, key_map),
+        InputMode::WaitingReparse => handle_pending_reparse(event, key_map),
         InputMode::WaitingTerminalBackend => handle_pending_terminal_backend(event, key_map),
         InputMode::ConfirmReload { .. } => handle_confirm_reload_input(event),
         InputMode::WaitingEdit => handle_pending_edit(event, key_map),
@@ -197,6 +201,7 @@ fn handle_normal(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardA
         KeyCode::Char('x') => DashboardAction::PendingKill,
         KeyCode::Char('e') => DashboardAction::PendingEdit,
         KeyCode::Char('r') => DashboardAction::PendingReload,
+        KeyCode::Char('p') => DashboardAction::PendingReparse,
         KeyCode::Char('B') => DashboardAction::PendingTerminalBackend,
         KeyCode::Char('R') => DashboardAction::AdoptStart,
         KeyCode::Char('b') => DashboardAction::RebindStart,
@@ -239,6 +244,17 @@ fn handle_pending_reload(event: KeyEvent, key_map: &HashMap<char, String>) -> Da
     match event.code {
         KeyCode::Char(c) => match key_map.get(&c) {
             Some(agent_id) => DashboardAction::ReloadAgent(agent_id.clone()),
+            None => DashboardAction::Cancel,
+        },
+        KeyCode::Esc => DashboardAction::Cancel,
+        _ => DashboardAction::Cancel,
+    }
+}
+
+fn handle_pending_reparse(event: KeyEvent, key_map: &HashMap<char, String>) -> DashboardAction {
+    match event.code {
+        KeyCode::Char(c) => match key_map.get(&c) {
+            Some(agent_id) => DashboardAction::ReparseAgent(agent_id.clone()),
             None => DashboardAction::Cancel,
         },
         KeyCode::Esc => DashboardAction::Cancel,
@@ -514,6 +530,47 @@ mod tests {
             action,
             DashboardAction::PromptCycleBackend { reverse: false }
         ));
+    }
+
+    #[test]
+    fn p_enters_reparse_target_mode() {
+        let action = handle_input(
+            key_event(KeyCode::Char('p'), KeyModifiers::NONE),
+            &HashMap::new(),
+            &InputMode::Normal,
+        );
+        assert!(matches!(action, DashboardAction::PendingReparse));
+    }
+
+    #[test]
+    fn waiting_reparse_routes_agent_key_and_escape() {
+        let key_map = HashMap::from([('a', "agent-1".to_string())]);
+        let action = handle_input(
+            key_event(KeyCode::Char('a'), KeyModifiers::NONE),
+            &key_map,
+            &InputMode::WaitingReparse,
+        );
+        assert!(matches!(
+            action,
+            DashboardAction::ReparseAgent(ref id) if id == "agent-1"
+        ));
+
+        let action = handle_input(
+            key_event(KeyCode::Esc, KeyModifiers::NONE),
+            &key_map,
+            &InputMode::WaitingReparse,
+        );
+        assert!(matches!(action, DashboardAction::Cancel));
+    }
+
+    #[test]
+    fn waiting_reparse_cancels_for_unknown_agent_key() {
+        let action = handle_input(
+            key_event(KeyCode::Char('z'), KeyModifiers::NONE),
+            &HashMap::new(),
+            &InputMode::WaitingReparse,
+        );
+        assert!(matches!(action, DashboardAction::Cancel));
     }
 
     #[test]

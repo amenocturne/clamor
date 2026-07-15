@@ -950,7 +950,12 @@ impl AgentSlot {
         }
 
         let replay_start = total - self.terminal_behind;
-        let replay: Vec<u8> = self.ring_buffer.iter().skip(replay_start).copied().collect();
+        let replay: Vec<u8> = self
+            .ring_buffer
+            .iter()
+            .skip(replay_start)
+            .copied()
+            .collect();
         self.terminal.process_output(&replay);
         terminal_log(
             TerminalLogLevel::Debug,
@@ -1121,7 +1126,6 @@ mod catch_up_mode_tests {
         );
     }
 }
-
 
 /// After byte-level drain, skip past any partial escape sequence at the front.
 ///
@@ -1371,6 +1375,23 @@ enum HandleResult {
     Shutdown,
 }
 
+fn set_single_subscription(subscriptions: &mut HashSet<String>, id: String) {
+    subscriptions.clear();
+    subscriptions.insert(id);
+}
+
+#[cfg(test)]
+mod subscription_tests {
+    use super::*;
+
+    #[test]
+    fn setting_subscription_replaces_previous_target() {
+        let mut subscriptions = HashSet::from(["old-agent".to_string()]);
+        set_single_subscription(&mut subscriptions, "target-agent".to_string());
+        assert_eq!(subscriptions, HashSet::from(["target-agent".to_string()]));
+    }
+}
+
 async fn handle_client_message(
     msg: ClientMessage,
     agents: &mut HashMap<String, AgentSlot>,
@@ -1487,8 +1508,7 @@ async fn handle_client_message(
                         catch_up_data.len()
                     ),
                 );
-                subscriptions.clear();
-                subscriptions.insert(id.clone());
+                set_single_subscription(subscriptions, id.clone());
                 let _ = send_to_client(
                     stream,
                     &DaemonMessage::CatchUp {
@@ -1520,7 +1540,7 @@ async fn handle_client_message(
                         catch_up_data.len()
                     ),
                 );
-                subscriptions.insert(id.clone());
+                set_single_subscription(subscriptions, id.clone());
                 let _ = send_to_client(
                     stream,
                     &DaemonMessage::CatchUp {

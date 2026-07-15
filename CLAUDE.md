@@ -58,6 +58,7 @@ Current protocol messages include `Hello { version }` for version exchange betwe
 - `c` — create agent (inline prompt), `C` — create via `$EDITOR`
 - `x` + key — kill agent (with confirmation)
 - `e` + key — edit agent description
+- `p` + key — re-parse terminal from retained raw output without restarting the agent
 - `v` — toggle select, `V` — select/deselect all
 - `/` — filter agents by name
 - `R` — adopt existing Claude Code session

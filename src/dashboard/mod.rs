@@ -31,11 +31,11 @@ use crate::daemon;
 use crate::diagnostics::terminal_log;
 use crate::pane::{self, PaneView};
 use crate::protocol::DaemonMessage;
+use crate::render_prof::{RenderProfiler, Stage};
 use crate::state::{
     cycle_backend_for_folder, selected_backend_for_folder, with_state, ClamorState,
     PromptHistoryEntry,
 };
-use crate::render_prof::{RenderProfiler, Stage};
 use crate::terminal_model::TerminalModel;
 use crate::watcher::StateSource;
 
@@ -639,6 +639,20 @@ fn invalidate_reloaded_pane(id: &str, pane_views: &mut HashMap<String, PaneView>
     pane_views.remove(id);
 }
 
+fn install_refreshed_parser_pane(
+    agent_id: &str,
+    rows: u16,
+    cols: u16,
+    result: crate::client::SubscribeResult,
+    pane_views: &mut HashMap<String, PaneView>,
+    state_source: &StateSource,
+) -> Result<()> {
+    let pv = pane_view_from_catch_up(result.terminal_backend, rows, cols, &result.catch_up)?;
+    pane_views.insert(agent_id.to_string(), pv);
+    apply_messages_after_catch_up(agent_id, result.buffered, pane_views, state_source);
+    Ok(())
+}
+
 fn apply_messages_after_catch_up(
     target_id: &str,
     messages: impl IntoIterator<Item = DaemonMessage>,
@@ -913,6 +927,7 @@ fn build_overlay<'a>(
         }
         InputMode::WaitingKill => render::Overlay::PendingKill,
         InputMode::WaitingReload => render::Overlay::PendingReload,
+        InputMode::WaitingReparse => render::Overlay::PendingReparse,
         InputMode::WaitingTerminalBackend => render::Overlay::PendingTerminalBackend,
         InputMode::ConfirmReload {
             agent_id, title, ..
@@ -1783,6 +1798,43 @@ async fn handle_dashboard_event(
 
             DashboardAction::PendingReload => {
                 *input_mode = InputMode::WaitingReload;
+            }
+
+            DashboardAction::PendingReparse => {
+                *input_mode = InputMode::WaitingReparse;
+            }
+
+            DashboardAction::ReparseAgent(agent_id) => {
+                let result = match client.refresh_parser_buffered(&agent_id).await {
+                    Ok(result) => install_refreshed_parser_pane(
+                        &agent_id,
+                        pty_rows,
+                        pty_cols,
+                        result,
+                        pane_views,
+                        state_source,
+                    ),
+                    Err(error) => {
+                        // No valid snapshot was installed, so target output is
+                        // ordinary incremental output and must not be filtered.
+                        let (error, buffered) = error.into_parts();
+                        for msg in buffered {
+                            apply_daemon_message(&msg, pane_views, state_source);
+                        }
+                        Err(error)
+                    }
+                };
+                match result {
+                    Ok(()) => {
+                        *input_mode = InputMode::Normal;
+                        set_flash(flash, "terminal re-parsed");
+                    }
+                    Err(e) => {
+                        *input_mode = InputMode::ActionFailed {
+                            reason: format!("{e:#}"),
+                        };
+                    }
+                }
             }
 
             DashboardAction::PendingTerminalBackend => {
@@ -2673,6 +2725,50 @@ mod tests {
         assert!(pane.copy_mode.is_some());
         assert!(pane.selection.is_some());
         assert!(pane.has_pending_output());
+    }
+
+    #[test]
+    fn parser_refresh_replaces_cached_pane_and_handles_buffered_messages() {
+        let mut pane_views = HashMap::new();
+        let mut existing = PaneView::new_with_backend(TerminalBackend::Vt100, 3, 12).unwrap();
+        existing.process_output(b"old terminal");
+        existing.enter_copy_mode(3, 12);
+        pane_views.insert("agent-1".to_string(), existing);
+        pane_views.insert(
+            "agent-2".to_string(),
+            PaneView::new_with_backend(TerminalBackend::Vt100, 3, 12).unwrap(),
+        );
+
+        install_refreshed_parser_pane(
+            "agent-1",
+            3,
+            12,
+            crate::client::SubscribeResult {
+                catch_up: catch_up_bytes(b"repaired"),
+                buffered: vec![
+                    DaemonMessage::Output {
+                        id: "agent-1".to_string(),
+                        data: b" duplicate".to_vec(),
+                    },
+                    DaemonMessage::Output {
+                        id: "agent-2".to_string(),
+                        data: b"other output".to_vec(),
+                    },
+                ],
+                terminal_backend: TerminalBackend::Vt100,
+            },
+            &mut pane_views,
+            &StateSource::Direct,
+        )
+        .unwrap();
+
+        let repaired = pane_views.get("agent-1").unwrap();
+        assert_eq!(repaired.terminal.visible_text(), "repaired");
+        assert!(repaired.copy_mode.is_none());
+        assert_eq!(
+            pane_views.get("agent-2").unwrap().terminal.visible_text(),
+            "other output"
+        );
     }
 
     #[test]

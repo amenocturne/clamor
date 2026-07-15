@@ -196,6 +196,7 @@ clamor stop             Stop the daemon
 | `C`            | Create agent ($EDITOR prompt)    |
 | `x` + key      | Kill agent (with confirmation)   |
 | `e` + key      | Edit agent description           |
+| `p` + key      | Re-parse terminal output         |
 | `v`            | Toggle select agent              |
 | `V`            | Select / deselect all            |
 | `/`            | Filter agents by name            |
@@ -245,7 +246,7 @@ Clamor uses a daemon-client architecture, similar to tmux:
 
 ## Troubleshooting
 
-**Agent terminal looks garbled after attaching** — Double `Ctrl+F` fixes it. The first detaches to the dashboard, the second re-attaches, resetting the terminal state.
+**Agent terminal looks garbled** — Detach to the dashboard with `Ctrl+F`, then press `p` followed by the agent's jump key. Clamor rebuilds terminal parsing/rendering from the raw output still retained by the daemon; it does not restart or otherwise touch the running child process. This is a bounded repair, not an exact replay of the session's full lifetime.
 
 **Daemon won't start** — Check if a stale socket exists: `rm ~/.clamor/clamor.sock` and try again.
 

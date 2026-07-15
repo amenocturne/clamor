@@ -52,6 +52,7 @@ pub enum Overlay<'a> {
         count: usize,
     },
     PendingReload,
+    PendingReparse,
     PendingTerminalBackend,
     ConfirmReload {
         agent_id: &'a str,
@@ -461,6 +462,15 @@ fn render_footer(
             Span::raw(" "),
             Span::styled(
                 "Reload: press agent key (Esc to cancel)",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ])),
+        Overlay::PendingReparse => Paragraph::new(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                "Re-parse terminal: press agent key (Esc to cancel)",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
