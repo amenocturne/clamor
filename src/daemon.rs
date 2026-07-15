@@ -14,7 +14,10 @@ use crate::protocol::{
     recv_message_async, send_message_async, ClientMessage, DaemonAgent, DaemonMessage,
 };
 use crate::render_prof::{RenderProfiler, Stage};
-use crate::terminal_model::{terminal_repair_bytes, TerminalModel, TerminalModelState};
+use crate::terminal_model::{
+    terminal_repair_bytes, MouseEncoding, MouseMode, TerminalModel, TerminalModelState,
+    TerminalModes,
+};
 use crate::trace::TraceRecorder;
 
 pub fn daemon_socket_path() -> Result<PathBuf> {
@@ -128,6 +131,130 @@ enum PtyEvent {
 struct TerminalQueryResponder {
     partial: Vec<u8>,
     cpr_requested: bool,
+}
+
+#[derive(Default)]
+struct TerminalModeTracker {
+    partial: Vec<u8>,
+    alternate_47: bool,
+    alternate_1047: bool,
+    alternate_1049: bool,
+    mouse_9: bool,
+    mouse_1000: bool,
+    mouse_1002: bool,
+    mouse_1003: bool,
+    mouse_1005: bool,
+    mouse_1006: bool,
+    bracketed_paste: bool,
+}
+
+impl TerminalModeTracker {
+    const MAX_PARTIAL_CSI_BYTES: usize = 128;
+
+    fn process(&mut self, data: &[u8]) {
+        let mut combined = std::mem::take(&mut self.partial);
+        combined.extend_from_slice(data);
+
+        let mut i = 0;
+        while i < combined.len() {
+            if combined[i] != 0x1b {
+                i += 1;
+                continue;
+            }
+            if i + 1 == combined.len() {
+                self.partial.push(0x1b);
+                return;
+            }
+            if combined[i + 1] == b'c' {
+                self.reset_modes();
+                i += 2;
+                continue;
+            }
+            if combined[i + 1] != b'[' {
+                i += 2;
+                continue;
+            }
+
+            let Some(final_offset) = combined[i + 2..]
+                .iter()
+                .position(|byte| (0x40..=0x7e).contains(byte))
+            else {
+                let partial = &combined[i..];
+                if partial.len() <= Self::MAX_PARTIAL_CSI_BYTES {
+                    self.partial.extend_from_slice(partial);
+                }
+                return;
+            };
+            let final_index = i + 2 + final_offset;
+            let final_byte = combined[final_index];
+            if matches!(final_byte, b'h' | b'l') && combined.get(i + 2) == Some(&b'?') {
+                let enabled = final_byte == b'h';
+                for mode in combined[i + 3..final_index].split(|byte| *byte == b';') {
+                    if let Ok(mode) = std::str::from_utf8(mode).unwrap_or("").parse::<u16>() {
+                        self.set_private_mode(mode, enabled);
+                    }
+                }
+            }
+            i = final_index + 1;
+        }
+    }
+
+    fn set_private_mode(&mut self, mode: u16, enabled: bool) {
+        match mode {
+            9 => self.mouse_9 = enabled,
+            47 => self.alternate_47 = enabled,
+            1000 => self.mouse_1000 = enabled,
+            1002 => self.mouse_1002 = enabled,
+            1003 => self.mouse_1003 = enabled,
+            1005 => self.mouse_1005 = enabled,
+            1006 => self.mouse_1006 = enabled,
+            1047 => self.alternate_1047 = enabled,
+            1049 => self.alternate_1049 = enabled,
+            2004 => self.bracketed_paste = enabled,
+            _ => {}
+        }
+    }
+
+    fn reset_modes(&mut self) {
+        self.alternate_47 = false;
+        self.alternate_1047 = false;
+        self.alternate_1049 = false;
+        self.mouse_9 = false;
+        self.mouse_1000 = false;
+        self.mouse_1002 = false;
+        self.mouse_1003 = false;
+        self.mouse_1005 = false;
+        self.mouse_1006 = false;
+        self.bracketed_paste = false;
+    }
+
+    fn modes(&self) -> TerminalModes {
+        let mouse_mode = if self.mouse_1003 {
+            MouseMode::AnyMotion
+        } else if self.mouse_1002 {
+            MouseMode::ButtonMotion
+        } else if self.mouse_1000 {
+            MouseMode::PressRelease
+        } else if self.mouse_9 {
+            MouseMode::Press
+        } else {
+            MouseMode::None
+        };
+        let mouse_encoding = if self.mouse_1006 {
+            MouseEncoding::Sgr
+        } else if self.mouse_1005 {
+            MouseEncoding::Utf8
+        } else {
+            MouseEncoding::Default
+        };
+
+        TerminalModes {
+            alternate_screen: self.alternate_47 || self.alternate_1047 || self.alternate_1049,
+            bracketed_paste: self.bracketed_paste,
+            mouse_mode,
+            mouse_encoding,
+        }
+    }
 }
 
 impl TerminalQueryResponder {
@@ -516,6 +643,122 @@ mod query_tests {
 }
 
 #[cfg(test)]
+mod mode_tracker_tests {
+    use super::*;
+    use crate::terminal_model::Vt100TerminalModel;
+
+    const CROSSTERM_MOUSE_ENABLE: &[u8] =
+        b"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h";
+    const CROSSTERM_MOUSE_DISABLE: &[u8] =
+        b"\x1b[?1006l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l";
+
+    #[test]
+    fn tracks_crossterm_mouse_capture_across_every_chunk_boundary() {
+        for split in 0..=CROSSTERM_MOUSE_ENABLE.len() {
+            let mut tracker = TerminalModeTracker::default();
+            tracker.process(&CROSSTERM_MOUSE_ENABLE[..split]);
+            tracker.process(&CROSSTERM_MOUSE_ENABLE[split..]);
+
+            assert_eq!(
+                tracker.modes().mouse_mode,
+                MouseMode::AnyMotion,
+                "split at byte {split}"
+            );
+            assert_eq!(
+                tracker.modes().mouse_encoding,
+                MouseEncoding::Sgr,
+                "split at byte {split}"
+            );
+        }
+    }
+
+    #[test]
+    fn tracks_mouse_capture_disable() {
+        let mut tracker = TerminalModeTracker::default();
+        tracker.process(CROSSTERM_MOUSE_ENABLE);
+        tracker.process(CROSSTERM_MOUSE_DISABLE);
+
+        assert_eq!(tracker.modes().mouse_mode, MouseMode::None);
+        assert_eq!(tracker.modes().mouse_encoding, MouseEncoding::Default);
+    }
+
+    #[test]
+    fn terminal_reset_clears_tracked_modes_across_chunk_boundaries() {
+        for split in 0..=2 {
+            let mut tracker = TerminalModeTracker::default();
+            tracker.process(CROSSTERM_MOUSE_ENABLE);
+            tracker.process(b"\x1b[?1049h\x1b[?2004h");
+            tracker.process(&b"\x1bc"[..split]);
+            tracker.process(&b"\x1bc"[split..]);
+
+            assert_eq!(
+                tracker.modes(),
+                TerminalModes {
+                    alternate_screen: false,
+                    bracketed_paste: false,
+                    mouse_mode: MouseMode::None,
+                    mouse_encoding: MouseEncoding::Default,
+                },
+                "split at byte {split}"
+            );
+        }
+    }
+
+    #[test]
+    fn tracks_mode_lists_and_alternate_screen_variants() {
+        let mut tracker = TerminalModeTracker::default();
+        tracker.process(b"\x1b[?47;2004;1002;1006h");
+
+        assert_eq!(
+            tracker.modes(),
+            TerminalModes {
+                alternate_screen: true,
+                bracketed_paste: true,
+                mouse_mode: MouseMode::ButtonMotion,
+                mouse_encoding: MouseEncoding::Sgr,
+            }
+        );
+
+        tracker.process(b"\x1b[?47;2004;1002;1006l");
+        assert_eq!(
+            tracker.modes(),
+            TerminalModes {
+                alternate_screen: false,
+                bracketed_paste: false,
+                mouse_mode: MouseMode::None,
+                mouse_encoding: MouseEncoding::Default,
+            }
+        );
+    }
+
+    #[test]
+    fn repair_preserves_mouse_mode_when_rebuild_tail_omits_enable() {
+        let mut tracker = TerminalModeTracker::default();
+        tracker.process(CROSSTERM_MOUSE_ENABLE);
+        tracker.process(b"\x1b[?1049h\x1b[?2004h");
+
+        // This models sync_terminal's bounded tail rebuild: the fresh parser
+        // sees the latest repaint, but not Nefor's one-time setup sequences.
+        let mut rebuilt = Vt100TerminalModel::new(24, 80, 0);
+        rebuilt.process_output(b"\x1b[Hlatest frame");
+        assert_eq!(rebuilt.modes().mouse_mode, MouseMode::None);
+
+        let repair = terminal_repair_bytes(
+            tracker.modes(),
+            &rebuilt.contents_formatted(),
+            rebuilt.cursor(),
+        );
+        let mut restored = Vt100TerminalModel::new(24, 80, 0);
+        restored.process_catch_up(&repair);
+
+        assert!(restored.modes().alternate_screen);
+        assert!(restored.modes().bracketed_paste);
+        assert_eq!(restored.modes().mouse_mode, MouseMode::AnyMotion);
+        assert_eq!(restored.modes().mouse_encoding, MouseEncoding::Sgr);
+    }
+}
+
+#[cfg(test)]
 mod find_cpr_tests {
     use super::*;
 
@@ -602,6 +845,9 @@ struct AgentSlot {
     terminal_behind: usize,
     /// Per-agent terminal query responder.
     responder: TerminalQueryResponder,
+    /// DEC modes are state, not screen history. Track them on every PTY chunk
+    /// so parser rebuilds from a bounded tail cannot forget one-time setup.
+    mode_tracker: TerminalModeTracker,
     /// Optional raw PTY trace recorder for replay-based backend comparison.
     trace: Option<TraceRecorder>,
 }
@@ -723,7 +969,7 @@ impl AgentSlot {
     /// then the repair bytes fix the final screen state.
     fn catch_up_data(&mut self) -> Vec<u8> {
         self.sync_terminal();
-        let modes = self.terminal.modes();
+        let modes = self.mode_tracker.modes();
         let cursor = self.terminal.cursor();
         let formatted = self.terminal.contents_formatted();
         let repair = terminal_repair_bytes(modes, &formatted, cursor);
@@ -761,6 +1007,8 @@ impl AgentSlot {
                 self.trace = None;
             }
         }
+
+        self.mode_tracker.process(raw);
 
         // 1. Detect terminal queries (DA1, DECRQM, CPR)
         let responses = self.responder.scan_for_queries(raw);
@@ -1460,6 +1708,7 @@ fn spawn_agent_pty(
         alive: true,
         terminal_behind: 0,
         responder: TerminalQueryResponder::new(),
+        mode_tracker: TerminalModeTracker::default(),
         trace: TraceRecorder::from_env(id)?,
     })
 }
