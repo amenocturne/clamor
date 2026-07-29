@@ -328,11 +328,12 @@ async fn main_loop(
                     Ok(msg) => {
                         daemon_connected = true;
                         let msg_t0 = Instant::now();
+                        let mut message_needs_render = true;
                         match msg {
                             DaemonMessage::Output { ref id, ref data } => {
-                                if let Some(pv) = pane_views.get_mut(id.as_str()) {
-                                    pv.process_output(data);
-                                }
+                                message_needs_render = pane_views
+                                    .get_mut(id.as_str())
+                                    .is_some_and(|pv| pv.process_output(data));
                                 let elapsed = msg_t0.elapsed();
                                 if elapsed.as_millis() > 5 {
                                     terminal_log(
@@ -374,7 +375,7 @@ async fn main_loop(
                             }
                             _ => {}
                         }
-                        needs_render = true;
+                        needs_render |= message_needs_render;
                     }
                     Err(_) => {
                         daemon_connected = false;

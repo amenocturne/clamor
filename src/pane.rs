@@ -12,6 +12,100 @@ use crate::config::{TerminalBackend, TerminalLogLevel};
 use crate::diagnostics::{byte_preview, terminal_log, terminal_log_enabled};
 use crate::terminal_model::{TerminalModel, TerminalModelState};
 
+const SYNC_OUTPUT_BEGIN: &[u8] = b"\x1b[?2026h";
+const SYNC_OUTPUT_END: &[u8] = b"\x1b[?2026l";
+const MAX_SYNC_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
+
+#[derive(Default)]
+struct SynchronizedOutput {
+    depth: usize,
+    scan_from: usize,
+    buffered: Vec<u8>,
+}
+
+impl SynchronizedOutput {
+    fn push(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
+        self.buffered.extend_from_slice(data);
+        let mut ready = Vec::new();
+
+        loop {
+            if self.depth == 0 {
+                if let Some(start) = find_subslice(&self.buffered, SYNC_OUTPUT_BEGIN) {
+                    if start > 0 {
+                        ready.push(self.buffered.drain(..start).collect());
+                    }
+                    self.depth = 1;
+                    self.scan_from = SYNC_OUTPUT_BEGIN.len();
+                } else {
+                    let retained = longest_marker_prefix_suffix(&self.buffered, SYNC_OUTPUT_BEGIN);
+                    let ready_len = self.buffered.len().saturating_sub(retained);
+                    if ready_len > 0 {
+                        ready.push(self.buffered.drain(..ready_len).collect());
+                    }
+                    break;
+                }
+            }
+
+            let tail = &self.buffered[self.scan_from..];
+            let next_begin =
+                find_subslice(tail, SYNC_OUTPUT_BEGIN).map(|offset| self.scan_from + offset);
+            let next_end =
+                find_subslice(tail, SYNC_OUTPUT_END).map(|offset| self.scan_from + offset);
+
+            match (next_begin, next_end) {
+                (Some(begin), Some(end)) if begin < end => {
+                    self.depth += 1;
+                    self.scan_from = begin + SYNC_OUTPUT_BEGIN.len();
+                }
+                (Some(begin), None) => {
+                    self.depth += 1;
+                    self.scan_from = begin + SYNC_OUTPUT_BEGIN.len();
+                }
+                (_, Some(end)) => {
+                    self.depth = self.depth.saturating_sub(1);
+                    self.scan_from = end + SYNC_OUTPUT_END.len();
+                    if self.depth == 0 {
+                        ready.push(self.buffered.drain(..self.scan_from).collect());
+                        self.scan_from = 0;
+                    }
+                }
+                _ if self.buffered.len() > MAX_SYNC_OUTPUT_BYTES => {
+                    self.depth = 0;
+                    self.scan_from = 0;
+                    ready.push(std::mem::take(&mut self.buffered));
+                    break;
+                }
+                _ => {
+                    let begin_suffix =
+                        longest_marker_prefix_suffix(&self.buffered, SYNC_OUTPUT_BEGIN);
+                    let end_suffix = longest_marker_prefix_suffix(&self.buffered, SYNC_OUTPUT_END);
+                    self.scan_from = self
+                        .buffered
+                        .len()
+                        .saturating_sub(begin_suffix.max(end_suffix));
+                    break;
+                }
+            }
+        }
+
+        ready
+    }
+}
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+fn longest_marker_prefix_suffix(data: &[u8], marker: &[u8]) -> usize {
+    let max = data.len().min(marker.len().saturating_sub(1));
+    (1..=max)
+        .rev()
+        .find(|&len| data.ends_with(&marker[..len]))
+        .unwrap_or(0)
+}
+
 /// 8 visually distinct colors for agent identification on dark terminals.
 pub const AGENT_COLORS: &[Color] = &[
     Color::Cyan,
@@ -60,6 +154,7 @@ pub struct PaneView {
     pub selection: Option<Selection>,
     pub copy_mode: Option<CopyMode>,
     pending_output: Vec<u8>,
+    synchronized_output: SynchronizedOutput,
 }
 
 impl PaneView {
@@ -78,6 +173,7 @@ impl PaneView {
             selection: None,
             copy_mode: None,
             pending_output: Vec::new(),
+            synchronized_output: SynchronizedOutput::default(),
         })
     }
 
@@ -110,6 +206,7 @@ impl PaneView {
             selection: None,
             copy_mode: None,
             pending_output: Vec::new(),
+            synchronized_output: SynchronizedOutput::default(),
         }
     }
 
@@ -131,12 +228,21 @@ impl PaneView {
         Ok(())
     }
 
-    /// Feed output bytes (received from daemon) into the vt100 parser.
+    /// Feed output bytes received from the daemon into the terminal parser.
     ///
-    /// When scrolled up (frozen), output is buffered without touching the parser
-    /// so the display stays completely stable. Buffered data is flushed when
-    /// returning to live view via `snap_to_bottom()`.
-    pub fn process_output(&mut self, data: &[u8]) {
+    /// DEC synchronized-output frames are withheld until their end marker so
+    /// the outer Ratatui renderer cannot publish a clear or partial repaint.
+    /// Returns whether visible terminal state was updated.
+    pub fn process_output(&mut self, data: &[u8]) -> bool {
+        let ready = self.synchronized_output.push(data);
+        let updated = !ready.is_empty();
+        for data in ready {
+            self.process_ready_output(&data);
+        }
+        updated
+    }
+
+    fn process_ready_output(&mut self, data: &[u8]) {
         if self.scroll_offset > 0 || self.copy_mode.is_some() {
             self.pending_output.extend_from_slice(data);
             terminal_log(
@@ -1035,5 +1141,61 @@ mod tests {
         assert!(!visible.contains("status: working"));
         assert_eq!(visible.matches("> ").count(), 1);
         assert_eq!(visible.matches("status:").count(), 1);
+    }
+
+    #[test]
+    fn synchronized_output_withholds_partial_repaint_until_end() {
+        let mut pane = PaneView::new_with_backend(TerminalBackend::Vt100, 4, 30).unwrap();
+        assert!(pane.process_output(b"old prompt"));
+
+        assert!(!pane.process_output(b"\x1b[?2026h\x1b[2J\x1b[H"));
+        assert_eq!(pane.terminal.visible_text(), "old prompt");
+        assert!(!pane.process_output(b"new chat\r\n> new prompt"));
+        assert_eq!(pane.terminal.visible_text(), "old prompt");
+
+        assert!(pane.process_output(b"\x1b[?2026l"));
+        assert_eq!(pane.terminal.visible_text(), "new chat\n> new prompt");
+    }
+
+    #[test]
+    fn synchronized_output_recognizes_markers_split_at_every_boundary() {
+        let frame = b"\x1b[?2026h\x1b[2J\x1b[Hcomplete\x1b[?2026l";
+
+        for split in 1..frame.len() {
+            let mut pane = PaneView::new_with_backend(TerminalBackend::Vt100, 3, 20).unwrap();
+            assert!(pane.process_output(b"old"));
+            let first_updated = pane.process_output(&frame[..split]);
+            let second_updated = pane.process_output(&frame[split..]);
+
+            assert_eq!(pane.terminal.visible_text(), "complete", "split {split}");
+            assert!(first_updated || second_updated, "split {split}");
+            if split >= SYNC_OUTPUT_BEGIN.len() && split < frame.len() - SYNC_OUTPUT_END.len() {
+                assert!(!first_updated, "published partial frame at split {split}");
+            }
+        }
+    }
+
+    #[test]
+    fn synchronized_output_preserves_ordinary_bytes_around_frame() {
+        let mut pane = PaneView::new_with_backend(TerminalBackend::Vt100, 3, 30).unwrap();
+
+        assert!(pane.process_output(b"before"));
+        assert!(!pane.process_output(b"\x1b[?202"));
+        assert!(pane.process_output(b"6h\x1b[2J\x1b[Hinside\x1b[?2026l\r\nafter"));
+
+        assert_eq!(pane.terminal.visible_text(), "inside\nafter");
+    }
+
+    #[test]
+    fn synchronized_output_flushes_unclosed_oversized_frame() {
+        let mut sync = SynchronizedOutput::default();
+        assert!(sync.push(SYNC_OUTPUT_BEGIN).is_empty());
+
+        let flushed = sync.push(&vec![b'x'; MAX_SYNC_OUTPUT_BYTES + 1]);
+
+        assert_eq!(flushed.len(), 1);
+        assert!(flushed[0].starts_with(SYNC_OUTPUT_BEGIN));
+        assert_eq!(sync.depth, 0);
+        assert!(sync.buffered.is_empty());
     }
 }
