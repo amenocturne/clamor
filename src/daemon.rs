@@ -822,12 +822,33 @@ const RING_BUFFER_CAP: usize = 4 * 1024 * 1024; // 4MB raw PTY history
 /// much scrollback the client gets on attach via catch-up repair bytes.
 const DAEMON_SCROLLBACK: usize = 10_000;
 
-/// Max bytes to replay through the terminal parser during sync_terminal.
-/// When the backlog exceeds this, a fresh parser is rebuilt from the tail
-/// of the ring buffer instead. With an optimized ghostty backend (~1ms/64KB),
-/// the full ring buffer would take ~60ms — but rebuild-from-tail is still
-/// faster for very large backlogs since it starts from a clean parser state.
-const SYNC_REPLAY_CAP: usize = 512 * 1024;
+/// Return the ring-buffer offset for incrementally replaying every byte the
+/// terminal model is behind. `None` means ring-buffer eviction overtook the
+/// parser and an exact incremental replay is no longer possible.
+fn terminal_replay_start(total: usize, behind: usize) -> Option<usize> {
+    total.checked_sub(behind)
+}
+
+fn replay_terminal_backlog(
+    terminal: &mut TerminalModelState,
+    ring_buffer: &VecDeque<u8>,
+    behind: usize,
+) -> Option<(usize, bool)> {
+    let total = ring_buffer.len();
+    let (replay_start, rebuilt) = match terminal_replay_start(total, behind) {
+        Some(start) => (start, false),
+        None => {
+            let (rows, cols) = terminal.size();
+            *terminal =
+                TerminalModelState::new(terminal.backend(), rows, cols, DAEMON_SCROLLBACK).ok()?;
+            (0, true)
+        }
+    };
+
+    let replay: Vec<u8> = ring_buffer.iter().skip(replay_start).copied().collect();
+    terminal.process_output(&replay);
+    Some((replay.len(), rebuilt))
+}
 
 struct AgentSlot {
     #[allow(dead_code)]
@@ -908,9 +929,9 @@ impl AgentSlot {
     /// Bring the terminal model up to date by replaying unprocessed ring
     /// buffer bytes. Called lazily before catch-up or CPR — not on the hot path.
     ///
-    /// When the backlog exceeds SYNC_REPLAY_CAP, rebuilds from a tail slice
-    /// of the ring buffer instead of replaying everything — keeps subscribe
-    /// responsive even with a slow terminal backend (e.g. debug-built ghostty).
+    /// Terminal state is sequential: an arbitrary tail is not a valid recovery
+    /// point because it can begin after a clear, inside an escape sequence, or
+    /// without the alternate-screen state that gives later bytes meaning.
     fn sync_terminal(&mut self) {
         if self.terminal_behind == 0 {
             return;
@@ -918,55 +939,26 @@ impl AgentSlot {
         let started = Instant::now();
         let total = self.ring_buffer.len();
 
-        if self.terminal_behind > total || self.terminal_behind > SYNC_REPLAY_CAP {
-            // Large backlog — rebuild from the tail of the ring buffer.
-            // The last SYNC_REPLAY_CAP bytes are enough to capture the most
-            // recent full-screen repaint; modes/cursor will be correct for
-            // catch-up repair bytes.
-            let cap = total.min(SYNC_REPLAY_CAP);
-            let (rows, cols) = self.terminal.size();
-            if let Ok(mut fresh) =
-                TerminalModelState::new(self.terminal.backend(), rows, cols, DAEMON_SCROLLBACK)
-            {
-                let buf: Vec<u8> = self
-                    .ring_buffer
-                    .iter()
-                    .skip(total.saturating_sub(cap))
-                    .copied()
-                    .collect();
-                fresh.rebuild_from_history(&buf);
-                self.terminal = fresh;
-            }
-            self.terminal_behind = 0;
-            terminal_log(
-                TerminalLogLevel::Info,
-                format!(
-                    "daemon sync_terminal tail-rebuild cap={cap} behind={} ring={total} elapsed_ms={}",
-                    self.terminal_behind,
-                    started.elapsed().as_millis()
-                ),
-            );
+        let Some((replay_len, rebuilt)) =
+            replay_terminal_backlog(&mut self.terminal, &self.ring_buffer, self.terminal_behind)
+        else {
             return;
-        }
-
-        let replay_start = total - self.terminal_behind;
-        let replay: Vec<u8> = self
-            .ring_buffer
-            .iter()
-            .skip(replay_start)
-            .copied()
-            .collect();
-        self.terminal.process_output(&replay);
+        };
+        self.terminal_behind = 0;
         terminal_log(
-            TerminalLogLevel::Debug,
+            if rebuilt {
+                TerminalLogLevel::Info
+            } else {
+                TerminalLogLevel::Debug
+            },
             format!(
-                "daemon sync_terminal replayed={} total_ring={} elapsed_ms={}",
-                replay.len(),
+                "daemon sync_terminal replayed={} total_ring={} rebuilt={} elapsed_ms={}",
+                replay_len,
                 total,
+                rebuilt,
                 started.elapsed().as_millis()
             ),
         );
-        self.terminal_behind = 0;
     }
 
     /// Catch-up: ring buffer history + repair bytes. The client processes
@@ -1060,6 +1052,43 @@ mod catch_up_mode_tests {
         terminal_mode_prelude, CursorState, MouseEncoding, MouseMode, TerminalModes,
         Vt100TerminalModel,
     };
+
+    #[test]
+    fn large_lazy_backlog_keeps_repaint_that_precedes_last_512_kib() {
+        const OLD_TAIL_CAP: usize = 512 * 1024;
+
+        let mut backlog = b"\x1b[2J\x1b[Hcomplete nefor frame".to_vec();
+        while backlog.len() <= OLD_TAIL_CAP * 2 {
+            backlog.extend_from_slice(b"\x1b[H");
+        }
+
+        let mut incremental = Vt100TerminalModel::new(3, 40, 0);
+        incremental.process_output(&backlog);
+
+        let mut old_tail_rebuild = Vt100TerminalModel::new(3, 40, 0);
+        old_tail_rebuild.process_output(&backlog[backlog.len() - OLD_TAIL_CAP..]);
+
+        let ring: VecDeque<u8> = backlog.iter().copied().collect();
+        let mut recovered = TerminalModelState::new(TerminalBackend::Vt100, 3, 40, 0).unwrap();
+        let (replayed, rebuilt) = replay_terminal_backlog(&mut recovered, &ring, backlog.len())
+            .expect("retained backlog should replay");
+
+        assert!(incremental.visible_text().contains("complete nefor frame"));
+        assert!(!old_tail_rebuild
+            .visible_text()
+            .contains("complete nefor frame"));
+        assert_eq!(replayed, backlog.len());
+        assert!(!rebuilt);
+        assert_eq!(recovered.visible_text(), incremental.visible_text());
+    }
+
+    #[test]
+    fn evicted_lazy_backlog_requires_full_retained_history_rebuild() {
+        assert_eq!(
+            terminal_replay_start(4 * 1024 * 1024, 5 * 1024 * 1024),
+            None
+        );
+    }
 
     #[test]
     fn prelude_rehydrates_mouse_bracketed_paste_and_alt_screen() {
